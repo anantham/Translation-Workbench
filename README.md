@@ -206,12 +206,17 @@ python -m streamlit run master_review_tool.py
 ├── 📖 process_epub.py                # EPUB to text converter
 ├── 🗺️ build_complete_alignment_map.py # Creates alignment mapping
 ├── 📋 requirements.txt               # All dependencies
+├── 🗺️ alignment_map.json             # Chapter mapping file (main)
 ├── 📂 novel_content_dxmwx_complete/  # Chinese chapters
-├── 📂 english_chapters/              # English chapters  
-├── 📂 similarity_scores_cache/       # BERT cache (auto-created)
-├── 📂 ai_translation_cache/          # Gemini cache (auto-created)
-├── 🗺️ alignment_map.json             # Chapter mapping file
-└── 📊 scraping_metadata.json         # Scraper state (auto-created)
+├── 📂 english_chapters/              # English chapters
+└── 📂 data/                          # Organized data directory
+    ├── 📂 cache/                     # Performance caches
+    │   ├── 📄 similarity_scores_cache.json  # BERT embeddings cache
+    │   └── 📂 ai_translation_cache/  # Gemini API response cache
+    ├── 📂 backups/                   # Timestamped backup files
+    │   └── 📄 alignment_map.json.backup_* # Auto-generated backups
+    └── 📂 temp/                      # Temporary/regenerable files
+        └── 📄 scraping_metadata.json # Scraper progress state
 ```
 
 ## 🚨 Troubleshooting
