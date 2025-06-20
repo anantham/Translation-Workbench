@@ -7,14 +7,70 @@ import time
 from datetime import datetime
 import pandas as pd
 from collections import Counter
+import numpy as np
 
-# --- Lightweight Similarity (No Heavy Dependencies) ---
-from difflib import SequenceMatcher
+# --- Semantic Similarity with Deep Learning ---
+try:
+    from sentence_transformers import SentenceTransformer
+    import torch
+    SEMANTIC_AVAILABLE = True
+except ImportError:
+    SEMANTIC_AVAILABLE = False
+    # Fallback to lightweight similarity
+    from difflib import SequenceMatcher
 
-def calculate_similarity(text1, text2):
-    """Fast similarity using length + sequence matching - no ML models needed."""
+# --- Semantic Similarity Models ---
+@st.cache_resource
+def load_semantic_model():
+    """Load semantic similarity model with caching."""
+    if not SEMANTIC_AVAILABLE:
+        return None
+    
+    try:
+        # Use a multilingual model that works well for Chinese-English translation comparison
+        model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        return model
+    except Exception as e:
+        st.warning(f"⚠️ Could not load semantic model: {e}")
+        return None
+
+def calculate_semantic_similarity(text1, text2, model=None):
+    """Calculate semantic similarity using BERT embeddings."""
     if not text1 or not text2 or "File not found" in text1 or "File not found" in text2:
         return 0.0
+    
+    if model is None:
+        model = load_semantic_model()
+        if model is None:
+            return calculate_syntactic_similarity_fallback(text1, text2)
+    
+    try:
+        # Truncate texts to avoid memory issues (BERT has token limits)
+        max_chars = 2000
+        text1_truncated = text1[:max_chars]
+        text2_truncated = text2[:max_chars]
+        
+        # Generate embeddings
+        embeddings = model.encode([text1_truncated, text2_truncated], convert_to_tensor=True)
+        
+        # Calculate cosine similarity
+        cosine_scores = torch.nn.functional.cosine_similarity(
+            embeddings[0].unsqueeze(0), 
+            embeddings[1].unsqueeze(0)
+        )
+        
+        # Convert to float and ensure it's between 0 and 1
+        similarity = float(cosine_scores.item())
+        return max(0.0, min(1.0, similarity))
+        
+    except Exception as e:
+        st.warning(f"⚠️ Semantic similarity calculation failed: {e}")
+        return calculate_syntactic_similarity_fallback(text1, text2)
+
+def calculate_syntactic_similarity_fallback(text1, text2):
+    """Fallback syntactic similarity for when semantic models aren't available."""
+    if not SEMANTIC_AVAILABLE:
+        from difflib import SequenceMatcher
     
     # Length similarity (±30% tolerance)
     len1, len2 = len(text1), len(text2)
@@ -27,6 +83,13 @@ def calculate_similarity(text1, text2):
     
     # Combined score
     return (length_ratio * 0.3) + (content_similarity * 0.7)
+
+def calculate_similarity(text1, text2):
+    """Main similarity function - uses semantic if available, falls back to syntactic."""
+    if SEMANTIC_AVAILABLE:
+        return calculate_semantic_similarity(text1, text2)
+    else:
+        return calculate_syntactic_similarity_fallback(text1, text2)
 
 def translate_with_gemini(raw_text: str, api_key: str):
     """Sends raw text to Gemini for translation."""
@@ -94,6 +157,16 @@ def analyze_systematic_alignment_with_progress(alignment_map, api_key, sample_ch
         all_chapters = sorted([int(k) for k in alignment_map.keys()])
         sample_chapters = all_chapters[:min(20, len(all_chapters))]
     
+    # Show similarity method info
+    similarity_method = "🧠 BERT semantic similarity" if SEMANTIC_AVAILABLE else "📝 Syntactic similarity"
+    st.info(f"Using {similarity_method} for alignment analysis")
+    
+    # Pre-load semantic model if available (with progress indication)
+    model = None
+    if SEMANTIC_AVAILABLE:
+        with st.spinner("🔄 Loading semantic similarity model (first time only)..."):
+            model = load_semantic_model()
+    
     # Create progress indicators
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -126,7 +199,11 @@ def analyze_systematic_alignment_with_progress(alignment_map, api_key, sample_ch
                 if eng_file:
                     eng_content = load_chapter_content(eng_file)
                     if eng_content and "File not found" not in eng_content:
-                        score = calculate_similarity(ai_translation, eng_content)
+                        # Use semantic similarity with pre-loaded model for better performance
+                        if SEMANTIC_AVAILABLE and model:
+                            score = calculate_semantic_similarity(ai_translation, eng_content, model)
+                        else:
+                            score = calculate_similarity(ai_translation, eng_content)
                         if score > best_match["score"]:
                             best_match = {
                                 "chapter": ch_num,
@@ -203,7 +280,12 @@ def load_chapter_content(filepath):
 # --- UI Layout ---
 st.set_page_config(layout="wide", page_title="Master Review Tool")
 st.title("📖 Master Translation Review & Alignment Tool")
-st.caption("🛡️ Human-in-the-loop safety: AI suggests, you decide")
+
+# Show similarity method being used
+if SEMANTIC_AVAILABLE:
+    st.caption("🛡️ Human-in-the-loop safety: AI suggests, you decide | 🧠 **Semantic similarity enabled** (BERT embeddings)")
+else:
+    st.caption("🛡️ Human-in-the-loop safety: AI suggests, you decide | ⚠️ **Syntactic similarity** (install sentence-transformers for semantic)")
 
 # Initialize session state
 if 'ai_translation' not in st.session_state:

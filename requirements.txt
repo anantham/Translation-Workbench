@@ -2,6 +2,14 @@ requests
 beautifulsoup4
 selenium
 webdriver-manager
+streamlit
+pandas
+
+# Semantic similarity (deep learning)
+sentence-transformers
+torch
+numpy
+
 # For styling and linting
 black
 flake8
