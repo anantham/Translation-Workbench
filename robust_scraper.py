@@ -102,17 +102,24 @@ def scrape_backwards_robust(start_url: str, output_dir: str):
             break
         visited_urls.add(current_url)
         
-        # QUICK CHECK: If URL already in metadata and file exists, skip the fetch
+        # QUICK CHECK: If URL already in metadata and file exists, use stored navigation
         if current_url in metadata["urls"]:
             chapter_num_from_metadata = metadata["urls"][current_url]
             chapter_info = metadata["chapters"].get(str(chapter_num_from_metadata))
             
             if chapter_info and chapter_info.get("file_exists"):
-                print(f"  -> [QUICK SKIP] Chapter {chapter_num_from_metadata} already processed")
+                print(f"  -> [ULTRA SKIP] Chapter {chapter_num_from_metadata} already processed")
                 last_scraped_chapter_num = chapter_num_from_metadata
                 
-                # Still need to fetch to get the "previous chapter" link, but skip content processing
-                fetch_for_navigation = True
+                # Use stored navigation URL if available
+                stored_previous_url = chapter_info.get("previous_url")
+                if stored_previous_url:
+                    print(f"  -> [NAV CACHED] Using stored navigation URL")
+                    current_url = stored_previous_url
+                    continue  # Skip all processing for this chapter
+                else:
+                    print(f"  -> [NAV FETCH] No cached navigation, fetching for navigation only")
+                    fetch_for_navigation = True
             else:
                 fetch_for_navigation = False
         else:
@@ -154,7 +161,8 @@ def scrape_backwards_robust(start_url: str, output_dir: str):
                     "title": title,
                     "url": current_url,
                     "scraped": False,
-                    "file_exists": False
+                    "file_exists": False,
+                    "previous_url": None  # Will be populated when we find the navigation link
                 }
                 metadata["urls"][current_url] = current_chapter_num
                 metadata_updates += 1
@@ -219,7 +227,13 @@ def scrape_backwards_robust(start_url: str, output_dir: str):
             # Find next chapter link
             prev_link = soup.find('a', string=re.compile(r'上一章'))
             if prev_link and prev_link.get('href') and ".html" in prev_link.get('href'):
-                current_url = urljoin(current_url, prev_link['href'])
+                next_url = urljoin(current_url, prev_link['href'])
+                
+                # Store navigation link in metadata for future quick skips
+                if str(current_chapter_num) in metadata["chapters"]:
+                    metadata["chapters"][str(current_chapter_num)]["previous_url"] = next_url
+                
+                current_url = next_url
             else:
                 print("\\n🏁 No 'previous chapter' link found. Reached end of available chapters.")
                 current_url = None
