@@ -380,7 +380,7 @@ if alignment_map:
     # Show analysis range preview
     st.sidebar.info(f"📋 **Analysis Range:** Ch.{start_chapter} to Ch.{end_chapter} ({sample_size} chapters)")
     
-    # Analysis button
+    # Analysis button with confirmation dialog
     if st.sidebar.button("🔍 Run Focused Analysis", use_container_width=True, type="primary"):
         if not api_key:
             st.sidebar.error("🔑 API key required for systematic analysis")
@@ -393,16 +393,90 @@ if alignment_map:
             if not available_chapters:
                 st.sidebar.error(f"❌ No chapters available in range {start_chapter}-{end_chapter}")
             else:
-                # Use main content area for progress display
-                with main_content:
-                    st.subheader(f"🔄 Running Focused Analysis: Chapters {start_chapter}-{end_chapter}")
-                    st.info(f"Analyzing {len(available_chapters)} available chapters out of {sample_size} requested")
+                # Show confirmation dialog with similarity method details
+                st.session_state.show_analysis_dialog = True
+                st.session_state.analysis_params = {
+                    'start_chapter': start_chapter,
+                    'end_chapter': end_chapter,
+                    'sample_size': sample_size,
+                    'available_chapters': available_chapters
+                }
+    
+    # Analysis confirmation dialog
+    if hasattr(st.session_state, 'show_analysis_dialog') and st.session_state.show_analysis_dialog:
+        with main_content:
+            st.header("🔍 Analysis Confirmation")
+            
+            # Show similarity method details
+            if SEMANTIC_AVAILABLE:
+                st.success("🧠 **SEMANTIC SIMILARITY ENABLED**")
+                st.info("""
+                **Method:** BERT embeddings (paraphrase-multilingual-MiniLM-L12-v2)
+                **Quality:** Gold standard for translation comparison
+                **Understands:** Context, synonyms, paraphrasing, semantic meaning
+                **Accuracy:** High - perfect for detecting translation alignment
+                """)
+                similarity_icon = "🧠"
+                similarity_quality = "HIGH ACCURACY"
+            else:
+                st.warning("⚠️ **SYNTACTIC SIMILARITY (FALLBACK MODE)**")
+                st.error("""
+                **Method:** Text pattern matching (difflib)
+                **Quality:** Basic - may miss semantic equivalence
+                **Limitations:** No context understanding, poor with paraphrasing
+                **Recommendation:** Install `sentence-transformers` for better results
+                """)
+                similarity_icon = "📝"
+                similarity_quality = "LIMITED ACCURACY"
+            
+            # Analysis parameters summary
+            params = st.session_state.analysis_params
+            st.subheader("📋 Analysis Parameters")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Start Chapter", params['start_chapter'])
+            with col2:
+                st.metric("End Chapter", params['end_chapter'])
+            with col3:
+                st.metric("Sample Size", params['sample_size'])
+            with col4:
+                st.metric("Available Chapters", len(params['available_chapters']))
+            
+            st.info(f"{similarity_icon} **Similarity Method:** {similarity_quality}")
+            
+            # Confirmation buttons
+            col1, col2, col3 = st.columns([1, 1, 2])
+            
+            with col1:
+                if st.button("✅ **Proceed with Analysis**", type="primary", use_container_width=True):
+                    # Clear dialog and run analysis
+                    del st.session_state.show_analysis_dialog
+                    del st.session_state.analysis_params
+                    
+                    st.subheader(f"🔄 Running Focused Analysis: Chapters {params['start_chapter']}-{params['end_chapter']}")
+                    st.info(f"Using {similarity_icon} similarity method | Analyzing {len(params['available_chapters'])} chapters")
                     
                     # Store analysis results in session state with progress tracking
                     st.session_state.systematic_analysis = analyze_systematic_alignment_with_progress(
-                        alignment_map, api_key, available_chapters
+                        alignment_map, api_key, params['available_chapters']
                     )
                     st.success("✅ Focused analysis complete! Results displayed below.")
+                    st.rerun()
+            
+            with col2:
+                if st.button("❌ Cancel", use_container_width=True):
+                    # Clear dialog
+                    del st.session_state.show_analysis_dialog
+                    del st.session_state.analysis_params
+                    st.rerun()
+            
+            with col3:
+                if not SEMANTIC_AVAILABLE:
+                    st.markdown("**💡 To enable semantic similarity:**")
+                    st.code("pip install sentence-transformers torch", language="bash")
+            
+            st.divider()
     
     if hasattr(st.session_state, 'systematic_analysis') and st.session_state.systematic_analysis:
         # Calculate most common offset
@@ -460,13 +534,21 @@ if alignment_map:
             best_match_chapter = max(scores, key=scores.get)
             best_score = scores[best_match_chapter]
             
-            # Display scores
-            st.sidebar.write("**Similarity Scores** (AI vs English):")
+            # Display scores with similarity method indicator
+            similarity_method_icon = "🧠" if SEMANTIC_AVAILABLE else "📝"
+            st.sidebar.write(f"**Similarity Scores** {similarity_method_icon} (AI vs English):")
+            
             for ch_num in sorted(scores.keys()):
                 score = scores[ch_num]
                 icon = "⭐" if ch_num == best_match_chapter else "📄"
                 color = "green" if ch_num == best_match_chapter else "normal"
                 st.sidebar.markdown(f"{icon} **Ch.{ch_num}:** `{score:.3f}`")
+            
+            # Show method used for individual alignment
+            if SEMANTIC_AVAILABLE:
+                st.sidebar.caption("🧠 Using semantic similarity (BERT)")
+            else:
+                st.sidebar.caption("📝 Using syntactic similarity (basic)")
             
             # Alignment status
             current_score = scores.get(selected_chapter, 0)
