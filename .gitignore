@@ -56,3 +56,6 @@ english_chapters/*.txt
 
 # Metadata that can be regenerated
 scraping_metadata.json
+
+# Similarity score cache (large and user-specific)
+similarity_scores_cache.json

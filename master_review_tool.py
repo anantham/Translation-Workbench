@@ -8,6 +8,7 @@ from datetime import datetime
 import pandas as pd
 from collections import Counter
 import numpy as np
+import hashlib
 
 # --- Semantic Similarity with Deep Learning ---
 SEMANTIC_AVAILABLE = False
@@ -31,6 +32,57 @@ if not SEMANTIC_AVAILABLE:
     from difflib import SequenceMatcher
     SEMANTIC_ERROR_MESSAGE += "📝 Falling back to syntactic similarity (difflib)\n"
 
+# --- Similarity Score Caching ---
+SIMILARITY_CACHE_FILE = "similarity_scores_cache.json"
+
+def generate_text_hash(text):
+    """Generate a hash for text content to use as cache key."""
+    # Use first 2000 chars (same as what we send to BERT) for consistent hashing
+    text_sample = text[:2000] if text else ""
+    return hashlib.md5(text_sample.encode('utf-8')).hexdigest()
+
+def load_similarity_cache():
+    """Load cached similarity scores from disk."""
+    if os.path.exists(SIMILARITY_CACHE_FILE):
+        try:
+            with open(SIMILARITY_CACHE_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Warning: Could not load similarity cache: {e}")
+            return {}
+    return {}
+
+def save_similarity_cache(cache):
+    """Save similarity cache to disk."""
+    try:
+        with open(SIMILARITY_CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, indent=2)
+    except Exception as e:
+        print(f"Warning: Could not save similarity cache: {e}")
+
+def get_cached_similarity(text1, text2, cache):
+    """Get cached similarity score if available."""
+    hash1 = generate_text_hash(text1)
+    hash2 = generate_text_hash(text2)
+    
+    # Try both directions (hash1-hash2 and hash2-hash1) since similarity is symmetric
+    cache_key1 = f"{hash1}:{hash2}"
+    cache_key2 = f"{hash2}:{hash1}"
+    
+    if cache_key1 in cache:
+        return cache[cache_key1]
+    elif cache_key2 in cache:
+        return cache[cache_key2]
+    return None
+
+def store_similarity_in_cache(text1, text2, score, cache):
+    """Store computed similarity score in cache."""
+    hash1 = generate_text_hash(text1)
+    hash2 = generate_text_hash(text2)
+    cache_key = f"{hash1}:{hash2}"
+    cache[cache_key] = score
+    return cache
+
 # --- Semantic Similarity Models ---
 @st.cache_resource
 def load_semantic_model():
@@ -52,10 +104,19 @@ def load_semantic_model():
         st.warning(f"⚠️ Could not load semantic model: {e}")
         return None
 
-def calculate_semantic_similarity(text1, text2, model=None):
-    """Calculate semantic similarity using BERT embeddings."""
+def calculate_semantic_similarity(text1, text2, model=None, cache=None):
+    """Calculate semantic similarity using BERT embeddings with caching."""
     if not text1 or not text2 or "File not found" in text1 or "File not found" in text2:
         return 0.0
+    
+    # Load cache if not provided
+    if cache is None:
+        cache = load_similarity_cache()
+    
+    # Check cache first
+    cached_score = get_cached_similarity(text1, text2, cache)
+    if cached_score is not None:
+        return cached_score
     
     if model is None:
         model = load_semantic_model()
@@ -79,7 +140,13 @@ def calculate_semantic_similarity(text1, text2, model=None):
         
         # Convert to float and ensure it's between 0 and 1
         similarity = float(cosine_scores.item())
-        return max(0.0, min(1.0, similarity))
+        similarity = max(0.0, min(1.0, similarity))
+        
+        # Store in cache
+        store_similarity_in_cache(text1, text2, similarity, cache)
+        save_similarity_cache(cache)
+        
+        return similarity
         
     except Exception as e:
         st.warning(f"⚠️ Semantic similarity calculation failed: {e}")
@@ -102,10 +169,10 @@ def calculate_syntactic_similarity_fallback(text1, text2):
     # Combined score
     return (length_ratio * 0.3) + (content_similarity * 0.7)
 
-def calculate_similarity(text1, text2):
+def calculate_similarity(text1, text2, cache=None):
     """Main similarity function - uses semantic if available, falls back to syntactic."""
     if SEMANTIC_AVAILABLE:
-        return calculate_semantic_similarity(text1, text2)
+        return calculate_semantic_similarity(text1, text2, cache=cache)
     else:
         return calculate_syntactic_similarity_fallback(text1, text2)
 
@@ -170,7 +237,7 @@ def save_alignment_map_safely(map_data, map_file):
     return backup_file
 
 def analyze_systematic_alignment_with_progress(alignment_map, api_key, sample_chapters=None):
-    """Analyze alignment patterns with progress tracking."""
+    """Analyze alignment patterns with progress tracking and caching."""
     if sample_chapters is None:
         all_chapters = sorted([int(k) for k in alignment_map.keys()])
         sample_chapters = all_chapters[:min(20, len(all_chapters))]
@@ -178,6 +245,11 @@ def analyze_systematic_alignment_with_progress(alignment_map, api_key, sample_ch
     # Show similarity method info
     similarity_method = "🧠 BERT semantic similarity" if SEMANTIC_AVAILABLE else "📝 Syntactic similarity"
     st.info(f"Using {similarity_method} for alignment analysis")
+    
+    # Load similarity cache
+    cache = load_similarity_cache()
+    cache_info = st.empty()
+    cache_info.info(f"📚 Loaded similarity cache with {len(cache)} stored comparisons")
     
     # Pre-load semantic model if available (with progress indication)
     model = None
@@ -190,6 +262,9 @@ def analyze_systematic_alignment_with_progress(alignment_map, api_key, sample_ch
     status_text = st.empty()
     
     results = []
+    cache_hits = 0
+    cache_misses = 0
+    
     for i, ch_num in enumerate(sample_chapters):
         # Update progress
         progress = (i + 1) / len(sample_chapters)
@@ -217,11 +292,18 @@ def analyze_systematic_alignment_with_progress(alignment_map, api_key, sample_ch
                 if eng_file:
                     eng_content = load_chapter_content(eng_file)
                     if eng_content and "File not found" not in eng_content:
-                        # Use semantic similarity with pre-loaded model for better performance
-                        if SEMANTIC_AVAILABLE and model:
-                            score = calculate_semantic_similarity(ai_translation, eng_content, model)
+                        # Check cache first for speed
+                        cached_score = get_cached_similarity(ai_translation, eng_content, cache)
+                        if cached_score is not None:
+                            score = cached_score
+                            cache_hits += 1
                         else:
-                            score = calculate_similarity(ai_translation, eng_content)
+                            # Use semantic similarity with pre-loaded model for better performance
+                            if SEMANTIC_AVAILABLE and model:
+                                score = calculate_semantic_similarity(ai_translation, eng_content, model, cache)
+                            else:
+                                score = calculate_similarity(ai_translation, eng_content, cache)
+                            cache_misses += 1
                         if score > best_match["score"]:
                             best_match = {
                                 "chapter": ch_num,
@@ -235,6 +317,17 @@ def analyze_systematic_alignment_with_progress(alignment_map, api_key, sample_ch
     # Clean up progress indicators
     progress_bar.empty()
     status_text.empty()
+    
+    # Show cache performance statistics
+    total_comparisons = cache_hits + cache_misses
+    if total_comparisons > 0:
+        cache_hit_rate = cache_hits / total_comparisons
+        cache_info.success(f"⚡ Cache Performance: {cache_hits} hits, {cache_misses} misses ({cache_hit_rate:.1%} hit rate) | Total cached: {len(cache)}")
+        
+        # Save updated cache
+        save_similarity_cache(cache)
+    else:
+        cache_info.empty()
     
     return results
 
