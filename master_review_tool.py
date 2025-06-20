@@ -32,8 +32,9 @@ if not SEMANTIC_AVAILABLE:
     from difflib import SequenceMatcher
     SEMANTIC_ERROR_MESSAGE += "📝 Falling back to syntactic similarity (difflib)\n"
 
-# --- Similarity Score Caching ---
+# --- Caching System ---
 SIMILARITY_CACHE_FILE = "similarity_scores_cache.json"
+AI_TRANSLATION_CACHE_DIR = "ai_translation_cache"
 
 def generate_text_hash(text):
     """Generate a hash for text content to use as cache key."""
@@ -82,6 +83,59 @@ def store_similarity_in_cache(text1, text2, score, cache):
     cache_key = f"{hash1}:{hash2}"
     cache[cache_key] = score
     return cache
+
+# --- AI Translation Caching ---
+def get_translation_cache_path(raw_text):
+    """Generate cache file path for AI translation."""
+    if not os.path.exists(AI_TRANSLATION_CACHE_DIR):
+        os.makedirs(AI_TRANSLATION_CACHE_DIR)
+    
+    text_hash = generate_text_hash(raw_text)
+    return os.path.join(AI_TRANSLATION_CACHE_DIR, f"translation_{text_hash}.txt")
+
+def get_cached_translation(raw_text):
+    """Get cached AI translation if available."""
+    cache_path = get_translation_cache_path(raw_text)
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            print(f"Warning: Could not read translation cache: {e}")
+    return None
+
+def store_translation_in_cache(raw_text, translation):
+    """Store AI translation in cache file."""
+    cache_path = get_translation_cache_path(raw_text)
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            f.write(translation)
+        return True
+    except Exception as e:
+        print(f"Warning: Could not save translation cache: {e}")
+        return False
+
+def get_translation_cache_stats():
+    """Get statistics about translation cache."""
+    if not os.path.exists(AI_TRANSLATION_CACHE_DIR):
+        return {"count": 0, "size_mb": 0}
+    
+    try:
+        files = os.listdir(AI_TRANSLATION_CACHE_DIR)
+        translation_files = [f for f in files if f.startswith("translation_") and f.endswith(".txt")]
+        
+        total_size = 0
+        for file in translation_files:
+            file_path = os.path.join(AI_TRANSLATION_CACHE_DIR, file)
+            total_size += os.path.getsize(file_path)
+        
+        return {
+            "count": len(translation_files),
+            "size_mb": total_size / (1024 * 1024)
+        }
+    except Exception as e:
+        print(f"Warning: Could not get cache stats: {e}")
+        return {"count": 0, "size_mb": 0}
 
 # --- Semantic Similarity Models ---
 @st.cache_resource
@@ -176,8 +230,15 @@ def calculate_similarity(text1, text2, cache=None):
     else:
         return calculate_syntactic_similarity_fallback(text1, text2)
 
-def translate_with_gemini(raw_text: str, api_key: str):
-    """Sends raw text to Gemini for translation."""
+def translate_with_gemini(raw_text: str, api_key: str, use_cache=True):
+    """Sends raw text to Gemini for translation with caching support."""
+    # Check cache first if enabled
+    if use_cache:
+        cached_translation = get_cached_translation(raw_text)
+        if cached_translation:
+            return cached_translation
+    
+    # Make API call if not cached
     gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     headers = {'Content-Type': 'application/json'}
     prompt = f"Provide a high-quality, literal English translation of this Chinese web novel chapter. Keep paragraph breaks:\n\n{raw_text}"
@@ -186,7 +247,13 @@ def translate_with_gemini(raw_text: str, api_key: str):
     try:
         response = requests.post(gemini_url, headers=headers, json=data, timeout=90)
         response.raise_for_status()
-        return response.json()['candidates'][0]['content']['parts'][0]['text']
+        translation = response.json()['candidates'][0]['content']['parts'][0]['text']
+        
+        # Store in cache if successful and caching is enabled
+        if use_cache and translation and not translation.startswith("API Request Failed"):
+            store_translation_in_cache(raw_text, translation)
+        
+        return translation
     except Exception as e:
         return f"API Request Failed: {e}"
 
@@ -366,12 +433,17 @@ def preview_systematic_correction(alignment_map, offset, sample_size=10):
     
     return preview
 
-def apply_systematic_correction(alignment_map, offset):
-    """Apply systematic offset correction to all chapters."""
-    corrected_map = {}
+def apply_systematic_correction(alignment_map, offset, start_from_chapter=None):
+    """Apply systematic offset correction to all chapters, optionally starting from a specific chapter."""
+    corrected_map = alignment_map.copy()
     
     for ch_str, ch_data in alignment_map.items():
         ch_num = int(ch_str)
+        
+        # If start_from_chapter is specified, only apply correction from that chapter onwards
+        if start_from_chapter is not None and ch_num < start_from_chapter:
+            continue
+        
         corrected_english_ch = ch_num + offset
         
         # Create new mapping
@@ -381,6 +453,98 @@ def apply_systematic_correction(alignment_map, offset):
         }
     
     return corrected_map
+
+def find_first_misalignment_binary_search(alignment_map, api_key, min_chapter=1, max_chapter=772, threshold=0.5):
+    """
+    Use binary search to find the first chapter where misalignment occurs.
+    
+    Args:
+        alignment_map: The chapter alignment mapping
+        api_key: Gemini API key for translations
+        min_chapter: Minimum chapter number to search
+        max_chapter: Maximum chapter number to search
+        threshold: Similarity threshold below which we consider misaligned
+        
+    Returns:
+        dict with search results including first misaligned chapter
+    """
+    search_log = []
+    
+    # Find available chapters in the search range
+    available_chapters = []
+    for ch in range(min_chapter, max_chapter + 1):
+        if str(ch) in alignment_map:
+            ch_data = alignment_map[str(ch)]
+            if ch_data.get('raw_file') and ch_data.get('english_file'):
+                available_chapters.append(ch)
+    
+    if len(available_chapters) < 2:
+        return {
+            "success": False,
+            "error": f"Not enough chapters with both files in range {min_chapter}-{max_chapter}",
+            "search_log": search_log
+        }
+    
+    left = 0
+    right = len(available_chapters) - 1
+    first_misaligned = None
+    
+    while left <= right:
+        mid_index = (left + right) // 2
+        mid_chapter = available_chapters[mid_index]
+        
+        # Get chapter content
+        ch_data = alignment_map[str(mid_chapter)]
+        raw_content = load_chapter_content(ch_data["raw_file"])
+        eng_content = load_chapter_content(ch_data["english_file"])
+        
+        if not raw_content or not eng_content:
+            search_log.append({
+                "chapter": mid_chapter,
+                "action": "skip",
+                "reason": "Content not available"
+            })
+            # Remove this chapter from consideration and continue
+            available_chapters.pop(mid_index)
+            if mid_index < len(available_chapters):
+                right = len(available_chapters) - 1
+            continue
+        
+        # Get AI translation
+        ai_translation = translate_with_gemini(raw_content, api_key)
+        
+        if "API Request Failed" in ai_translation:
+            return {
+                "success": False,
+                "error": f"API failed at chapter {mid_chapter}: {ai_translation}",
+                "search_log": search_log
+            }
+        
+        # Calculate similarity
+        similarity_score = calculate_similarity(ai_translation, eng_content)
+        
+        search_log.append({
+            "chapter": mid_chapter,
+            "similarity_score": similarity_score,
+            "action": "aligned" if similarity_score >= threshold else "misaligned",
+            "search_range": f"{available_chapters[left]}-{available_chapters[right]}"
+        })
+        
+        if similarity_score >= threshold:
+            # This chapter is aligned, search in the upper half
+            left = mid_index + 1
+        else:
+            # This chapter is misaligned, could be the first one
+            first_misaligned = mid_chapter
+            right = mid_index - 1
+    
+    return {
+        "success": True,
+        "first_misaligned_chapter": first_misaligned,
+        "total_chapters_checked": len(search_log),
+        "search_log": search_log,
+        "threshold_used": threshold
+    }
 
 def load_chapter_content(filepath):
     if filepath and os.path.exists(filepath):
@@ -443,11 +607,59 @@ if alignment_map:
     
     # --- Sidebar Controls ---
     st.sidebar.header("🎛️ Controls")
-    selected_chapter = st.sidebar.selectbox(
-        "Select Chapter:", 
-        options=chapter_numbers, 
-        format_func=lambda x: f"Chapter {x}"
-    )
+    
+    # Smart chapter selection with navigation
+    col1, col2, col3 = st.sidebar.columns([1, 2, 1])
+    
+    with col1:
+        if st.button("◀ Prev", use_container_width=True, help="Go to previous chapter"):
+            current_idx = chapter_numbers.index(st.session_state.current_chapter)
+            if current_idx > 0:
+                st.session_state.current_chapter = chapter_numbers[current_idx - 1]
+                st.session_state.ai_translation = ""  # Clear translation cache
+                st.rerun()
+    
+    with col2:
+        # Get the index of current chapter for smart positioning
+        try:
+            current_index = chapter_numbers.index(st.session_state.current_chapter)
+        except (ValueError, AttributeError):
+            current_index = 0
+            st.session_state.current_chapter = chapter_numbers[0]
+        
+        selected_chapter = st.selectbox(
+            "Chapter:", 
+            options=chapter_numbers,
+            index=current_index,
+            format_func=lambda x: f"Ch. {x}",
+            label_visibility="collapsed"
+        )
+    
+    with col3:
+        if st.button("Next ▶", use_container_width=True, help="Go to next chapter"):
+            current_idx = chapter_numbers.index(st.session_state.current_chapter)
+            if current_idx < len(chapter_numbers) - 1:
+                st.session_state.current_chapter = chapter_numbers[current_idx + 1]
+                st.session_state.ai_translation = ""  # Clear translation cache
+                st.rerun()
+    
+    # Quick jump section
+    with st.sidebar.expander("🎯 Quick Jump"):
+        jump_chapter = st.number_input(
+            "Jump to Chapter:", 
+            min_value=min(chapter_numbers), 
+            max_value=max(chapter_numbers), 
+            value=st.session_state.current_chapter,
+            step=1
+        )
+        
+        if st.button("🚀 Jump", use_container_width=True):
+            if jump_chapter in chapter_numbers:
+                st.session_state.current_chapter = jump_chapter
+                st.session_state.ai_translation = ""
+                st.rerun()
+            else:
+                st.error(f"Chapter {jump_chapter} not available")
     
     # Clear AI translation when chapter changes
     if st.session_state.current_chapter != selected_chapter:
@@ -463,6 +675,41 @@ if alignment_map:
     # --- Systematic Analysis Tab ---
     st.sidebar.divider()
     st.sidebar.header("📊 Systematic Analysis")
+    
+    # --- Binary Search for First Misalignment ---
+    st.sidebar.subheader("🔍 Find First Misalignment")
+    st.sidebar.caption("Use binary search to pinpoint exactly where alignment breaks")
+    
+    # Binary search parameters
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        binary_min = st.number_input("Search From", min_value=1, max_value=772, value=1, help="Start of search range")
+    with col2:
+        binary_max = st.number_input("Search To", min_value=1, max_value=772, value=772, help="End of search range")
+    
+    binary_threshold = st.sidebar.slider(
+        "Alignment Threshold", 
+        min_value=0.1, 
+        max_value=1.0, 
+        value=0.5, 
+        step=0.05,
+        help="Similarity score below this value = misaligned"
+    )
+    
+    if st.sidebar.button("🎯 Find First Misalignment", use_container_width=True, type="secondary"):
+        if not api_key:
+            st.sidebar.error("🔑 API key required for binary search")
+        else:
+            # Store binary search params and trigger search
+            st.session_state.binary_search_params = {
+                'min_chapter': binary_min,
+                'max_chapter': binary_max,
+                'threshold': binary_threshold
+            }
+            st.session_state.run_binary_search = True
+            st.rerun()
+    
+    st.sidebar.divider()
     
     # Analysis parameters
     st.sidebar.subheader("🎯 Analysis Parameters")
@@ -798,6 +1045,192 @@ streamlit run master_review_tool.py
 
     # --- Main Content Display using container ---
     with main_content:
+        # Execute binary search if requested
+        if hasattr(st.session_state, 'run_binary_search') and st.session_state.run_binary_search:
+            del st.session_state.run_binary_search
+            
+            st.header("🎯 Binary Search for First Misalignment")
+            params = st.session_state.binary_search_params
+            
+            with st.spinner(f"🔍 Searching for first misalignment in chapters {params['min_chapter']}-{params['max_chapter']}..."):
+                search_result = find_first_misalignment_binary_search(
+                    alignment_map, 
+                    api_key, 
+                    params['min_chapter'], 
+                    params['max_chapter'], 
+                    params['threshold']
+                )
+            
+            st.session_state.binary_search_result = search_result
+        
+        # Display binary search results
+        if hasattr(st.session_state, 'binary_search_result'):
+            result = st.session_state.binary_search_result
+            
+            st.header("🎯 Binary Search Results")
+            
+            if result['success']:
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("First Misaligned Chapter", 
+                             result['first_misaligned_chapter'] if result['first_misaligned_chapter'] else "None Found")
+                with col2:
+                    st.metric("Chapters Checked", result['total_chapters_checked'])
+                with col3:
+                    st.metric("Threshold Used", f"{result['threshold_used']:.2f}")
+                with col4:
+                    search_efficiency = f"{result['total_chapters_checked']}/~{2**10}"  # Log2 efficiency
+                    st.metric("Search Efficiency", f"~{result['total_chapters_checked']} checks")
+                
+                if result['first_misaligned_chapter']:
+                    st.success(f"🎯 **First misalignment found at Chapter {result['first_misaligned_chapter']}**")
+                    
+                    # Show corrective action options
+                    st.subheader("🛠️ Surgical Correction Options")
+                    
+                    # Calculate suggested offset based on recent systematic analysis
+                    suggested_offset = 0
+                    if hasattr(st.session_state, 'systematic_analysis') and st.session_state.systematic_analysis:
+                        offsets = [r["offset"] for r in st.session_state.systematic_analysis if r["score"] > 0.3]
+                        if offsets:
+                            from collections import Counter
+                            suggested_offset = Counter(offsets).most_common(1)[0][0]
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        correction_offset = st.number_input(
+                            "Offset to Apply", 
+                            min_value=-10, 
+                            max_value=10, 
+                            value=suggested_offset,
+                            help="How many chapters to shift the alignment"
+                        )
+                    with col2:
+                        start_from = st.number_input(
+                            "Start Correction From Chapter", 
+                            min_value=1, 
+                            max_value=772, 
+                            value=result['first_misaligned_chapter'],
+                            help="Apply correction from this chapter onwards"
+                        )
+                    
+                    st.info(f"💡 **Surgical correction:** Apply {correction_offset:+d} offset starting from Chapter {start_from}")
+                    
+                    # Preview the surgical correction
+                    if st.button("📋 Preview Surgical Correction", use_container_width=True):
+                        st.session_state.surgical_preview = {
+                            'offset': correction_offset,
+                            'start_from': start_from,
+                            'search_result': result
+                        }
+                        st.rerun()
+                else:
+                    st.success("✅ **No misalignment found in the search range!**")
+                    st.info("All tested chapters appear to be correctly aligned.")
+                
+                # Show detailed search log
+                with st.expander("🔍 **Search Log Details**"):
+                    search_df_data = []
+                    for log_entry in result['search_log']:
+                        search_df_data.append({
+                            "Chapter": log_entry['chapter'],
+                            "Similarity Score": f"{log_entry.get('similarity_score', 'N/A'):.3f}" if isinstance(log_entry.get('similarity_score'), float) else log_entry.get('similarity_score', 'N/A'),
+                            "Action": log_entry['action'],
+                            "Search Range": log_entry.get('search_range', 'N/A')
+                        })
+                    
+                    if search_df_data:
+                        search_df = pd.DataFrame(search_df_data)
+                        st.dataframe(search_df, use_container_width=True)
+                        
+                        st.caption(f"🧠 Search completed in {len(search_df_data)} steps vs ~{result['threshold_used']*1000:.0f} steps for linear search")
+            else:
+                st.error(f"❌ **Binary search failed:** {result['error']}")
+            
+            st.divider()
+        
+        # Show surgical correction preview
+        if hasattr(st.session_state, 'surgical_preview'):
+            preview = st.session_state.surgical_preview
+            
+            st.header("🔧 Surgical Correction Preview")
+            st.info(f"**Offset:** {preview['offset']:+d} | **Starting from:** Chapter {preview['start_from']}")
+            
+            # Generate preview using modified function
+            correction_preview = preview_systematic_correction(alignment_map, preview['offset'], sample_size=15)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("🔴 BEFORE Surgical Correction")
+                before_data = []
+                for item in correction_preview["before"]:
+                    # Highlight the starting chapter
+                    status_icon = "🎯" if item["raw_ch"] == preview['start_from'] else ("✅" if item["eng_ch"] != "None" else "❌")
+                    before_data.append({
+                        "Raw Ch": item["raw_ch"],
+                        "→ English Ch": item["eng_ch"],
+                        "Status": status_icon
+                    })
+                st.dataframe(pd.DataFrame(before_data), use_container_width=True)
+            
+            with col2:
+                st.subheader("🟢 AFTER Surgical Correction")
+                after_data = []
+                for item in correction_preview["after"]:
+                    # Only apply to chapters >= start_from
+                    will_change = item["raw_ch"] >= preview['start_from']
+                    status_icon = "🎯" if item["raw_ch"] == preview['start_from'] else ("✅" if item["eng_ch"] != "None" else "❌")
+                    after_data.append({
+                        "Raw Ch": item["raw_ch"],
+                        "→ English Ch": item["eng_ch"] if will_change else correction_preview["before"][item["raw_ch"]-correction_preview["before"][0]["raw_ch"]]["eng_ch"],
+                        "Status": status_icon
+                    })
+                st.dataframe(pd.DataFrame(after_data), use_container_width=True)
+            
+            # Surgical correction controls
+            st.subheader("🔧 Apply Surgical Correction")
+            st.warning(f"⚠️ This will modify alignment for chapters {preview['start_from']}+ only. Chapters 1-{preview['start_from']-1} remain unchanged.")
+            
+            surgical_confirmed = st.checkbox(
+                f"I want to apply surgical correction ({preview['offset']:+d}) from Chapter {preview['start_from']} onwards",
+                help="This preserves the first part of your alignment and only fixes the problematic section."
+            )
+            
+            if surgical_confirmed:
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✅ Apply Surgical Correction", type="primary", use_container_width=True):
+                        # Apply the surgical correction
+                        corrected_map = apply_systematic_correction(
+                            alignment_map, 
+                            preview['offset'], 
+                            start_from_chapter=preview['start_from']
+                        )
+                        backup_file = save_alignment_map_safely(corrected_map, "alignment_map.json")
+                        
+                        st.success("🎉 **Surgical correction applied!**")
+                        st.info(f"📁 Backup saved: {backup_file}")
+                        st.info(f"🎯 Chapters {preview['start_from']}+ corrected, Chapters 1-{preview['start_from']-1} preserved")
+                        st.info("🔄 Page will reload in 3 seconds...")
+                        
+                        # Clear analysis results
+                        for key in ['binary_search_result', 'surgical_preview', 'systematic_analysis', 'correction_preview']:
+                            if hasattr(st.session_state, key):
+                                delattr(st.session_state, key)
+                        
+                        time.sleep(3)
+                        st.rerun()
+                
+                with col2:
+                    if st.button("❌ Cancel", use_container_width=True):
+                        # Clear the preview
+                        if hasattr(st.session_state, 'surgical_preview'):
+                            del st.session_state.surgical_preview
+                        st.rerun()
+            
+            st.divider()
+        
         # Check if we should show systematic analysis results
         if hasattr(st.session_state, 'systematic_analysis') and st.session_state.systematic_analysis:
             st.header("📊 Systematic Alignment Analysis Results")
@@ -919,15 +1352,41 @@ streamlit run master_review_tool.py
             
         with col3:
             st.subheader("🤖 AI Translation")
-            if st.button("🔄 Translate Chapter with Gemini", use_container_width=True):
-                if api_key:
-                    with st.spinner("🔄 Translating..."):
-                        st.session_state.ai_translation = translate_with_gemini(raw_content, api_key)
-                else:
-                    st.error("🔑 API Key Required")
+            
+            # Check if translation is cached
+            cached_translation = get_cached_translation(raw_content)
+            cache_stats = get_translation_cache_stats()
+            
+            if cached_translation:
+                st.info(f"⚡ **Cached translation available** | Cache: {cache_stats['count']} translations ({cache_stats['size_mb']:.1f} MB)")
+                
+                col_load, col_fresh = st.columns(2)
+                with col_load:
+                    if st.button("⚡ Load Cached", use_container_width=True, type="primary"):
+                        st.session_state.ai_translation = cached_translation
+                        st.rerun()
+                with col_fresh:
+                    if st.button("🔄 Fresh Translation", use_container_width=True):
+                        if api_key:
+                            with st.spinner("🔄 Getting fresh translation..."):
+                                st.session_state.ai_translation = translate_with_gemini(raw_content, api_key, use_cache=False)
+                        else:
+                            st.error("🔑 API Key Required")
+            else:
+                st.caption(f"📚 Translation Cache: {cache_stats['count']} translations ({cache_stats['size_mb']:.1f} MB)")
+                if st.button("🔄 Translate Chapter with Gemini", use_container_width=True):
+                    if api_key:
+                        with st.spinner("🔄 Translating..."):
+                            st.session_state.ai_translation = translate_with_gemini(raw_content, api_key)
+                    else:
+                        st.error("🔑 API Key Required")
+            
             st.text_area("AI Generated Content", st.session_state.ai_translation, height=600, key="ai_text")
             if st.session_state.ai_translation:
-                st.caption(f"Generated via Gemini API • {len(st.session_state.ai_translation)} chars")
+                # Check if current translation came from cache
+                is_cached = st.session_state.ai_translation == cached_translation if cached_translation else False
+                cache_indicator = "⚡ Cached" if is_cached else "🌐 Fresh from API"
+                st.caption(f"{cache_indicator} • {len(st.session_state.ai_translation)} chars")
             else:
                 st.caption("Use button above to generate AI translation")
 

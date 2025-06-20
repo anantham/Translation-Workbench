@@ -59,3 +59,6 @@ scraping_metadata.json
 
 # Similarity score cache (large and user-specific)
 similarity_scores_cache.json
+
+# AI translation cache (large and user-specific)
+ai_translation_cache/
