@@ -60,6 +60,52 @@ def extract_chapter_number(title):
             return None
     return None
 
+def validate_page_content(soup):
+    """Validate that the page contains required content elements."""
+    title_element = soup.select_one("#ChapterTitle")
+    content_element = soup.select_one("#Lab_Contents")
+    
+    if not title_element:
+        return False, "Missing #ChapterTitle element"
+    if not content_element:
+        return False, "Missing #Lab_Contents element"
+    if not title_element.text.strip():
+        return False, "Empty chapter title"
+    if len(content_element.get_text(strip=True)) < 50:
+        return False, "Content too short"
+    
+    return True, "Content validated"
+
+def fetch_with_retry(url, headers, max_attempts=3):
+    """Fetch URL with retry logic and content validation."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            print(f"    [FETCH] Attempt {attempt}/{max_attempts}")
+            response = requests.get(url, headers=headers, timeout=20)
+            response.raise_for_status()
+            response.encoding = response.apparent_encoding
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Validate content
+            is_valid, validation_msg = validate_page_content(soup)
+            if is_valid:
+                print(f"    [SUCCESS] {validation_msg}")
+                return soup, response
+            else:
+                print(f"    [WARNING] {validation_msg} - Page may be blocked")
+                
+        except requests.exceptions.RequestException as e:
+            print(f"    [ERROR] Request failed: {e}")
+        
+        # Wait before retry (exponential backoff)
+        if attempt < max_attempts:
+            wait_time = 5 * attempt
+            print(f"    [BACKOFF] Waiting {wait_time}s before retry...")
+            time.sleep(wait_time)
+    
+    return None, None
+
 def load_or_create_metadata(metadata_file):
     """Load existing metadata or create new structure."""
     if os.path.exists(metadata_file):
@@ -125,98 +171,107 @@ def scrape_backwards_robust(start_url: str, output_dir: str):
         else:
             fetch_for_navigation = False
         
-        try:
-            if fetch_for_navigation:
-                print(f"  -> [NAV ONLY] Fetching for navigation: {current_url}")
-                current_chapter_num = chapter_num_from_metadata
-                title = chapter_info["title"]
-            else:
-                print(f"  -> Fetching: {current_url}")
-                
-            response = requests.get(current_url, headers=headers, timeout=20)
-            response.raise_for_status()
-            response.encoding = response.apparent_encoding
+        # Use retry mechanism for all fetches
+        if fetch_for_navigation:
+            print(f"  -> [NAV ONLY] Fetching for navigation only")
+            current_chapter_num = chapter_num_from_metadata
+            title = chapter_info["title"]
+            # For navigation, use simpler fetch without full content validation
+            try:
+                response = requests.get(current_url, headers=headers, timeout=20)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, 'html.parser')
+            except Exception as e:
+                print(f"    [NAV ERROR] Failed to fetch navigation: {e}")
+                current_url = None
+                break
+        else:
+            print(f"  -> Fetching: {current_url}")
+            soup, response = fetch_with_retry(current_url, headers)
             
-            soup = BeautifulSoup(response.text, 'html.parser')
+            if not soup:
+                print(f"    [FATAL] Failed to fetch valid content after retries. Skipping chapter.")
+                # Try to continue with next chapter if possible
+                current_url = None
+                break
             
-            if not fetch_for_navigation:
-                title_tag = soup.select_one("#ChapterTitle")
-                title = title_tag.text.strip() if title_tag else "Unknown_Chapter"
-                
-                current_chapter_num = extract_chapter_number(title)
-                
-                # ROBUST HANDLING: If we can't parse the number, estimate it
-                if not current_chapter_num:
-                    if last_scraped_chapter_num:
-                        estimated_num = last_scraped_chapter_num - 1
-                        print(f"    [ESTIMATED] Could not parse '{title}', estimating as Chapter {estimated_num}")
-                        current_chapter_num = estimated_num
-                    else:
-                        print(f"    [ERROR] Could not parse chapter number from: '{title}' and no previous chapter for estimation")
-                        current_url = None
-                        break
-                
-                # UPDATE METADATA (always, even if skipping)
-                metadata["chapters"][str(current_chapter_num)] = {
-                    "title": title,
-                    "url": current_url,
-                    "scraped": False,
-                    "file_exists": False,
-                    "previous_url": None  # Will be populated when we find the navigation link
-                }
-                metadata["urls"][current_url] = current_chapter_num
-                metadata_updates += 1
-
-            if not fetch_for_navigation:
-                # VALIDATION: Check sequence (but allow small gaps for malformed chapters)
-                if last_scraped_chapter_num is not None:
-                    expected_chapter_num = last_scraped_chapter_num - 1
-                    
-                    if current_chapter_num == expected_chapter_num:
-                        print(f"    [SEQ OK] Found Chapter {current_chapter_num} as expected")
-                    elif abs(current_chapter_num - expected_chapter_num) <= 5:  # Allow small discrepancies
-                        print(f"    [SEQ WARN] Found Chapter {current_chapter_num}, expected {expected_chapter_num} (minor gap)")
-                    else:
-                        print(f"    [SEQ ERROR] Found Chapter {current_chapter_num}, expected {expected_chapter_num} (major gap)")
-                        print(f"    [DECISION] Continuing anyway due to robust mode...")
-                
-                content_tag = soup.select_one("#Lab_Contents")
-                if content_tag:
-                    filename = sanitize_filename(f"Chapter-{current_chapter_num:04d}-{title}.txt")
-                    filepath = os.path.join(output_dir, filename)
-                    
-                    # CHECK IF FILE ALREADY EXISTS
-                    if os.path.exists(filepath):
-                        print(f"    [SKIP] Chapter {current_chapter_num} already exists: {filename}")
-                        metadata["chapters"][str(current_chapter_num)]["scraped"] = True
-                        metadata["chapters"][str(current_chapter_num)]["file_exists"] = True
-                    else:
-                        # Clean up unwanted elements
-                        for tag in content_tag.select('script, a'): 
-                            tag.decompose()
-                        content = content_tag.get_text(separator='\n', strip=True)
-                        
-                        # Validate content length
-                        if len(content.strip()) < 50:
-                            print(f"    [WARNING] Content too short ({len(content)} chars) for: {title}")
-                            print(f"    [DEBUG] Content preview: {content[:100]}...")
-                        
-                        with open(filepath, 'w', encoding='utf-8') as f:
-                            f.write(content)
-                        
-                        print(f"    [SUCCESS] Saved Chapter {current_chapter_num}: {title}")
-                        chapters_saved += 1
-                        
-                        metadata["chapters"][str(current_chapter_num)]["scraped"] = True
-                        metadata["chapters"][str(current_chapter_num)]["file_exists"] = True
-                    
-                    # Save metadata every 10 chapters
-                    if metadata_updates % 10 == 0:
-                        save_metadata(metadata, metadata_file)
-                        print(f"    [META] Saved metadata ({len(metadata['chapters'])} chapters)")
+        if not fetch_for_navigation:
+            title_tag = soup.select_one("#ChapterTitle")
+            title = title_tag.text.strip() if title_tag else "Unknown_Chapter"
+            
+            current_chapter_num = extract_chapter_number(title)
+            
+            # ROBUST HANDLING: If we can't parse the number, estimate it
+            if not current_chapter_num:
+                if last_scraped_chapter_num:
+                    estimated_num = last_scraped_chapter_num - 1
+                    print(f"    [ESTIMATED] Could not parse '{title}', estimating as Chapter {estimated_num}")
+                    current_chapter_num = estimated_num
                 else:
-                    print(f"    [ERROR] No content found for: {title}")
-                    print(f"    [DEBUG] Available content selectors: {[tag.name for tag in soup.find_all(['div', 'p']) if tag.get('id')]}")
+                    print(f"    [ERROR] Could not parse chapter number from: '{title}' and no previous chapter for estimation")
+                    current_url = None
+                    break
+            
+            # UPDATE METADATA (always, even if skipping)
+            metadata["chapters"][str(current_chapter_num)] = {
+                "title": title,
+                "url": current_url,
+                "scraped": False,
+                "file_exists": False,
+                "previous_url": None  # Will be populated when we find the navigation link
+            }
+            metadata["urls"][current_url] = current_chapter_num
+            metadata_updates += 1
+
+            # VALIDATION: Check sequence (but allow small gaps for malformed chapters)
+            if last_scraped_chapter_num is not None:
+                expected_chapter_num = last_scraped_chapter_num - 1
+                
+                if current_chapter_num == expected_chapter_num:
+                    print(f"    [SEQ OK] Found Chapter {current_chapter_num} as expected")
+                elif abs(current_chapter_num - expected_chapter_num) <= 5:  # Allow small discrepancies
+                    print(f"    [SEQ WARN] Found Chapter {current_chapter_num}, expected {expected_chapter_num} (minor gap)")
+                else:
+                    print(f"    [SEQ ERROR] Found Chapter {current_chapter_num}, expected {expected_chapter_num} (major gap)")
+                    print(f"    [DECISION] Continuing anyway due to robust mode...")
+            
+            content_tag = soup.select_one("#Lab_Contents")
+            if content_tag:
+                filename = sanitize_filename(f"Chapter-{current_chapter_num:04d}-{title}.txt")
+                filepath = os.path.join(output_dir, filename)
+                
+                # CHECK IF FILE ALREADY EXISTS
+                if os.path.exists(filepath):
+                    print(f"    [SKIP] Chapter {current_chapter_num} already exists: {filename}")
+                    metadata["chapters"][str(current_chapter_num)]["scraped"] = True
+                    metadata["chapters"][str(current_chapter_num)]["file_exists"] = True
+                else:
+                    # Clean up unwanted elements
+                    for tag in content_tag.select('script, a'): 
+                        tag.decompose()
+                    content = content_tag.get_text(separator='\n', strip=True)
+                    
+                    # Validate content length
+                    if len(content.strip()) < 50:
+                        print(f"    [WARNING] Content too short ({len(content)} chars) for: {title}")
+                        print(f"    [DEBUG] Content preview: {content[:100]}...")
+                    
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    
+                    print(f"    [SUCCESS] Saved Chapter {current_chapter_num}: {title}")
+                    chapters_saved += 1
+                    
+                    metadata["chapters"][str(current_chapter_num)]["scraped"] = True
+                    metadata["chapters"][str(current_chapter_num)]["file_exists"] = True
+                
+                # Save metadata every 10 chapters
+                if metadata_updates % 10 == 0:
+                    save_metadata(metadata, metadata_file)
+                    print(f"    [META] Saved metadata ({len(metadata['chapters'])} chapters)")
+            else:
+                print(f"    [ERROR] No content found for: {title}")
+                print(f"    [DEBUG] Available content selectors: {[tag.name for tag in soup.find_all(['div', 'p']) if tag.get('id')]}")
             
             last_scraped_chapter_num = current_chapter_num
 
@@ -237,12 +292,6 @@ def scrape_backwards_robust(start_url: str, output_dir: str):
             else:
                 print("\\n🏁 No 'previous chapter' link found. Reached end of available chapters.")
                 current_url = None
-                
-        except requests.exceptions.RequestException as e:
-            print(f"    [ERROR] Request failed: {e}. Retrying in 10s...")
-            time.sleep(10)
-        except Exception as e:
-            print(f"    [ERROR] Unexpected error: {e}. Continuing...")
         
         # Progress reporting
         if chapters_saved > 0 and chapters_saved % 50 == 0:
@@ -260,12 +309,12 @@ def scrape_backwards_robust(start_url: str, output_dir: str):
     print(f"💾 Metadata saved to: {metadata_file}")
 
 if __name__ == "__main__":
-    # Continue from where we left off - the problematic Chapter 1111
-    start_url = 'https://www.dxmwx.org/read/43713_32971388.html'  # The "malformed" Chapter 1111
+    # Start from the problematic Chapter 399 that was failing
+    start_url = 'https://www.dxmwx.org/read/43713_17089584.html'  # Chapter 399
     output_dir = "novel_content_dxmwx_complete"
     
-    print("🛡️  ROBUST SCRAPER - Handles malformed titles and sequence issues")
-    print("Starting from the previously problematic Chapter 1111...")
+    print("🛡️  RESILIENT SCRAPER - Enhanced with retry logic and content validation")
+    print("Starting from the previously failing Chapter 399...")
     print("This will continue until Chapter 1 or end of available chapters.\\n")
     
     scrape_backwards_robust(start_url, output_dir)
