@@ -243,16 +243,84 @@ if alignment_map:
     st.sidebar.divider()
     st.sidebar.header("📊 Systematic Analysis")
     
-    if st.sidebar.button("🔍 Analyze Alignment Patterns", use_container_width=True):
+    # Analysis parameters
+    st.sidebar.subheader("🎯 Analysis Parameters")
+    
+    # Sample size input
+    sample_size = st.sidebar.number_input(
+        "Sample Size", 
+        min_value=1, 
+        max_value=50, 
+        value=10, 
+        help="Number of chapters to analyze"
+    )
+    
+    # Starting chapter input with smart defaults
+    col1, col2 = st.sidebar.columns(2)
+    
+    with col1:
+        # Calculate smart default based on current chapter
+        default_start = max(1, selected_chapter - sample_size // 2)
+        start_chapter = st.number_input(
+            "Start Chapter", 
+            min_value=1, 
+            max_value=max(chapter_numbers), 
+            value=default_start,
+            help="Starting chapter for analysis"
+        )
+    
+    with col2:
+        # Show the end chapter (calculated)
+        end_chapter = min(start_chapter + sample_size - 1, max(chapter_numbers))
+        st.metric("End Chapter", end_chapter, help="Last chapter to be analyzed")
+    
+    # Quick preset buttons
+    st.sidebar.caption("**Quick Presets:**")
+    preset_col1, preset_col2 = st.sidebar.columns(2)
+    
+    with preset_col1:
+        if st.button("📍 Around Current", use_container_width=True, help=f"Analyze {sample_size} chapters around Ch.{selected_chapter}"):
+            # Update start chapter to center around current
+            new_start = max(1, selected_chapter - sample_size // 2)
+            st.session_state.analysis_start_chapter = new_start
+            st.rerun()
+    
+    with preset_col2:
+        if st.button("🏁 From Beginning", use_container_width=True, help=f"Analyze first {sample_size} chapters"):
+            st.session_state.analysis_start_chapter = 1
+            st.rerun()
+    
+    # Apply session state if set by preset buttons
+    if hasattr(st.session_state, 'analysis_start_chapter'):
+        start_chapter = st.session_state.analysis_start_chapter
+        del st.session_state.analysis_start_chapter
+    
+    # Show analysis range preview
+    st.sidebar.info(f"📋 **Analysis Range:** Ch.{start_chapter} to Ch.{end_chapter} ({sample_size} chapters)")
+    
+    # Analysis button
+    if st.sidebar.button("🔍 Run Focused Analysis", use_container_width=True, type="primary"):
         if not api_key:
             st.sidebar.error("🔑 API key required for systematic analysis")
         else:
-            # Use main content area for progress display
-            with main_content:
-                st.subheader("🔄 Running Systematic Analysis...")
-                # Store analysis results in session state with progress tracking
-                st.session_state.systematic_analysis = analyze_systematic_alignment_with_progress(alignment_map, api_key)
-                st.success("✅ Analysis complete! Results displayed below.")
+            # Generate sample chapters list
+            sample_chapters = list(range(start_chapter, end_chapter + 1))
+            # Filter to only include chapters that exist in alignment map
+            available_chapters = [ch for ch in sample_chapters if str(ch) in alignment_map]
+            
+            if not available_chapters:
+                st.sidebar.error(f"❌ No chapters available in range {start_chapter}-{end_chapter}")
+            else:
+                # Use main content area for progress display
+                with main_content:
+                    st.subheader(f"🔄 Running Focused Analysis: Chapters {start_chapter}-{end_chapter}")
+                    st.info(f"Analyzing {len(available_chapters)} available chapters out of {sample_size} requested")
+                    
+                    # Store analysis results in session state with progress tracking
+                    st.session_state.systematic_analysis = analyze_systematic_alignment_with_progress(
+                        alignment_map, api_key, available_chapters
+                    )
+                    st.success("✅ Focused analysis complete! Results displayed below.")
     
     if hasattr(st.session_state, 'systematic_analysis') and st.session_state.systematic_analysis:
         # Calculate most common offset
