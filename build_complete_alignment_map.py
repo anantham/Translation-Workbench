@@ -98,13 +98,21 @@ def build_complete_alignment_map():
     return alignment_map
 
 def save_alignment_map_with_backup(alignment_map, output_file="alignment_map.json"):
-    """Save alignment map with backup of existing file."""
+    """Save alignment map with backup of existing file in organized backup directory."""
+    # Ensure backup directory exists
+    backup_dir = os.path.join("data", "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    
     # Create backup if file exists
     if os.path.exists(output_file):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file = f"{output_file}.backup_{timestamp}"
-        os.rename(output_file, backup_file)
-        print(f"📁 Backup created: {backup_file}")
+        backup_filename = f"{os.path.basename(output_file)}.backup_{timestamp}"
+        backup_path = os.path.join(backup_dir, backup_filename)
+        
+        # Copy to backup directory instead of renaming
+        import shutil
+        shutil.copy(output_file, backup_path)
+        print(f"📁 Backup created: {backup_filename} (in data/backups/)")
     
     # Save new alignment map
     with open(output_file, 'w', encoding='utf-8') as f:

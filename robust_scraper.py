@@ -127,7 +127,10 @@ def scrape_backwards_robust(start_url: str, output_dir: str):
         os.makedirs(output_dir)
     
     # Load/create metadata
-    metadata_file = "scraping_metadata.json"
+    # Use organized temp directory for metadata
+    temp_dir = os.path.join("data", "temp")
+    os.makedirs(temp_dir, exist_ok=True)
+    metadata_file = os.path.join(temp_dir, "scraping_metadata.json")
     metadata = load_or_create_metadata(metadata_file)
     
     current_url = start_url

@@ -33,9 +33,19 @@ if not SEMANTIC_AVAILABLE:
     from difflib import SequenceMatcher
     SEMANTIC_ERROR_MESSAGE += "📝 Falling back to syntactic similarity (difflib)\n"
 
+# --- Organized Data Structure ---
+DATA_DIR = "data"
+CACHE_DIR = os.path.join(DATA_DIR, "cache")
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+TEMP_DIR = os.path.join(DATA_DIR, "temp")
+
+# Ensure directories exist
+for directory in [DATA_DIR, CACHE_DIR, BACKUP_DIR, TEMP_DIR]:
+    os.makedirs(directory, exist_ok=True)
+
 # --- Caching System ---
-SIMILARITY_CACHE_FILE = "similarity_scores_cache.json"
-AI_TRANSLATION_CACHE_DIR = "ai_translation_cache"
+SIMILARITY_CACHE_FILE = os.path.join(CACHE_DIR, "similarity_scores_cache.json")
+AI_TRANSLATION_CACHE_DIR = os.path.join(CACHE_DIR, "ai_translation_cache")
 
 def generate_text_hash(text):
     """Generate a hash for text content to use as cache key."""
@@ -288,12 +298,13 @@ def load_alignment_map_with_session(map_file):
 def save_alignment_map_safely(map_data, map_file):
     """Save with automatic backup and clear safety messaging."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_file = f"{map_file}.backup_{timestamp}"
+    backup_filename = f"{os.path.basename(map_file)}.backup_{timestamp}"
+    backup_file = os.path.join(BACKUP_DIR, backup_filename)
     
-    # Create timestamped backup
+    # Create timestamped backup in organized backup directory
     if os.path.exists(map_file):
         shutil.copy(map_file, backup_file)
-        st.success(f"✅ Backup created: {backup_file}")
+        st.success(f"✅ Backup created: {backup_filename}")
     
     # Save new version
     with open(map_file, 'w', encoding='utf-8') as f:
@@ -302,7 +313,7 @@ def save_alignment_map_safely(map_data, map_file):
     # Update session state with new data and modification time
     st.session_state.alignment_map = map_data
     st.session_state.alignment_map_mtime = os.path.getmtime(map_file)
-    return backup_file
+    return backup_filename
 
 def analyze_systematic_alignment_with_progress(alignment_map, api_key, sample_chapters=None):
     """Analyze alignment patterns with progress tracking and caching."""

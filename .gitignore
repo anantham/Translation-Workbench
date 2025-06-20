@@ -44,21 +44,12 @@ Thumbs.db
 .claude/
 *.html
 
-# Backup files
-*.backup_*
-alignment_map.json.backup_*
-alignment_map.json.bak
-
 # Large data files (keep structure but not content)
 novel_content_dxmwx_complete/*.txt
 english_chapters/*.txt
 *.epub
 
-# Metadata that can be regenerated
-scraping_metadata.json
-
-# Similarity score cache (large and user-specific)
-similarity_scores_cache.json
-
-# AI translation cache (large and user-specific)
-ai_translation_cache/
+# Organized data directories - cache/temp/backup files
+data/cache/
+data/temp/
+data/backups/
