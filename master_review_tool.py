@@ -10,27 +10,45 @@ from collections import Counter
 import numpy as np
 
 # --- Semantic Similarity with Deep Learning ---
+SEMANTIC_AVAILABLE = False
+SEMANTIC_ERROR_MESSAGE = ""
+
+try:
+    import torch
+    SEMANTIC_ERROR_MESSAGE += "✅ torch imported successfully\n"
+except ImportError as e:
+    SEMANTIC_ERROR_MESSAGE += f"❌ torch import failed: {e}\n"
+
 try:
     from sentence_transformers import SentenceTransformer
-    import torch
+    SEMANTIC_ERROR_MESSAGE += "✅ sentence-transformers imported successfully\n"
     SEMANTIC_AVAILABLE = True
-except ImportError:
-    SEMANTIC_AVAILABLE = False
+except ImportError as e:
+    SEMANTIC_ERROR_MESSAGE += f"❌ sentence-transformers import failed: {e}\n"
+
+if not SEMANTIC_AVAILABLE:
     # Fallback to lightweight similarity
     from difflib import SequenceMatcher
+    SEMANTIC_ERROR_MESSAGE += "📝 Falling back to syntactic similarity (difflib)\n"
 
 # --- Semantic Similarity Models ---
 @st.cache_resource
 def load_semantic_model():
-    """Load semantic similarity model with caching."""
+    """Load semantic similarity model with caching and detailed error reporting."""
+    global SEMANTIC_ERROR_MESSAGE
+    
     if not SEMANTIC_AVAILABLE:
+        SEMANTIC_ERROR_MESSAGE += "🚫 Semantic model loading skipped - dependencies not available\n"
         return None
     
     try:
-        # Use a multilingual model that works well for Chinese-English translation comparison
+        SEMANTIC_ERROR_MESSAGE += "🔄 Attempting to load BERT model: paraphrase-multilingual-MiniLM-L12-v2\n"
         model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        SEMANTIC_ERROR_MESSAGE += "🧠 BERT model loaded successfully!\n"
         return model
     except Exception as e:
+        SEMANTIC_ERROR_MESSAGE += f"❌ BERT model loading failed: {e}\n"
+        SEMANTIC_ERROR_MESSAGE += f"📋 Exception type: {type(e).__name__}\n"
         st.warning(f"⚠️ Could not load semantic model: {e}")
         return None
 
@@ -281,11 +299,39 @@ def load_chapter_content(filepath):
 st.set_page_config(layout="wide", page_title="Master Review Tool")
 st.title("📖 Master Translation Review & Alignment Tool")
 
-# Show similarity method being used
+# Show similarity method being used with diagnostic option
 if SEMANTIC_AVAILABLE:
     st.caption("🛡️ Human-in-the-loop safety: AI suggests, you decide | 🧠 **Semantic similarity enabled** (BERT embeddings)")
 else:
     st.caption("🛡️ Human-in-the-loop safety: AI suggests, you decide | ⚠️ **Syntactic similarity** (install sentence-transformers for semantic)")
+    
+    # Add diagnostic expander at the top for immediate visibility
+    with st.expander("🔧 **Why is semantic similarity not working? Click for diagnostics**"):
+        st.warning("**Dependency Check Results:**")
+        st.code(SEMANTIC_ERROR_MESSAGE, language="text")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.info("**Expected Status:**")
+            st.code("""
+✅ torch imported successfully
+✅ sentence-transformers imported successfully
+🔄 Attempting to load BERT model
+🧠 BERT model loaded successfully!
+            """, language="text")
+        
+        with col2:
+            st.error("**Troubleshooting Steps:**")
+            st.code("""
+1. Activate virtual environment:
+   source venv/bin/activate
+
+2. Install dependencies:
+   pip install sentence-transformers torch
+
+3. Restart Streamlit:
+   streamlit run master_review_tool.py
+            """, language="bash")
 
 # Initialize session state
 if 'ai_translation' not in st.session_state:
@@ -426,6 +472,46 @@ if alignment_map:
                 **Limitations:** No context understanding, poor with paraphrasing
                 **Recommendation:** Install `sentence-transformers` for better results
                 """)
+                
+                # Show detailed diagnostic information
+                with st.expander("🔍 **Diagnostic Details - Why Semantic Similarity Failed**"):
+                    st.text("Dependency Check Log:")
+                    st.code(SEMANTIC_ERROR_MESSAGE, language="text")
+                    
+                    # Additional runtime diagnostics
+                    st.text("Runtime Environment:")
+                    import sys
+                    st.code(f"""
+Python Version: {sys.version}
+Python Path: {sys.executable}
+Virtual Environment: {os.environ.get('VIRTUAL_ENV', 'Not detected')}
+Current Working Directory: {os.getcwd()}
+                    """, language="text")
+                    
+                    # Try to get more specific package info
+                    try:
+                        import pkg_resources
+                        installed_packages = [f"{pkg.key}=={pkg.version}" for pkg in pkg_resources.working_set]
+                        relevant_packages = [pkg for pkg in installed_packages if any(x in pkg for x in ['torch', 'sentence', 'transform', 'numpy'])]
+                        if relevant_packages:
+                            st.text("Relevant Installed Packages:")
+                            st.code("\n".join(relevant_packages), language="text")
+                        else:
+                            st.text("No relevant packages found in environment")
+                    except Exception as e:
+                        st.text(f"Could not check installed packages: {e}")
+                    
+                    st.markdown("**💡 To enable semantic similarity:**")
+                    st.code("""
+# Activate your virtual environment first
+source venv/bin/activate
+
+# Install required packages
+pip install sentence-transformers torch numpy
+
+# Restart Streamlit
+streamlit run master_review_tool.py
+                    """, language="bash")
                 similarity_icon = "📝"
                 similarity_quality = "LIMITED ACCURACY"
             
