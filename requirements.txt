@@ -1,0 +1,7 @@
+requests
+beautifulsoup4
+selenium
+webdriver-manager
+# For styling and linting
+black
+flake8
