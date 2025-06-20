@@ -10,6 +10,15 @@ sentence-transformers
 torch
 numpy
 
+# MLOps and Fine-tuning Workbench
+google-generativeai
+plotly
+scipy
+nltk
+
+# Chinese text processing
+jieba
+
 # For styling and linting
 black
 flake8
