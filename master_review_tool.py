@@ -564,12 +564,13 @@ def load_chapter_content(filepath):
             return f.read()
     return "File not found or not applicable."
 
-def get_text_stats(content):
+def get_text_stats(content, language_hint=None):
     """
-    Get character and word count statistics for text content.
+    Get character and word count statistics for text content with language-aware counting.
     
     Args:
         content: Text content to analyze
+        language_hint: 'chinese', 'english', or None for auto-detection
         
     Returns:
         dict: Statistics including char_count, word_count, line_count
@@ -579,13 +580,28 @@ def get_text_stats(content):
             'char_count': 0,
             'word_count': 0,
             'line_count': 0,
-            'avg_words_per_line': 0
+            'avg_words_per_line': 0,
+            'counting_method': 'empty'
         }
     
     # Basic counts
     char_count = len(content)
-    word_count = len(content.split())
     line_count = len(content.splitlines())
+    
+    # Intelligent word counting based on language
+    if language_hint == 'chinese' or (language_hint is None and is_likely_chinese(content)):
+        # Chinese: Count meaningful characters (exclude punctuation and whitespace)
+        chinese_chars = 0
+        for char in content:
+            # Count Chinese characters (CJK Unified Ideographs)
+            if '\u4e00' <= char <= '\u9fff':
+                chinese_chars += 1
+        word_count = chinese_chars
+        counting_method = 'chinese_chars'
+    else:
+        # English/Western languages: Count space-separated words
+        word_count = len(content.split())
+        counting_method = 'space_separated'
     
     # Average words per line (avoid division by zero)
     avg_words_per_line = word_count / line_count if line_count > 0 else 0
@@ -594,8 +610,33 @@ def get_text_stats(content):
         'char_count': char_count,
         'word_count': word_count,
         'line_count': line_count,
-        'avg_words_per_line': round(avg_words_per_line, 1)
+        'avg_words_per_line': round(avg_words_per_line, 1),
+        'counting_method': counting_method
     }
+
+def is_likely_chinese(text):
+    """
+    Detect if text is likely Chinese based on character distribution.
+    
+    Args:
+        text: Text content to analyze
+        
+    Returns:
+        bool: True if likely Chinese, False otherwise
+    """
+    if not text:
+        return False
+    
+    # Count Chinese characters (CJK Unified Ideographs)
+    chinese_chars = sum(1 for char in text if '\u4e00' <= char <= '\u9fff')
+    total_chars = len(text.strip())
+    
+    if total_chars == 0:
+        return False
+    
+    # If more than 30% of characters are Chinese, consider it Chinese text
+    chinese_ratio = chinese_chars / total_chars
+    return chinese_ratio > 0.3
 
 def fix_chapter_numbering_in_content(content, expected_chapter_num):
     """
@@ -1348,7 +1389,7 @@ streamlit run master_review_tool.py
             
             # Show current chapter statistics for context
             current_content = load_chapter_content(chapter_data["english_file"])
-            current_stats = get_text_stats(current_content)
+            current_stats = get_text_stats(current_content, language_hint='english')
             
             st.markdown("**📊 Current Chapter Stats:**")
             col1, col2, col3 = st.columns(3)
@@ -1381,8 +1422,8 @@ streamlit run master_review_tool.py
                     after_content = current_content[split_pos:].strip()
                     
                     # Get detailed statistics for both parts
-                    before_stats = get_text_stats(before_content)
-                    after_stats = get_text_stats(after_content)
+                    before_stats = get_text_stats(before_content, language_hint='english')
+                    after_stats = get_text_stats(after_content, language_hint='english')
                     
                     st.markdown("**📊 Split Statistics:**")
                     col1, col2 = st.columns(2)
@@ -1514,7 +1555,7 @@ streamlit run master_review_tool.py
     # English chapter stats
     if chapter_data.get("english_file"):
         eng_content = load_chapter_content(chapter_data["english_file"])
-        eng_stats = get_text_stats(eng_content)
+        eng_stats = get_text_stats(eng_content, language_hint='english')
         
         st.sidebar.markdown("**📖 English Chapter:**")
         col1, col2 = st.sidebar.columns(2)
@@ -1534,43 +1575,73 @@ streamlit run master_review_tool.py
     # Chinese chapter stats
     if chapter_data.get("raw_file"):
         raw_content = load_chapter_content(chapter_data["raw_file"])
-        raw_stats = get_text_stats(raw_content)
+        raw_stats = get_text_stats(raw_content, language_hint='chinese')
         
         st.sidebar.markdown("**📜 Chinese Chapter:**")
         col1, col2 = st.sidebar.columns(2)
         with col1:
-            st.metric("Words", f"{raw_stats['word_count']:,}")
+            st.metric("Chinese Chars", f"{raw_stats['word_count']:,}")
             st.metric("Lines", f"{raw_stats['line_count']:,}")
         with col2:
-            st.metric("Characters", f"{raw_stats['char_count']:,}")
-            st.metric("Words/Line", f"{raw_stats['avg_words_per_line']}")
+            st.metric("Total Chars", f"{raw_stats['char_count']:,}")
+            st.metric("Chars/Line", f"{raw_stats['avg_words_per_line']}")
         
-        # Suspicious size detection for Chinese
-        if raw_stats['word_count'] > 5000:  # Chinese chapters tend to be shorter
+        # Suspicious size detection for Chinese (using character count)
+        if raw_stats['word_count'] > 3000:  # Chinese characters - typical ~1500-2500
             st.sidebar.warning("⚠️ **Unusually long chapter** - possible merge detected!")
-        elif raw_stats['word_count'] < 500:
+        elif raw_stats['word_count'] < 800:
             st.sidebar.warning("⚠️ **Unusually short chapter** - possible content missing!")
     
-    # Length comparison if both files exist
+    # AI Translation stats (if available)
+    if st.session_state.ai_translation and "API Request Failed" not in st.session_state.ai_translation:
+        ai_stats = get_text_stats(st.session_state.ai_translation, language_hint='english')
+        
+        st.sidebar.markdown("**🤖 AI Translation:**")
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            st.metric("Words", f"{ai_stats['word_count']:,}")
+            st.metric("Lines", f"{ai_stats['line_count']:,}")
+        with col2:
+            st.metric("Characters", f"{ai_stats['char_count']:,}")
+            st.metric("Words/Line", f"{ai_stats['avg_words_per_line']}")
+        
+        # Quality indicator based on length comparison with Chinese
+        if chapter_data.get("raw_file"):
+            raw_content = load_chapter_content(chapter_data["raw_file"])
+            raw_stats = get_text_stats(raw_content, language_hint='chinese')
+            
+            if raw_stats['word_count'] > 0:
+                ai_to_chinese_ratio = ai_stats['word_count'] / raw_stats['word_count']
+                if ai_to_chinese_ratio < 1.0:
+                    st.sidebar.warning("⚠️ **AI translation seems short** - possible truncation")
+                elif ai_to_chinese_ratio > 4.0:
+                    st.sidebar.warning("⚠️ **AI translation seems long** - possible repetition")
+                else:
+                    st.sidebar.success("✅ **AI translation length looks reasonable**")
+    
+    # Length comparison if both English and Chinese files exist
     if chapter_data.get("english_file") and chapter_data.get("raw_file"):
         eng_content = load_chapter_content(chapter_data["english_file"])
         raw_content = load_chapter_content(chapter_data["raw_file"])
-        eng_stats = get_text_stats(eng_content)
-        raw_stats = get_text_stats(raw_content)
+        eng_stats = get_text_stats(eng_content, language_hint='english')
+        raw_stats = get_text_stats(raw_content, language_hint='chinese')
         
-        # Calculate ratio (English tends to be longer than Chinese)
+        # Calculate ratio (English words vs Chinese characters)
         if eng_stats['word_count'] > 0 and raw_stats['word_count'] > 0:
             ratio = eng_stats['word_count'] / raw_stats['word_count']
-            st.sidebar.markdown("**🔄 Length Comparison:**")
+            st.sidebar.markdown("**🔄 Translation Comparison:**")
             
-            if ratio > 4.0:
-                st.sidebar.error(f"📏 English/Chinese ratio: {ratio:.1f}x - **Very suspicious!**")
-            elif ratio > 3.0:
-                st.sidebar.warning(f"📏 English/Chinese ratio: {ratio:.1f}x - **Check alignment**")
-            elif ratio < 1.5:
-                st.sidebar.warning(f"📏 English/Chinese ratio: {ratio:.1f}x - **Too short?**")
+            # English words to Chinese characters ratio analysis
+            if ratio > 2.5:
+                st.sidebar.error(f"📏 Eng.Words/Chi.Chars: {ratio:.1f} - **Very suspicious!**")
+            elif ratio > 2.0:
+                st.sidebar.warning(f"📏 Eng.Words/Chi.Chars: {ratio:.1f} - **Check alignment**")
+            elif ratio < 1.0:
+                st.sidebar.warning(f"📏 Eng.Words/Chi.Chars: {ratio:.1f} - **Too compressed?**")
             else:
-                st.sidebar.success(f"📏 English/Chinese ratio: {ratio:.1f}x - **Normal range**")
+                st.sidebar.success(f"📏 Eng.Words/Chi.Chars: {ratio:.1f} - **Normal range**")
+            
+            st.sidebar.caption("💡 Typical ratio: 1.0-2.0 (English words per Chinese character)")
 
     # --- Main Content Display using container ---
     with main_content:
