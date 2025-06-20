@@ -13,6 +13,7 @@ import pandas as pd
 from datetime import datetime
 from collections import Counter
 import streamlit as st
+from difflib import SequenceMatcher
 
 # --- Organized Data Structure ---
 DATA_DIR = "data"
@@ -43,7 +44,6 @@ except ImportError as e:
     SEMANTIC_ERROR_MESSAGE += f"❌ sentence-transformers import failed: {e}\n"
 
 if not SEMANTIC_AVAILABLE:
-    from difflib import SequenceMatcher
     SEMANTIC_ERROR_MESSAGE += "📝 Falling back to syntactic similarity (difflib)\n"
 
 # Google AI SDK
@@ -113,6 +113,23 @@ def store_translation_in_cache(raw_text, translation):
     except Exception as e:
         print(f"Warning: Could not save translation cache: {e}")
         return False
+
+def get_translation_cache_stats():
+    """Get statistics about the translation cache."""
+    try:
+        if not os.path.exists(AI_TRANSLATION_CACHE_DIR):
+            return {"count": 0, "size_mb": 0.0}
+        
+        cache_files = [f for f in os.listdir(AI_TRANSLATION_CACHE_DIR) if f.endswith('.txt')]
+        total_size = sum(os.path.getsize(os.path.join(AI_TRANSLATION_CACHE_DIR, f)) for f in cache_files)
+        
+        return {
+            "count": len(cache_files),
+            "size_mb": total_size / (1024 * 1024)
+        }
+    except Exception as e:
+        print(f"Warning: Could not get cache stats: {e}")
+        return {"count": 0, "size_mb": 0.0}
 
 # --- Content Loading ---
 def load_chapter_content(filepath):

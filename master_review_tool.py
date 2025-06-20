@@ -97,7 +97,7 @@ if 'current_chapter' not in st.session_state:
     st.session_state.current_chapter = 1
 
 # Load alignment map with session persistence
-alignment_map = load_alignment_map_with_session("alignment_map.json")
+alignment_map = load_alignment_map("alignment_map.json")
 
 # Create main content container for better organization
 main_content = st.container()
