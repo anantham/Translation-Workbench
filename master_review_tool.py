@@ -5,6 +5,8 @@ import requests
 import shutil
 import time
 from datetime import datetime
+import pandas as pd
+from collections import Counter
 
 # --- Lightweight Similarity (No Heavy Dependencies) ---
 from difflib import SequenceMatcher
@@ -40,14 +42,32 @@ def translate_with_gemini(raw_text: str, api_key: str):
     except Exception as e:
         return f"API Request Failed: {e}"
 
-# --- Safe Data Handling ---
-@st.cache_data
-def load_alignment_map(map_file):
-    if not os.path.exists(map_file):
+# --- Safe Data Handling with Session Persistence ---
+def load_alignment_map_with_session(map_file):
+    """Load alignment map with session state persistence and change detection."""
+    # Check if file has been modified since last load
+    if os.path.exists(map_file):
+        file_mtime = os.path.getmtime(map_file)
+        
+        # Load from session if available and file hasn't changed
+        if ('alignment_map' in st.session_state and 
+            'alignment_map_mtime' in st.session_state and
+            st.session_state.alignment_map_mtime == file_mtime):
+            return st.session_state.alignment_map
+        
+        # Load fresh and store in session
+        try:
+            with open(map_file, 'r', encoding='utf-8') as f:
+                alignment_map = json.load(f)
+            st.session_state.alignment_map = alignment_map
+            st.session_state.alignment_map_mtime = file_mtime
+            return alignment_map
+        except Exception as e:
+            st.error(f"❌ Error loading alignment map: {e}")
+            return None
+    else:
         st.error(f"❌ Alignment map '{map_file}' not found.")
         return None
-    with open(map_file, 'r', encoding='utf-8') as f:
-        return json.load(f)
 
 def save_alignment_map_safely(map_data, map_file):
     """Save with automatic backup and clear safety messaging."""
@@ -63,19 +83,28 @@ def save_alignment_map_safely(map_data, map_file):
     with open(map_file, 'w', encoding='utf-8') as f:
         json.dump(map_data, f, indent=2, ensure_ascii=False)
     
-    # Clear cache to force reload
-    st.cache_data.clear()
+    # Update session state with new data and modification time
+    st.session_state.alignment_map = map_data
+    st.session_state.alignment_map_mtime = os.path.getmtime(map_file)
     return backup_file
 
-def analyze_systematic_alignment(alignment_map, api_key, sample_chapters=None):
-    """Analyze alignment patterns across multiple chapters to detect systematic offsets."""
+def analyze_systematic_alignment_with_progress(alignment_map, api_key, sample_chapters=None):
+    """Analyze alignment patterns with progress tracking."""
     if sample_chapters is None:
-        # Use first 20 chapters for analysis
         all_chapters = sorted([int(k) for k in alignment_map.keys()])
         sample_chapters = all_chapters[:min(20, len(all_chapters))]
     
+    # Create progress indicators
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
     results = []
-    for ch_num in sample_chapters:
+    for i, ch_num in enumerate(sample_chapters):
+        # Update progress
+        progress = (i + 1) / len(sample_chapters)
+        progress_bar.progress(progress)
+        status_text.text(f"Analyzing chapter {ch_num}... ({i+1}/{len(sample_chapters)})")
+        
         ch_data = alignment_map[str(ch_num)]
         raw_content = load_chapter_content(ch_data.get("raw_file"))
         
@@ -107,6 +136,10 @@ def analyze_systematic_alignment(alignment_map, api_key, sample_chapters=None):
                             }
         
         results.append(best_match)
+    
+    # Clean up progress indicators
+    progress_bar.empty()
+    status_text.empty()
     
     return results
 
@@ -178,8 +211,11 @@ if 'ai_translation' not in st.session_state:
 if 'current_chapter' not in st.session_state:
     st.session_state.current_chapter = 1
 
-# Load alignment map
-alignment_map = load_alignment_map("alignment_map.json")
+# Load alignment map with session persistence
+alignment_map = load_alignment_map_with_session("alignment_map.json")
+
+# Create main content container for better organization
+main_content = st.container()
 
 if alignment_map:
     chapter_numbers = sorted([int(k) for k in alignment_map.keys()])
@@ -211,10 +247,12 @@ if alignment_map:
         if not api_key:
             st.sidebar.error("🔑 API key required for systematic analysis")
         else:
-            with st.spinner("🔄 Analyzing systematic alignment patterns..."):
-                # Store analysis results in session state
-                st.session_state.systematic_analysis = analyze_systematic_alignment(alignment_map, api_key)
-                st.sidebar.success("✅ Analysis complete! Check main area for results.")
+            # Use main content area for progress display
+            with main_content:
+                st.subheader("🔄 Running Systematic Analysis...")
+                # Store analysis results in session state with progress tracking
+                st.session_state.systematic_analysis = analyze_systematic_alignment_with_progress(alignment_map, api_key)
+                st.success("✅ Analysis complete! Results displayed below.")
     
     if hasattr(st.session_state, 'systematic_analysis') and st.session_state.systematic_analysis:
         # Calculate most common offset
@@ -347,134 +385,140 @@ if alignment_map:
     else:
         st.sidebar.warning("❌ No Chinese raw linked")
 
-    # --- Main Content Display ---
-    
-    # Check if we should show systematic analysis results
-    if hasattr(st.session_state, 'systematic_analysis') and st.session_state.systematic_analysis:
-        st.header("📊 Systematic Alignment Analysis Results")
-        
-        # Display analysis results in a table
-        import pandas as pd
-        df_data = []
-        for result in st.session_state.systematic_analysis:
-            df_data.append({
-                "Raw Chapter": result["chapter"],
-                "Best English Match": result.get("matched_english", "N/A"),
-                "Offset": f"{result['offset']:+d}",
-                "Similarity Score": f"{result['score']:.3f}",
-                "Status": "✅ Good" if result["offset"] == 0 else "🚨 Misaligned"
-            })
-        
-        df = pd.DataFrame(df_data)
-        st.dataframe(df, use_container_width=True)
-        
-        # Show pattern summary
-        offsets = [r["offset"] for r in st.session_state.systematic_analysis if r["score"] > 0.3]
-        if offsets:
-            from collections import Counter
-            offset_counts = Counter(offsets)
-            most_common_offset = offset_counts.most_common(1)[0][0]
+    # --- Main Content Display using container ---
+    with main_content:
+        # Check if we should show systematic analysis results
+        if hasattr(st.session_state, 'systematic_analysis') and st.session_state.systematic_analysis:
+            st.header("📊 Systematic Alignment Analysis Results")
             
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Most Common Offset", f"{most_common_offset:+d}")
-            with col2:
-                st.metric("Chapters Analyzed", len(st.session_state.systematic_analysis))
-            with col3:
-                confidence = offsets.count(most_common_offset) / len(offsets)
-                st.metric("Pattern Confidence", f"{confidence:.1%}")
-        
-        st.divider()
+            # Display analysis results in a table
+            df_data = []
+            for result in st.session_state.systematic_analysis:
+                df_data.append({
+                    "Raw Chapter": result["chapter"],
+                    "Best English Match": result.get("matched_english", "N/A"),
+                    "Offset": f"{result['offset']:+d}",
+                    "Similarity Score": f"{result['score']:.3f}",
+                    "Status": "✅ Good" if result["offset"] == 0 else "🚨 Misaligned"
+                })
+            
+            df = pd.DataFrame(df_data)
+            st.dataframe(df, use_container_width=True)
+            
+            # Show pattern summary
+            offsets = [r["offset"] for r in st.session_state.systematic_analysis if r["score"] > 0.3]
+            if offsets:
+                offset_counts = Counter(offsets)
+                most_common_offset = offset_counts.most_common(1)[0][0]
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Most Common Offset", f"{most_common_offset:+d}")
+                with col2:
+                    st.metric("Chapters Analyzed", len(st.session_state.systematic_analysis))
+                with col3:
+                    confidence = offsets.count(most_common_offset) / len(offsets)
+                    st.metric("Pattern Confidence", f"{confidence:.1%}")
+            
+            st.divider()
     
-    # Show correction preview if available
-    if hasattr(st.session_state, 'correction_preview'):
-        st.header("📋 Systematic Correction Preview")
-        st.write(f"**Proposed Offset:** {st.session_state.correction_preview['offset']:+d}")
+        # Show correction preview if available (within main_content container)
+        if hasattr(st.session_state, 'correction_preview'):
+            st.header("📋 Systematic Correction Preview")
+            st.write(f"**Proposed Offset:** {st.session_state.correction_preview['offset']:+d}")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("🔴 BEFORE Correction")
+                before_data = []
+                for item in st.session_state.correction_preview["before"]:
+                    before_data.append({
+                        "Raw Ch": item["raw_ch"],
+                        "→ English Ch": item["eng_ch"],
+                        "Status": "✅" if item["eng_ch"] != "None" else "❌"
+                    })
+                st.dataframe(pd.DataFrame(before_data), use_container_width=True)
+            
+            with col2:
+                st.subheader("🟢 AFTER Correction")
+                after_data = []
+                for item in st.session_state.correction_preview["after"]:
+                    after_data.append({
+                        "Raw Ch": item["raw_ch"],
+                        "→ English Ch": item["eng_ch"],
+                        "Status": "✅" if item["eng_ch"] != "None" else "❌"
+                    })
+                st.dataframe(pd.DataFrame(after_data), use_container_width=True)
+            
+            # Systematic correction controls
+            st.subheader("🔧 Apply Systematic Correction")
+            
+            systematic_confirmed = st.checkbox(
+                f"I want to apply systematic offset correction ({st.session_state.correction_preview['offset']:+d}) to ALL chapters",
+                help="This will modify the alignment for all chapters. A backup will be created."
+            )
+            
+            if systematic_confirmed:
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✅ Apply Systematic Correction", type="primary", use_container_width=True):
+                        # Apply the correction
+                        corrected_map = apply_systematic_correction(alignment_map, st.session_state.correction_preview['offset'])
+                        backup_file = save_alignment_map_safely(corrected_map, "alignment_map.json")
+                        
+                        st.success("🎉 **Systematic correction applied!**")
+                        st.info(f"📁 Backup saved: {backup_file}")
+                        st.info("🔄 Page will reload in 3 seconds...")
+                        
+                        # Clear analysis results
+                        if hasattr(st.session_state, 'systematic_analysis'):
+                            del st.session_state.systematic_analysis
+                        if hasattr(st.session_state, 'correction_preview'):
+                            del st.session_state.correction_preview
+                        
+                        time.sleep(3)
+                        st.rerun()
+                
+                with col2:
+                    if st.button("❌ Cancel", use_container_width=True):
+                        # Clear the preview
+                        if hasattr(st.session_state, 'correction_preview'):
+                            del st.session_state.correction_preview
+                        st.rerun()
+            
+            st.divider()
+    
+        # Regular 3-pane view (within main_content container)
+        st.header(f"📖 Individual Review: Chapter {selected_chapter}")
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.subheader("🔴 BEFORE Correction")
-            before_data = []
-            for item in st.session_state.correction_preview["before"]:
-                before_data.append({
-                    "Raw Ch": item["raw_ch"],
-                    "→ English Ch": item["eng_ch"],
-                    "Status": "✅" if item["eng_ch"] != "None" else "❌"
-                })
-            st.dataframe(pd.DataFrame(before_data), use_container_width=True)
-        
-        with col2:
-            st.subheader("🟢 AFTER Correction")
-            after_data = []
-            for item in st.session_state.correction_preview["after"]:
-                after_data.append({
-                    "Raw Ch": item["raw_ch"],
-                    "→ English Ch": item["eng_ch"],
-                    "Status": "✅" if item["eng_ch"] != "None" else "❌"
-                })
-            st.dataframe(pd.DataFrame(after_data), use_container_width=True)
-        
-        # Systematic correction controls
-        st.subheader("🔧 Apply Systematic Correction")
-        
-        systematic_confirmed = st.checkbox(
-            f"I want to apply systematic offset correction ({st.session_state.correction_preview['offset']:+d}) to ALL chapters",
-            help="This will modify the alignment for all chapters. A backup will be created."
-        )
-        
-        if systematic_confirmed:
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("✅ Apply Systematic Correction", type="primary", use_container_width=True):
-                    # Apply the correction
-                    corrected_map = apply_systematic_correction(alignment_map, st.session_state.correction_preview['offset'])
-                    backup_file = save_alignment_map_safely(corrected_map, "alignment_map.json")
-                    
-                    st.success("🎉 **Systematic correction applied!**")
-                    st.info(f"📁 Backup saved: {backup_file}")
-                    st.info("🔄 Page will reload in 3 seconds...")
-                    
-                    # Clear analysis results
-                    if hasattr(st.session_state, 'systematic_analysis'):
-                        del st.session_state.systematic_analysis
-                    if hasattr(st.session_state, 'correction_preview'):
-                        del st.session_state.correction_preview
-                    
-                    time.sleep(3)
-                    st.rerun()
+            st.subheader("📜 Raw (Chinese)")
+            st.text_area("Chinese Content", raw_content, height=600, key="raw_text")
+            st.caption(f"File: {chapter_data.get('raw_file', 'N/A')}")
             
-            with col2:
-                if st.button("❌ Cancel", use_container_width=True):
-                    # Clear the preview
-                    if hasattr(st.session_state, 'correction_preview'):
-                        del st.session_state.correction_preview
-                    st.rerun()
-        
-        st.divider()
-    
-    # Regular 3-pane view
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.header("📜 Raw (Chinese)")
-        st.text_area("Chinese Content", raw_content, height=600, key="raw_text")
-        st.caption(f"File: {chapter_data.get('raw_file', 'N/A')}")
-        
-    with col2:
-        st.header("📖 Official Translation")
-        eng_filepath = chapter_data.get("english_file")
-        eng_content = load_chapter_content(eng_filepath)
-        st.text_area("Official English Content", eng_content, height=600, key="eng_text")
-        st.caption(f"File: {eng_filepath or 'Not available'}")
-        
-    with col3:
-        st.header("🤖 AI Translation")
-        st.text_area("AI Generated Content", st.session_state.ai_translation, height=600, key="ai_text")
-        if st.session_state.ai_translation:
-            st.caption(f"Generated via Gemini API • {len(st.session_state.ai_translation)} chars")
-        else:
-            st.caption("Use sidebar to generate AI translation")
+        with col2:
+            st.subheader("📖 Official Translation")
+            eng_filepath = chapter_data.get("english_file")
+            eng_content = load_chapter_content(eng_filepath)
+            st.text_area("Official English Content", eng_content, height=600, key="eng_text")
+            st.caption(f"File: {eng_filepath or 'Not available'}")
+            
+        with col3:
+            st.subheader("🤖 AI Translation")
+            if st.button("🔄 Translate Chapter with Gemini", use_container_width=True):
+                if api_key:
+                    with st.spinner("🔄 Translating..."):
+                        st.session_state.ai_translation = translate_with_gemini(raw_content, api_key)
+                else:
+                    st.error("🔑 API Key Required")
+            st.text_area("AI Generated Content", st.session_state.ai_translation, height=600, key="ai_text")
+            if st.session_state.ai_translation:
+                st.caption(f"Generated via Gemini API • {len(st.session_state.ai_translation)} chars")
+            else:
+                st.caption("Use button above to generate AI translation")
 
 else:
     st.error("❌ Could not load alignment map. Please ensure 'alignment_map.json' exists.")
