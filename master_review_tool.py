@@ -4,6 +4,7 @@ import os
 import requests
 import shutil
 import time
+import re
 from datetime import datetime
 import pandas as pd
 from collections import Counter
@@ -552,6 +553,293 @@ def load_chapter_content(filepath):
             return f.read()
     return "File not found or not applicable."
 
+def get_text_stats(content):
+    """
+    Get character and word count statistics for text content.
+    
+    Args:
+        content: Text content to analyze
+        
+    Returns:
+        dict: Statistics including char_count, word_count, line_count
+    """
+    if not content or content == "File not found or not applicable.":
+        return {
+            'char_count': 0,
+            'word_count': 0,
+            'line_count': 0,
+            'avg_words_per_line': 0
+        }
+    
+    # Basic counts
+    char_count = len(content)
+    word_count = len(content.split())
+    line_count = len(content.splitlines())
+    
+    # Average words per line (avoid division by zero)
+    avg_words_per_line = word_count / line_count if line_count > 0 else 0
+    
+    return {
+        'char_count': char_count,
+        'word_count': word_count,
+        'line_count': line_count,
+        'avg_words_per_line': round(avg_words_per_line, 1)
+    }
+
+def fix_chapter_numbering_in_content(content, expected_chapter_num):
+    """
+    Fix chapter numbering inside text content.
+    
+    Args:
+        content: Text content to fix
+        expected_chapter_num: What the chapter number should be
+        
+    Returns:
+        tuple: (fixed_content, changes_made)
+    """
+    changes_made = []
+    fixed_content = content
+    
+    # Pattern 1: "Chapter XXX:" at the beginning (most common)
+    pattern1 = r'^Chapter\s+(\d+):'
+    match1 = re.search(pattern1, fixed_content, re.MULTILINE)
+    if match1:
+        found_num = int(match1.group(1))
+        if found_num != expected_chapter_num:
+            old_text = f"Chapter {found_num}:"
+            new_text = f"Chapter {expected_chapter_num}:"
+            fixed_content = re.sub(pattern1, new_text, fixed_content, count=1, flags=re.MULTILINE)
+            changes_made.append(f"Fixed chapter header: '{old_text}' → '{new_text}'")
+    
+    # Pattern 2: Multiple chapter headers like "Chapter 225: Chapter 226:" 
+    pattern2 = r'Chapter\s+(\d+):\s*Chapter\s+(\d+):'
+    match2 = re.search(pattern2, fixed_content)
+    if match2:
+        # This indicates a merge issue - fix to single correct header
+        old_text = match2.group(0)
+        new_text = f"Chapter {expected_chapter_num}:"
+        fixed_content = re.sub(pattern2, new_text, fixed_content, count=1)
+        changes_made.append(f"Fixed duplicate headers: '{old_text}' → '{new_text}'")
+    
+    # Pattern 3: Chapter references in text body (less aggressive)
+    # Only fix obvious chapter references at start of lines or after periods
+    pattern3 = r'(^|\. )Chapter\s+(\d+)\s+([A-Z][a-z]+)'
+    matches3 = list(re.finditer(pattern3, fixed_content))
+    for match in reversed(matches3):  # Process backwards to avoid position shifts
+        found_num = int(match.group(2))
+        # Only fix if the number is clearly wrong (off by more than expected variance)
+        if abs(found_num - expected_chapter_num) == 1:  # Likely renumbering issue
+            old_text = match.group(0)
+            new_text = f"{match.group(1)}Chapter {expected_chapter_num} {match.group(3)}"
+            start, end = match.span()
+            fixed_content = fixed_content[:start] + new_text + fixed_content[end:]
+            changes_made.append(f"Fixed body reference: '{old_text.strip()}' → '{new_text.strip()}'")
+    
+    return fixed_content, changes_made
+
+def find_all_english_files(directory):
+    """
+    Find all English chapter files and return sorted list with their chapter numbers.
+    
+    Returns:
+        list: Tuples of (chapter_num, filepath) sorted by chapter number
+    """
+    english_files = []
+    for filename in os.listdir(directory):
+        match = re.search(r'English-Chapter-(\d+)\.txt', filename)
+        if match:
+            chapter_num = int(match.group(1))
+            filepath = os.path.join(directory, filename)
+            english_files.append((chapter_num, filepath))
+    
+    return sorted(english_files, key=lambda x: x[0])
+
+def perform_cascading_shift(directory, start_from_chapter):
+    """
+    Perform cascading rename to shift all English files from start_from_chapter onwards by +1.
+    
+    Args:
+        directory: Directory containing English chapter files
+        start_from_chapter: Chapter number to start shifting from
+        
+    Returns:
+        tuple: (success: bool, files_shifted: list, message: str)
+    """
+    # Find all English files that need to be shifted
+    all_files = find_all_english_files(directory)
+    files_to_shift = [(ch_num, path) for ch_num, path in all_files if ch_num >= start_from_chapter]
+    
+    if not files_to_shift:
+        return True, [], "No files need to be shifted"
+    
+    # Sort in descending order to avoid overwrites (process from highest to lowest)
+    files_to_shift.sort(key=lambda x: x[0], reverse=True)
+    
+    files_shifted = []
+    
+    try:
+        for old_ch_num, old_path in files_to_shift:
+            new_ch_num = old_ch_num + 1
+            new_filename = f"English-Chapter-{new_ch_num:04d}.txt"
+            new_path = os.path.join(directory, new_filename)
+            
+            # Perform the rename
+            os.rename(old_path, new_path)
+            files_shifted.append(f"Ch.{old_ch_num} → Ch.{new_ch_num}")
+        
+        return True, files_shifted, f"Successfully shifted {len(files_shifted)} files"
+        
+    except Exception as e:
+        return False, files_shifted, f"Error during cascading shift: {e}"
+
+def split_english_chapter(filepath, split_marker, chapter_num, alignment_map):
+    """
+    Splits a chapter file into two using robust "Split and Shift" algorithm.
+    Safely handles existing files by performing cascading renames.
+    
+    Args:
+        filepath: Path to the English chapter file to split
+        split_marker: Text marker that indicates start of next chapter
+        chapter_num: Current chapter number
+        alignment_map: The alignment mapping to update
+        
+    Returns:
+        tuple: (success: bool, message: str, changes_made: dict)
+    """
+    if not os.path.exists(filepath):
+        return False, f"File to split not found: {filepath}", {}
+
+    # Read the original content
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            original_content = f.read()
+    except Exception as e:
+        return False, f"Error reading file: {e}", {}
+
+    # Check if split marker exists
+    if split_marker not in original_content:
+        return False, f"Split marker not found in chapter content. Searched for: '{split_marker[:100]}...'", {}
+
+    # Find the split position
+    split_parts = original_content.split(split_marker, 1)
+    if len(split_parts) != 2:
+        return False, "Could not split content properly", {}
+    
+    content_before_split = split_parts[0].strip()
+    content_after_split = (split_marker + split_parts[1]).strip()
+
+    # Validate that we're not creating empty files
+    if len(content_before_split) < 50:
+        return False, "Split would create a very short first chapter (< 50 characters)", {}
+    if len(content_after_split) < 50:
+        return False, "Split would create a very short second chapter (< 50 characters)", {}
+
+    try:
+        # --- Step 1: Fix content numbering ---
+        # Fix the content that will remain in the original chapter
+        fixed_content_before, content_fixes_before = fix_chapter_numbering_in_content(
+            content_before_split, chapter_num
+        )
+        
+        # Fix the content that will become the new chapter
+        new_chapter_num = chapter_num + 1
+        fixed_content_after, content_fixes_after = fix_chapter_numbering_in_content(
+            content_after_split, new_chapter_num
+        )
+        
+        # --- Step 2: Robust file creation with cascading shift ---
+        directory = os.path.dirname(filepath)
+        new_filepath = os.path.join(directory, f"English-Chapter-{new_chapter_num:04d}.txt")
+        
+        files_shifted = []
+        
+        # Check if new file would conflict with existing file
+        if os.path.exists(new_filepath):
+            # Perform cascading shift to make room for the new file
+            shift_success, files_shifted, shift_message = perform_cascading_shift(directory, new_chapter_num)
+            if not shift_success:
+                return False, f"Failed to shift existing files: {shift_message}", {}
+        
+        # Now it's safe to create the new file
+        with open(new_filepath, 'w', encoding='utf-8') as f:
+            f.write(fixed_content_after)
+        
+        # --- Step 3: Update the original file with fixed truncated content ---
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(fixed_content_before)
+        
+        # --- Step 4: Update alignment map to reflect the new file structure ---
+        alignment_updates = []
+        content_fixes_all = []
+        
+        # Now fix content numbering in all the shifted files
+        if files_shifted:
+            for shift_info in files_shifted:
+                # Parse the shift info (format: "Ch.225 → Ch.226")
+                parts = shift_info.split(" → ")
+                if len(parts) == 2:
+                    old_ch_str = parts[0].replace("Ch.", "")
+                    new_ch_str = parts[1].replace("Ch.", "")
+                    try:
+                        old_ch_num = int(old_ch_str)
+                        new_ch_num = int(new_ch_str)
+                        
+                        # Fix content numbering in the shifted file
+                        shifted_filepath = os.path.join(directory, f"English-Chapter-{new_ch_num:04d}.txt")
+                        if os.path.exists(shifted_filepath):
+                            with open(shifted_filepath, 'r', encoding='utf-8') as f:
+                                file_content = f.read()
+                            
+                            fixed_content, content_fixes = fix_chapter_numbering_in_content(file_content, new_ch_num)
+                            
+                            with open(shifted_filepath, 'w', encoding='utf-8') as f:
+                                f.write(fixed_content)
+                            
+                            if content_fixes:
+                                content_fixes_all.extend([f"Ch.{new_ch_num}: {fix}" for fix in content_fixes])
+                    except ValueError:
+                        continue
+        
+        # Update alignment map for all affected English files
+        for ch_str, ch_data in alignment_map.items():
+            if ch_data.get('english_file'):
+                # Extract English chapter number from current filename
+                match = re.search(r'English-Chapter-(\d+)\.txt', ch_data['english_file'])
+                if match:
+                    current_eng_num = int(match.group(1))
+                    
+                    # If this English file was shifted, update the alignment map
+                    if current_eng_num >= new_chapter_num:
+                        new_eng_num = current_eng_num + 1
+                        new_eng_filepath = os.path.join(directory, f"English-Chapter-{new_eng_num:04d}.txt")
+                        alignment_map[ch_str]['english_file'] = new_eng_filepath
+                        alignment_updates.append(f"Raw Ch.{ch_str} → English-Chapter-{new_eng_num:04d}.txt")
+        
+        # Add the new chapter to alignment map if raw chapter exists
+        if str(new_chapter_num) in alignment_map:
+            alignment_map[str(new_chapter_num)]['english_file'] = new_filepath
+            alignment_updates.append(f"Raw Ch.{new_chapter_num} → English-Chapter-{new_chapter_num:04d}.txt (NEW)")
+        
+        changes_made = {
+            'original_file': os.path.basename(filepath),
+            'new_file': os.path.basename(new_filepath),
+            'files_shifted': files_shifted,
+            'alignment_updates': alignment_updates,
+            'content_fixes': {
+                'split_files': content_fixes_before + content_fixes_after,
+                'shifted_files': content_fixes_all
+            },
+            'split_marker_used': split_marker[:100] + "..." if len(split_marker) > 100 else split_marker,
+            'total_content_fixes': len(content_fixes_before) + len(content_fixes_after) + len(content_fixes_all),
+            'cascade_operation': len(files_shifted) > 0
+        }
+        
+        success_msg = f"Successfully split Chapter {chapter_num}. Created {os.path.basename(new_filepath)} and shifted {len(files_shifted)} other files."
+        return True, success_msg, changes_made
+        
+    except Exception as e:
+        return False, f"Error during split operation: {e}", {}
+
 # --- UI Layout ---
 st.set_page_config(layout="wide", page_title="Master Review Tool")
 st.title("📖 Master Translation Review & Alignment Tool")
@@ -1028,11 +1316,167 @@ streamlit run master_review_tool.py
     else:
         st.sidebar.info("🔄 Translate with Gemini to enable alignment analysis")
 
+    # --- Chapter Tools ---
+    st.sidebar.divider()
+    st.sidebar.header("🛠️ Chapter Tools")
+    
+    # Split Chapter Tool
+    if chapter_data.get("english_file") and os.path.exists(chapter_data["english_file"]):
+        with st.sidebar.expander("✂️ Split Chapter Tool"):
+            st.info(f"Use this if Chapter {selected_chapter}'s English file contains content from the next chapter.")
+            
+            # Show current chapter statistics for context
+            current_content = load_chapter_content(chapter_data["english_file"])
+            current_stats = get_text_stats(current_content)
+            
+            st.markdown("**📊 Current Chapter Stats:**")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Words", f"{current_stats['word_count']:,}")
+            with col2:
+                st.metric("Characters", f"{current_stats['char_count']:,}")
+            with col3:
+                st.metric("Lines", f"{current_stats['line_count']:,}")
+            
+            # Alert if chapter looks suspiciously large
+            if current_stats['word_count'] > 8000:
+                st.warning("⚠️ **Chapter is unusually long** - likely contains merged content!")
+            
+            split_marker = st.text_input(
+                "Start of Next Chapter:", 
+                help='Paste the exact text that marks the beginning of the next chapter (e.g., "Chapter 225: Title")',
+                placeholder="Chapter 225: Title Text..."
+            )
+            
+            if split_marker:
+                # Preview where the split would occur
+                current_content = load_chapter_content(chapter_data["english_file"])
+                if split_marker in current_content:
+                    split_pos = current_content.find(split_marker)
+                    st.success(f"✅ Split marker found at position {split_pos:,}")
+                    
+                    # Show preview of content before and after split
+                    before_content = current_content[:split_pos].strip()
+                    after_content = current_content[split_pos:].strip()
+                    
+                    # Get detailed statistics for both parts
+                    before_stats = get_text_stats(before_content)
+                    after_stats = get_text_stats(after_content)
+                    
+                    st.markdown("**📊 Split Statistics:**")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("**Will remain in Ch.{0}:**".format(selected_chapter))
+                        st.metric("Characters", f"{before_stats['char_count']:,}")
+                        st.metric("Words", f"{before_stats['word_count']:,}")
+                        st.metric("Lines", f"{before_stats['line_count']:,}")
+                    with col2:
+                        st.markdown("**Will become Ch.{0}:**".format(selected_chapter + 1))
+                        st.metric("Characters", f"{after_stats['char_count']:,}")
+                        st.metric("Words", f"{after_stats['word_count']:,}")
+                        st.metric("Lines", f"{after_stats['line_count']:,}")
+                    
+                    # Show word count ratio for sanity check
+                    if before_stats['word_count'] > 0 and after_stats['word_count'] > 0:
+                        ratio = before_stats['word_count'] / after_stats['word_count']
+                        if ratio > 3.0 or ratio < 0.33:
+                            st.warning(f"⚠️ Uneven split: {ratio:.1f}:1 ratio - double-check split position")
+                        else:
+                            st.success(f"✅ Balanced split: {ratio:.1f}:1 ratio")
+                    
+                    # Show preview text
+                    with st.expander("📋 Preview Split"):
+                        st.text_area("Will remain in current chapter:", before_content[-200:], height=100, disabled=True)
+                        st.text_area("Will become new chapter:", after_content[:200], height=100, disabled=True)
+                    
+                    # Confirmation checkbox
+                    split_confirmed = st.checkbox(
+                        f"I want to split Chapter {selected_chapter} at this position",
+                        help="This will create a new file and renumber subsequent chapters"
+                    )
+                    
+                    if split_confirmed and st.button("✂️ Execute Split", type="primary", use_container_width=True):
+                        with st.spinner("Splitting chapter and updating alignment..."):
+                            success, message, changes = split_english_chapter(
+                                chapter_data["english_file"],
+                                split_marker,
+                                selected_chapter,
+                                alignment_map
+                            )
+                        
+                        if success:
+                            # Save the updated alignment map
+                            backup_file = save_alignment_map_safely(alignment_map, "alignment_map.json")
+                            
+                            st.success("🎉 **Split successful!**")
+                            st.info(f"📁 Backup saved: {backup_file}")
+                            
+                            # Show summary of changes
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("Files Shifted", len(changes.get('files_shifted', [])))
+                            with col2:
+                                st.metric("Content Fixes", changes.get('total_content_fixes', 0))
+                            with col3:
+                                st.metric("Alignments Updated", len(changes.get('alignment_updates', [])))
+                            with col4:
+                                cascade_op = changes.get('cascade_operation', False)
+                                st.metric("Cascade Operation", "Yes" if cascade_op else "No")
+                            
+                            # Show detailed changes
+                            with st.expander("📊 Detailed Changes"):
+                                if changes.get('cascade_operation'):
+                                    st.success("🔄 **Robust Split and Shift** operation completed successfully!")
+                                    st.info("All existing files were safely shifted to make room for the new chapter.")
+                                
+                                st.subheader("📁 File Operations")
+                                st.text(f"✂️ Split: {changes.get('original_file')} → {changes.get('new_file')}")
+                                
+                                if changes.get('files_shifted'):
+                                    st.text("🔄 Files shifted:")
+                                    for shift in changes['files_shifted']:
+                                        st.text(f"  📄 {shift}")
+                                
+                                st.subheader("🔧 Content Fixes")
+                                content_fixes = changes.get('content_fixes', {})
+                                if content_fixes.get('split_files'):
+                                    st.text("Split files:")
+                                    for fix in content_fixes['split_files']:
+                                        st.text(f"  ✏️ {fix}")
+                                
+                                if content_fixes.get('shifted_files'):
+                                    st.text("Shifted files:")
+                                    for fix in content_fixes['shifted_files']:
+                                        st.text(f"  ✏️ {fix}")
+                                
+                                if not content_fixes.get('split_files') and not content_fixes.get('shifted_files'):
+                                    st.text("✅ No content numbering issues found")
+                                
+                                st.subheader("🗺️ Alignment Updates")
+                                for update in changes.get('alignment_updates', []):
+                                    st.text(f"🎯 {update}")
+                                
+                                st.subheader("📍 Split Details")
+                                st.text(f"Marker used: {changes.get('split_marker_used', 'N/A')}")
+                            
+                            st.info("🔄 Page will reload in 3 seconds...")
+                            time.sleep(3)
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Split failed: {message}")
+                else:
+                    st.warning("❌ Split marker not found in current chapter")
+            else:
+                st.caption("💡 **How to use:** Copy the exact text that starts the next chapter and paste it above")
+    else:
+        st.sidebar.info("✂️ Split tool requires an English chapter file")
+    
     # --- Chapter Info ---
     st.sidebar.divider()
     st.sidebar.header("📋 Chapter Info")
     st.sidebar.info(f"**Currently viewing:** Chapter {selected_chapter}")
     
+    # File availability status
     if chapter_data.get("english_file"):
         st.sidebar.success("✅ English translation available")
     else:
@@ -1042,6 +1486,70 @@ streamlit run master_review_tool.py
         st.sidebar.success("✅ Chinese raw available")
     else:
         st.sidebar.warning("❌ No Chinese raw linked")
+    
+    # Text statistics
+    st.sidebar.subheader("📊 Text Statistics")
+    
+    # English chapter stats
+    if chapter_data.get("english_file"):
+        eng_content = load_chapter_content(chapter_data["english_file"])
+        eng_stats = get_text_stats(eng_content)
+        
+        st.sidebar.markdown("**📖 English Chapter:**")
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            st.metric("Words", f"{eng_stats['word_count']:,}")
+            st.metric("Lines", f"{eng_stats['line_count']:,}")
+        with col2:
+            st.metric("Characters", f"{eng_stats['char_count']:,}")
+            st.metric("Words/Line", f"{eng_stats['avg_words_per_line']}")
+        
+        # Suspicious size detection
+        if eng_stats['word_count'] > 8000:  # Typical chapter is ~3000-5000 words
+            st.sidebar.warning("⚠️ **Unusually long chapter** - possible merge detected!")
+        elif eng_stats['word_count'] < 1000:
+            st.sidebar.warning("⚠️ **Unusually short chapter** - possible content missing!")
+    
+    # Chinese chapter stats
+    if chapter_data.get("raw_file"):
+        raw_content = load_chapter_content(chapter_data["raw_file"])
+        raw_stats = get_text_stats(raw_content)
+        
+        st.sidebar.markdown("**📜 Chinese Chapter:**")
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            st.metric("Words", f"{raw_stats['word_count']:,}")
+            st.metric("Lines", f"{raw_stats['line_count']:,}")
+        with col2:
+            st.metric("Characters", f"{raw_stats['char_count']:,}")
+            st.metric("Words/Line", f"{raw_stats['avg_words_per_line']}")
+        
+        # Suspicious size detection for Chinese
+        if raw_stats['word_count'] > 5000:  # Chinese chapters tend to be shorter
+            st.sidebar.warning("⚠️ **Unusually long chapter** - possible merge detected!")
+        elif raw_stats['word_count'] < 500:
+            st.sidebar.warning("⚠️ **Unusually short chapter** - possible content missing!")
+    
+    # Length comparison if both files exist
+    if chapter_data.get("english_file") and chapter_data.get("raw_file"):
+        eng_content = load_chapter_content(chapter_data["english_file"])
+        raw_content = load_chapter_content(chapter_data["raw_file"])
+        eng_stats = get_text_stats(eng_content)
+        raw_stats = get_text_stats(raw_content)
+        
+        # Calculate ratio (English tends to be longer than Chinese)
+        if eng_stats['word_count'] > 0 and raw_stats['word_count'] > 0:
+            ratio = eng_stats['word_count'] / raw_stats['word_count']
+            st.sidebar.markdown("**🔄 Length Comparison:**")
+            
+            if ratio > 4.0:
+                st.sidebar.error(f"📏 English/Chinese ratio: {ratio:.1f}x - **Very suspicious!**")
+            elif ratio > 3.0:
+                st.sidebar.warning(f"📏 English/Chinese ratio: {ratio:.1f}x - **Check alignment**")
+            elif ratio < 1.5:
+                st.sidebar.warning(f"📏 English/Chinese ratio: {ratio:.1f}x - **Too short?**")
+            else:
+                st.sidebar.success(f"📏 English/Chinese ratio: {ratio:.1f}x - **Normal range**")
 
     # --- Main Content Display using container ---
     with main_content:
