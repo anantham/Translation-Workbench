@@ -7,7 +7,12 @@
 - ✅ Raw data scraping working perfectly (dxmwx.org)
 - ✅ English EPUB processing complete (772 chapters extracted)
 - ✅ Reconnaissance and framework validation complete
-- 🔄 **CURRENT TASK**: Align first 772 Chinese raw chapters with English translation
+- ✅ Complete MLOps Translation Workbench implemented
+- ✅ Multi-page Streamlit application with modular architecture
+- ✅ Dataset alignment and curation tools perfected
+- ✅ Fine-tuning workbench with Google AI SDK integration
+- ✅ Experimentation lab with model comparison and evaluation
+- 🔄 **CURRENT TASK**: Debug build_and_report.py and expand to Pluralistic Translation Workbench
 
 ### Project Overview
 Goal: Create aligned Chinese-English parallel text dataset for "Way of the Devil" web novel
@@ -147,3 +152,153 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 3. **List exact files** that will be modified and why
 4. **Include testing steps** for the reviewer
 5. **Backup critical files** before major changes
+
+## PLURALISTIC TRANSLATION WORKBENCH - FUTURE ROADMAP
+
+### Current Implementation: MLOps Research Platform
+**What We Built (Dec 2024):**
+- 📖 **Data Review & Alignment**: Chapter-by-chapter curation with binary search misalignment detection
+- 🤖 **Fine-tuning Workbench**: Complete model training pipeline with Google AI SDK
+- 🧪 **Experimentation Lab**: Statistical model comparison and evaluation with BLEU/semantic scores
+- 🔧 **Modular Architecture**: utils.py shared functions, multi-page Streamlit app
+
+### Target Vision: Pluralistic Translation Workbench
+**What We Want to Build:**
+
+#### 🎨 **Prompt Engineering Suite** (New Page 4)
+**Philosophy**: "There isn't one correct translation" - optimize for different purposes
+- **Prompt Library**: Save/manage translation styles
+  - "Literal": High accuracy, retain structure
+  - "Dynamic": Modern Western audience, dramatic flow  
+  - "Simplified": Young adult reading level
+  - "Poetic": Emphasis on literary beauty
+- **A/B Testing Interface**: Compare prompts on same chapter
+- **Style Analytics**: Which prompts work best for different content types
+
+#### 📊 **Enhanced Multi-Metric Dashboard** 
+**Current**: BLEU + Semantic Similarity
+**Target**: Complete evaluation suite
+- **BLEU Score**: N-gram overlap, sentence structure
+- **ROUGE Score**: Recall of key phrases  
+- **BERT Semantic**: Meaning preservation (existing)
+- **Readability Scores**: Flesch-Kincaid, SMOG
+- **Style Consistency**: Terminology, tone analysis
+- **Cultural Adaptation**: Idiom handling, localization quality
+
+#### 📖 **EPUB Creator & Export Engine** (New Page 5)
+**The "Productization" Step**
+- **Translation Source Selection**: Choose style (Official, AI-Literal, AI-Dynamic, etc.)
+- **Batch EPUB Generation**: Full novel in chosen translation style
+- **Multi-Version Exports**: Generate multiple EPUB versions simultaneously
+- **Quality Validation**: Pre-export consistency checking
+- **Metadata Management**: Author, translator credits, version tracking
+
+#### 🔀 **Unified Workflow Architecture**
+```
+Stage 1: Data Curation (existing) 
+    → Perfect alignment_map.json
+
+Stage 2: Model Training (existing)
+    → Create specialized translation models  
+
+Stage 3: Prompt Engineering (NEW)
+    → Define translation styles and test approaches
+
+Stage 4: Multi-Translation Generation (NEW)
+    → Generate multiple versions of same content
+
+Stage 5: Evaluation & Selection (enhanced)
+    → Multi-metric comparison, human judgment integration
+
+Stage 6: EPUB Export (NEW)
+    → Production-ready translated novels
+```
+
+### Tradeoffs & Strategic Decisions
+
+#### **Current MLOps Implementation vs Pluralistic Vision**
+
+**MLOps Approach (What We Built)**
+- ✅ **Audience**: ML researchers, academics
+- ✅ **Output**: Trained models, research papers
+- ✅ **Strengths**: Cutting-edge, publication-worthy, technical depth
+- ❌ **Limitations**: High technical barrier, no immediate business value
+
+**Pluralistic Approach (Original Vision)**  
+- ✅ **Audience**: Content creators, publishers, translators
+- ✅ **Output**: Custom translated books, multiple styles
+- ✅ **Strengths**: Immediate business value, creative flexibility
+- ❌ **Limitations**: Limited to existing model capabilities
+
+#### **Recommended Hybrid Approach**
+**Keep MLOps foundation AND add Pluralistic features**
+- Serves both researchers AND content creators
+- Unique market positioning (no one else has both)
+- Technical depth + practical utility
+
+### Implementation Priority
+
+#### **Phase 1: Complete Pluralistic Vision (High Priority)**
+1. **🎨 Prompt Engineering Suite**
+   - Add pages/4_🎨_Prompt_Engineering.py
+   - Prompt library with preset styles
+   - A/B testing interface
+
+2. **📊 Enhanced Evaluation Metrics**
+   - Add ROUGE score calculation to utils.py
+   - Implement readability metrics
+   - Multi-metric comparison dashboard
+
+3. **📖 EPUB Export Engine**
+   - Add pages/5_📖_EPUB_Creator.py
+   - Translation source selection
+   - Batch export functionality
+
+#### **Phase 2: Advanced Features (Medium Priority)**
+1. **🎭 Style Analytics**: Which prompts work for which content
+2. **🌍 Cultural Adaptation Tools**: Idiom and localization handling
+3. **📝 Human-in-the-Loop Editing**: Post-AI translation refinement
+4. **⚡ Performance Optimization**: Caching, parallel processing
+
+#### **Phase 3: Business Features (Lower Priority)**  
+1. **👥 Multi-User Support**: Team collaboration features
+2. **🔐 Authentication & Permissions**: Role-based access
+3. **☁️ Cloud Deployment**: Scale beyond local machine
+4. **📈 Analytics Dashboard**: Usage tracking, quality trends
+
+### Known Issues to Debug
+- **build_and_report.py**: Needs debugging for dataset export functionality
+- **Dependencies**: Ensure all new requirements are properly specified
+- **Error Handling**: Robust fallbacks for API failures and missing data
+
+### File Structure After Full Implementation
+```
+/project_root
+├── 📂 data/                    # All data, cache, and backups
+├── 📂 pages/                   # Multi-page Streamlit app
+│   ├── 2_🤖_Fine-tuning_Workbench.py
+│   ├── 3_🧪_Experimentation_Lab.py  
+│   ├── 4_🎨_Prompt_Engineering.py      # NEW
+│   └── 5_📖_EPUB_Creator.py            # NEW
+├── 📜 master_review_tool.py     # Home page (data curation)
+├── 📜 utils.py                 # Shared functions
+├── 📜 build_and_report.py      # Dataset export (to debug)
+├── 📜 run_workbench.py         # Easy launcher
+└── 📂 epub_exports/            # Generated EPUB files
+```
+
+### Success Metrics
+**Technical Success**:
+- All pages functional with error handling
+- Multi-style translation generation working
+- EPUB export producing valid files
+
+**Business Success**:
+- Content creators can generate custom translated novels
+- Publishers can produce multiple reading-level versions  
+- Researchers can develop and compare translation approaches
+
+**Academic Success**:
+- Framework suitable for publication
+- Novel approach to translation style optimization
+- Contribution to pluralistic translation research
