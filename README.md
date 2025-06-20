@@ -164,6 +164,21 @@ python -m streamlit run master_review_tool.py
 - **Solution**: Apply corrections only from the problematic chapter onwards
 - **Result**: Preserve chapters 1-X, fix chapters X+ only
 
+### ✂️ Robust Chapter Splitting
+
+- **Problem**: Chapter merges (e.g., Chapter 224 contains both 224 + 225 content)
+- **Challenge**: Existing files prevent simple splitting (filename conflicts)
+- **Solution**: Cascading shift algorithm processes files backwards to avoid overwrites
+- **Intelligence**: Automatically fixes internal chapter numbering in all affected files
+- **Safety**: Atomic operations with full rollback on any failure
+
+### 📊 Merge Detection Intelligence
+
+- **Word Count Analysis**: Instant detection of unusually long chapters (8k+ words)
+- **Length Ratio Warnings**: English/Chinese ratios outside normal range (1.5x-2.5x)
+- **Visual Indicators**: Real-time statistics in sidebar for immediate feedback
+- **Split Validation**: Preview split results before executing changes
+
 ### 🧠 Semantic Similarity
 
 - **Technology**: BERT embeddings (paraphrase-multilingual-MiniLM-L12-v2)
@@ -175,6 +190,13 @@ python -m streamlit run master_review_tool.py
 - **BERT Similarity Scores**: Cached to avoid recomputation
 - **AI Translations**: File-based cache reduces API calls
 - **Performance**: 10x faster on repeated operations
+
+### 🎛️ Enhanced Navigation
+
+- **Smart Chapter Selection**: Dropdown starts at current chapter (no scrolling!)
+- **One-Click Navigation**: Previous/Next buttons for adjacent chapters
+- **Quick Jump**: Direct input for distant chapter numbers
+- **Context Preservation**: Maintains position when switching between analysis modes
 
 ## 📁 Project Structure
 
@@ -301,10 +323,14 @@ Edit these files for customization:
 
 | Operation | Without Framework | With Framework | Improvement |
 |-----------|-------------------|----------------|-------------|
-| Find misalignment | 772 manual checks | 10 binary search steps | **77x faster** |
-| Apply corrections | All chapters affected | Surgical from problem point | **Preserves good data** |
-| Similarity calculation | Text pattern matching | BERT semantic understanding | **Higher accuracy** |
-| Repeated operations | Full recalculation | Smart caching | **10x faster** |
+| **Find misalignment** | 772 manual checks | 10 binary search steps | **77x faster** |
+| **Apply corrections** | All chapters affected | Surgical from problem point | **Preserves good data** |
+| **Similarity calculation** | Text pattern matching | BERT semantic understanding | **Higher accuracy** |
+| **Repeated operations** | Full recalculation | Smart caching | **10x faster** |
+| **Chapter splitting** | Manual file juggling + errors | Robust cascade + validation | **100% reliability** |
+| **Merge detection** | Manual inspection | Instant statistical analysis | **Immediate feedback** |
+| **Navigation** | Scroll through 772 chapters | Smart positioning + hotkeys | **Effortless browsing** |
+| **Content cleaning** | Manual regex editing | Automated pattern fixing | **ML-ready output** |
 
 ## 🤝 Contributing
 
