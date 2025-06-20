@@ -800,20 +800,30 @@ def split_english_chapter(filepath, split_marker, chapter_num, alignment_map):
                     except ValueError:
                         continue
         
-        # Update alignment map for all affected English files
+        # Update alignment map based on actual files that were shifted
         for ch_str, ch_data in alignment_map.items():
             if ch_data.get('english_file'):
-                # Extract English chapter number from current filename
+                # Extract English chapter number from current filename in alignment map
                 match = re.search(r'English-Chapter-(\d+)\.txt', ch_data['english_file'])
                 if match:
                     current_eng_num = int(match.group(1))
                     
-                    # If this English file was shifted, update the alignment map
-                    if current_eng_num >= new_chapter_num:
+                    # Check if this file was actually shifted (exists in our files_shifted list)
+                    was_shifted = any(f"Ch.{current_eng_num} →" in shift for shift in files_shifted)
+                    
+                    if was_shifted:
+                        # Update to the new location after shift
                         new_eng_num = current_eng_num + 1
                         new_eng_filepath = os.path.join(directory, f"English-Chapter-{new_eng_num:04d}.txt")
                         alignment_map[ch_str]['english_file'] = new_eng_filepath
                         alignment_updates.append(f"Raw Ch.{ch_str} → English-Chapter-{new_eng_num:04d}.txt")
+                    elif current_eng_num >= new_chapter_num:
+                        # This handles cases where alignment was already off but file exists
+                        # We need to check if the file actually exists and update accordingly
+                        expected_file = os.path.join(directory, f"English-Chapter-{current_eng_num + 1:04d}.txt")
+                        if os.path.exists(expected_file):
+                            alignment_map[ch_str]['english_file'] = expected_file
+                            alignment_updates.append(f"Raw Ch.{ch_str} → English-Chapter-{current_eng_num + 1:04d}.txt (corrected)")
         
         # Add the new chapter to alignment map if raw chapter exists
         if str(new_chapter_num) in alignment_map:
