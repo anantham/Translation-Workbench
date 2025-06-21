@@ -108,6 +108,43 @@ if alignment_map:
     # --- Sidebar Controls ---
     st.sidebar.header("🎛️ Controls")
     
+    # Translation source selection
+    def get_available_translation_sources():
+        """Get list of available translation sources."""
+        sources = ["Official English"]
+        custom_dir = os.path.join(DATA_DIR, "custom_translations")
+        if os.path.exists(custom_dir):
+            for run_name in os.listdir(custom_dir):
+                run_path = os.path.join(custom_dir, run_name)
+                if os.path.isdir(run_path):
+                    # Check if it has translation files
+                    txt_files = [f for f in os.listdir(run_path) if f.endswith('.txt') and 'translated' in f]
+                    if txt_files:
+                        sources.append(f"Custom: {run_name}")
+        return sources
+    
+    def load_translation_content(selected_source, chapter_num, chapter_data):
+        """Load translation content based on selected source."""
+        if selected_source == "Official English":
+            # Use official English from alignment map
+            eng_filepath = chapter_data.get("english_file")
+            return load_chapter_content(eng_filepath), eng_filepath
+        elif selected_source.startswith("Custom: "):
+            # Load from custom translation run
+            run_name = selected_source[8:]  # Remove "Custom: " prefix
+            custom_file = f"Chapter-{chapter_num:04d}-translated.txt"
+            custom_path = os.path.join(DATA_DIR, "custom_translations", run_name, custom_file)
+            return load_chapter_content(custom_path), custom_path
+        else:
+            return "Unknown source selected", None
+    
+    available_sources = get_available_translation_sources()
+    selected_source = st.sidebar.selectbox(
+        "📚 Translation Source:",
+        options=available_sources,
+        help="Choose which translation to compare against raw Chinese"
+    )
+    
     # Smart chapter selection with navigation
     col1, col2, col3 = st.sidebar.columns([1, 2, 1])
     
@@ -705,12 +742,17 @@ streamlit run master_review_tool.py
     # Text statistics
     st.sidebar.subheader("📊 Text Statistics")
     
-    # English chapter stats
-    if chapter_data.get("english_file"):
-        eng_content = load_chapter_content(chapter_data["english_file"])
+    # Translation chapter stats (based on selected source)
+    eng_content, _ = load_translation_content(selected_source, selected_chapter, chapter_data)
+    if eng_content and "File not found" not in eng_content:
         eng_stats = get_text_stats(eng_content, language_hint='english')
         
-        st.sidebar.markdown("**📖 English Chapter:**")
+        # Dynamic label based on source
+        if selected_source == "Official English":
+            st.sidebar.markdown("**📖 English Chapter:**")
+        else:
+            run_name = selected_source[8:] if selected_source.startswith("Custom: ") else "Translation"
+            st.sidebar.markdown(f"**📝 {run_name}:**")
         col1, col2 = st.sidebar.columns(2)
         with col1:
             st.metric("Words", f"{eng_stats['word_count']:,}")
@@ -724,6 +766,13 @@ streamlit run master_review_tool.py
             st.sidebar.warning("⚠️ **Unusually long chapter** - possible merge detected!")
         elif eng_stats['word_count'] < 1000:
             st.sidebar.warning("⚠️ **Unusually short chapter** - possible content missing!")
+    else:
+        # Translation not available
+        if selected_source == "Official English":
+            st.sidebar.warning("❌ No English translation linked")
+        else:
+            run_name = selected_source[8:] if selected_source.startswith("Custom: ") else "Translation"
+            st.sidebar.warning(f"❌ Chapter {selected_chapter} not available in {run_name}")
     
     # Chinese chapter stats
     if chapter_data.get("raw_file"):
@@ -1097,11 +1146,27 @@ streamlit run master_review_tool.py
             st.caption(f"File: {chapter_data.get('raw_file', 'N/A')}")
             
         with col2:
-            st.subheader("📖 Official Translation")
-            eng_filepath = chapter_data.get("english_file")
-            eng_content = load_chapter_content(eng_filepath)
-            st.text_area("Official English Content", eng_content, height=600, key="eng_text")
-            st.caption(f"File: {eng_filepath or 'Not available'}")
+            # Dynamic header based on selected source
+            if selected_source == "Official English":
+                st.subheader("📖 Official Translation")
+            else:
+                st.subheader(f"📝 {selected_source}")
+            
+            # Load content based on selected source
+            eng_content, eng_filepath = load_translation_content(selected_source, selected_chapter, chapter_data)
+            
+            # Show content and source info
+            st.text_area("Translation Content", eng_content, height=600, key="eng_text")
+            
+            # Show source information
+            if selected_source == "Official English":
+                st.caption(f"File: {eng_filepath or 'Not available'}")
+            else:
+                run_name = selected_source[8:] if selected_source.startswith("Custom: ") else "Unknown"
+                if "File not found" in eng_content:
+                    st.caption(f"❌ Chapter {selected_chapter} not found in {run_name}")
+                else:
+                    st.caption(f"📁 Source: {run_name} | File: {os.path.basename(eng_filepath) if eng_filepath else 'N/A'}")
             
         with col3:
             st.subheader("🤖 AI Translation")

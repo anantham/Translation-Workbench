@@ -51,13 +51,13 @@ if not GOOGLE_AI_AVAILABLE:
 
 # --- API Functions ---
 @st.cache_data
-def get_in_context_examples(alignment_map, start_chapter, count):
+def get_in_context_examples(alignment_map, current_chapter_num, count):
     """Gets the historical data for the few-shot prompt."""
     examples = []
-    # Find chapters before the start chapter that have aligned files
+    # Find chapters before the current chapter that have aligned files
     available_history = sorted([
         int(k) for k, v in alignment_map.items() 
-        if int(k) < start_chapter and v.get("raw_file") and v.get("english_file")
+        if int(k) < current_chapter_num and v.get("raw_file") and v.get("english_file")
     ], reverse=True)
     
     chapters_to_use = available_history[:count]
@@ -119,7 +119,7 @@ api_key = st.sidebar.text_input("🔑 Gemini API Key:", type="password", help="R
 
 with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
     # For MVP, we hardcode the model but this is where a dropdown would go
-    model_name = "gemini-1.5-pro-latest"
+    model_name = "gemini-2.5-pro"
     st.info(f"**Model:** `{model_name}`")
     
     # Prompt templates
@@ -152,11 +152,11 @@ with st.sidebar.expander("🎯 Translation Task", expanded=True):
     start_chapter = col1.number_input("Start Chapter (A)", min_value=1, value=700, help="First chapter to translate")
     end_chapter = col2.number_input("End Chapter (B)", min_value=start_chapter, value=705, help="Last chapter to translate")
     
-    history_count = st.slider(
+    history_count = st.number_input(
         "History Chapters (C)", 
         min_value=0, 
-        max_value=10, 
-        value=3, 
+        max_value=50, 
+        value=5, 
         help="Number of preceding chapters to use as in-context examples"
     )
 
