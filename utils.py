@@ -21,9 +21,10 @@ CACHE_DIR = os.path.join(DATA_DIR, "cache")
 EXPORT_DIR = os.path.join(DATA_DIR, "exports")
 TEMP_DIR = os.path.join(DATA_DIR, "temp")
 MODELS_DIR = os.path.join(DATA_DIR, "models")
+TRANSLATIONS_DIR = os.path.join(DATA_DIR, "custom_translations")
 
 # Ensure directories exist
-for directory in [DATA_DIR, CACHE_DIR, EXPORT_DIR, TEMP_DIR, MODELS_DIR]:
+for directory in [DATA_DIR, CACHE_DIR, EXPORT_DIR, TEMP_DIR, MODELS_DIR, TRANSLATIONS_DIR]:
     os.makedirs(directory, exist_ok=True)
 
 # --- Import detection for optional dependencies ---

@@ -1,6 +1,6 @@
 """
-🧪 Experimentation Lab
-Compare fine-tuned models vs in-context learning with base models
+📈 Experimentation Analysis
+Compare fine-tuned models vs in-context learning with base models and analyze translation outputs
 """
 
 import streamlit as st
@@ -18,13 +18,13 @@ from utils import *
 
 # Page configuration
 st.set_page_config(
-    page_title="Experimentation Lab", 
-    page_icon="🧪", 
+    page_title="📈 Experimentation Analysis", 
+    page_icon="📈", 
     layout="wide"
 )
 
-st.title("🧪 Experimentation Lab")
-st.caption("**Model Comparison & Evaluation** | Test fine-tuned models vs in-context learning")
+st.title("📈 Experimentation Analysis")
+st.caption("**Translation Framework Workbench** | Compare models, analyze quality, and evaluate translation outputs")
 
 # --- Sidebar: Experiment Configuration ---
 st.sidebar.header("🎯 Experiment Setup")
