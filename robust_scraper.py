@@ -116,14 +116,47 @@ def scrape_backwards_final(start_url: str, output_dir: str, metadata_file: str):
         print("-" * 70)
         print(f"  -> Processing URL: {current_url}")
         
-        # Check if file already exists based on metadata
+        # Check if file already exists based on metadata AND verify actual file existence
+        cache_hit = False
         for ch_num, chapter_info in metadata.get("chapters", {}).items():
-            if chapter_info.get("url") == current_url and chapter_info.get("file_exists"):
-                print(f"    [CACHE HIT] Chapter {ch_num} already processed.")
-                current_url = chapter_info.get("previous_url")
-                last_known_good_num = int(ch_num)
-                break
-        else:
+            if chapter_info.get("url") == current_url:
+                # Construct expected filepath
+                title = chapter_info.get("title", f"Chapter {ch_num}")
+                filename = sanitize_filename(f"Chapter-{int(ch_num):04d}-{title}.txt")
+                expected_filepath = os.path.join(output_dir, filename)
+                
+                # Dual verification: metadata + file system
+                metadata_says_exists = chapter_info.get("file_exists", False)
+                file_actually_exists = os.path.exists(expected_filepath)
+                
+                if metadata_says_exists and file_actually_exists:
+                    # True cache hit - both metadata and file agree
+                    print(f"    [CACHE HIT] Chapter {ch_num} already processed.")
+                    current_url = chapter_info.get("previous_url")
+                    last_known_good_num = int(ch_num)
+                    cache_hit = True
+                    break
+                elif metadata_says_exists and not file_actually_exists:
+                    # Metadata is stale - file was deleted
+                    print(f"    [STALE CACHE] Chapter {ch_num} marked as existing but file missing: {filename}")
+                    print(f"    [FIXING] Updating metadata and re-scraping...")
+                    # Update metadata to reflect reality
+                    metadata["chapters"][ch_num]["file_exists"] = False
+                    save_metadata(metadata, metadata_file)
+                    # Don't break - continue to scraping logic
+                    break
+                elif not metadata_says_exists and file_actually_exists:
+                    # File exists but metadata doesn't know - update metadata
+                    print(f"    [ORPHANED FILE] Chapter {ch_num} file exists but not in metadata: {filename}")
+                    print(f"    [FIXING] Updating metadata to reflect existing file...")
+                    metadata["chapters"][ch_num]["file_exists"] = True
+                    save_metadata(metadata, metadata_file)
+                    current_url = chapter_info.get("previous_url")
+                    last_known_good_num = int(ch_num)
+                    cache_hit = True
+                    break
+        
+        if not cache_hit:
             # No cache hit, proceed with scraping
             soup = fetch_with_retry(current_url, headers)
             if not soup:
