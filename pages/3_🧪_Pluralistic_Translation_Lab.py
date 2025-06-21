@@ -11,7 +11,10 @@ from utils import (
     load_chapter_content,
     get_text_stats,
     DATA_DIR,
-    GOOGLE_AI_AVAILABLE
+    GOOGLE_AI_AVAILABLE,
+    load_api_config,
+    get_config_value,
+    show_config_status
 )
 
 # --- Page Configuration ---
@@ -114,12 +117,32 @@ def generate_translation_with_history(api_key, model_name, system_prompt, histor
 # --- UI Sidebar ---
 st.sidebar.header("🔬 Experiment Controls")
 
-# API Key input
-api_key = st.sidebar.text_input("🔑 Gemini API Key:", type="password", help="Required for translation generation")
+# API Configuration Status
+api_key, api_source = load_api_config()
+config_status = show_config_status()
+
+if api_key:
+    st.sidebar.success(config_status)
+else:
+    st.sidebar.error(config_status)
+    st.sidebar.markdown("""
+    **Setup Instructions:**
+    1. **Option A (Recommended):** Set environment variable:
+       ```bash
+       export GEMINI_API_KEY="your-api-key-here"
+       ```
+    2. **Option B:** Create `config.json`:
+       ```bash
+       cp config.example.json config.json
+       # Edit config.json with your API key
+       ```
+    3. Get your API key from: https://aistudio.google.com/app/apikey
+    """)
+    st.stop()
 
 with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
-    # For MVP, we hardcode the model but this is where a dropdown would go
-    model_name = "gemini-2.5-pro"
+    # Get model from config with fallback
+    model_name = get_config_value("default_model", "gemini-2.5-pro")
     st.info(f"**Model:** `{model_name}`")
     
     # Prompt templates
@@ -152,11 +175,13 @@ with st.sidebar.expander("🎯 Translation Task", expanded=True):
     start_chapter = col1.number_input("Start Chapter (A)", min_value=1, value=700, help="First chapter to translate")
     end_chapter = col2.number_input("End Chapter (B)", min_value=start_chapter, value=705, help="Last chapter to translate")
     
+    # Get default from config
+    default_history = get_config_value("default_history_count", 5)
     history_count = st.number_input(
         "History Chapters (C)", 
         min_value=0, 
         max_value=50, 
-        value=5, 
+        value=default_history, 
         help="Number of preceding chapters to use as in-context examples"
     )
 
@@ -167,12 +192,13 @@ with st.sidebar.expander("📁 Output Settings", expanded=True):
         help="Unique name for this translation bundle"
     )
     
-    # Add delay option for rate limiting
+    # Add delay option for rate limiting with config default
+    default_delay = get_config_value("api_delay", 1.0)
     api_delay = st.slider(
         "API Delay (seconds)", 
         min_value=0.5, 
         max_value=5.0, 
-        value=1.0, 
+        value=default_delay, 
         step=0.5,
         help="Delay between API calls to avoid rate limiting"
     )
@@ -237,8 +263,8 @@ if total_chapters > 0:
         if existing_files:
             st.warning(f"🔄 **Resume Mode:** Found {len(existing_files)} existing files. Will skip completed chapters.")
 
-# Validation
-start_button_disabled = not (api_key and total_chapters > 0 and run_name.strip() and system_prompt.strip())
+# Validation (API key already checked earlier with st.stop())
+start_button_disabled = not (total_chapters > 0 and run_name.strip() and system_prompt.strip())
 
 if st.button("🚀 Start Translation Job", disabled=start_button_disabled, type="primary", use_container_width=True):
     # Store job parameters in session state
@@ -256,7 +282,6 @@ if st.button("🚀 Start Translation Job", disabled=start_button_disabled, type=
 
 if start_button_disabled:
     missing_items = []
-    if not api_key: missing_items.append("API Key")
     if total_chapters == 0: missing_items.append("Valid chapter range")
     if not run_name.strip(): missing_items.append("Run name")
     if not system_prompt.strip(): missing_items.append("System prompt")

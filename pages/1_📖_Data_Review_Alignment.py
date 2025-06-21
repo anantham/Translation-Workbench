@@ -210,7 +210,16 @@ if alignment_map:
     
     # --- Gemini Translation ---
     st.sidebar.header("🤖 Gemini AI Translation")
-    api_key = st.sidebar.text_input("Enter Gemini API Key:", type="password")
+    
+    # API Configuration Status
+    api_key, api_source = load_api_config()
+    config_status = show_config_status()
+    
+    if api_key:
+        st.sidebar.success(config_status)
+    else:
+        st.sidebar.error(config_status)
+        st.sidebar.markdown("ℹ️ Configure API key to enable AI translation features.")
     
     # --- Systematic Analysis Tab ---
     st.sidebar.divider()
@@ -238,7 +247,7 @@ if alignment_map:
     
     if st.sidebar.button("🎯 Find First Misalignment", use_container_width=True, type="secondary"):
         if not api_key:
-            st.sidebar.error("🔑 API key required for binary search")
+            st.sidebar.error("🔑 API key not configured")
         else:
             # Store binary search params and trigger search
             st.session_state.binary_search_params = {
@@ -309,7 +318,7 @@ if alignment_map:
     # Analysis button with confirmation dialog
     if st.sidebar.button("🔍 Run Focused Analysis", use_container_width=True, type="primary"):
         if not api_key:
-            st.sidebar.error("🔑 API key required for systematic analysis")
+            st.sidebar.error("🔑 API key not configured")
         else:
             # Generate sample chapters list
             sample_chapters = list(range(start_chapter, end_chapter + 1))
@@ -470,7 +479,7 @@ streamlit run master_review_tool.py
 
     if st.sidebar.button("🔄 Translate with Gemini", use_container_width=True):
         if not api_key:
-            st.sidebar.error("🔑 API key required")
+            st.sidebar.error("🔑 API key not configured")
         else:
             with st.spinner("🔄 Calling Gemini API..."):
                 st.session_state.ai_translation = translate_with_gemini(raw_content, api_key)

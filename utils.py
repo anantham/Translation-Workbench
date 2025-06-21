@@ -56,6 +56,54 @@ try:
 except ImportError:
     print("❌ Google AI SDK not available (pip install google-generativeai)")
 
+# --- API Configuration System ---
+def load_api_config():
+    """Load API configuration from environment variable or config file.
+    
+    Returns:
+        tuple: (api_key, source) where source is 'environment', 'config', or None
+    """
+    # 1. Check environment variable first (highest priority)
+    api_key = os.getenv('GEMINI_API_KEY')
+    if api_key:
+        return api_key, "environment variable"
+    
+    # 2. Check config file
+    config_path = "config.json"
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                api_key = config.get('gemini_api_key')
+                if api_key:
+                    return api_key, "config file"
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not read config.json: {e}")
+    
+    # 3. No configuration found
+    return None, None
+
+def get_config_value(key, default=None):
+    """Get a configuration value from config.json with fallback to default."""
+    config_path = "config.json"
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                return config.get(key, default)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return default
+
+def show_config_status():
+    """Display configuration status for debugging."""
+    api_key, source = load_api_config()
+    if api_key:
+        masked_key = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
+        return f"✅ API Key loaded from {source} ({masked_key})"
+    else:
+        return "❌ API Key not configured"
+
 # --- Caching System ---
 SIMILARITY_CACHE_FILE = os.path.join(CACHE_DIR, "similarity_scores_cache.json")
 AI_TRANSLATION_CACHE_DIR = os.path.join(CACHE_DIR, "ai_translation_cache")

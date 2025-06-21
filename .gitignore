@@ -53,3 +53,7 @@ english_chapters/*.txt
 data/cache/
 data/temp/
 data/backups/
+data/custom_translations/
+
+# Configuration files with sensitive data
+config.json
