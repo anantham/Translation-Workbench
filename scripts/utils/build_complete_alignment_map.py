@@ -226,7 +226,7 @@ Examples:
     save_alignment_map_with_backup(alignment_map, args.alignment_file)
     
     print(f"\n🎉 Complete! Ready for systematic alignment analysis.")
-    print(f"💡 Run 'streamlit run master_review_tool.py' to use the alignment map.")
+    print(f"💡 Run 'python run_workbench.py' to use the alignment map.")
 
 if __name__ == "__main__":
     main()

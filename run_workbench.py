@@ -31,8 +31,8 @@ def launch_workbench():
         return
     
     # Verify we're in the right directory
-    if not os.path.exists("master_review_tool.py"):
-        print("❌ master_review_tool.py not found. Please run from the project directory.")
+    if not os.path.exists("pages/1_📖_Data_Review_Alignment.py"):
+        print("❌ Data Review page not found. Please run from the project directory.")
         return
     
     if not os.path.exists("utils.py"):
@@ -45,9 +45,10 @@ def launch_workbench():
     
     print("🎯 Starting multi-page workbench...")
     print("📊 Available pages:")
-    print("  • 📖 Data Review & Alignment (Home)")
+    print("  • 📖 Data Review & Alignment")
     print("  • 🤖 Fine-tuning Workbench")
-    print("  • 🧪 Experimentation Lab")
+    print("  • 🧪 Pluralistic Translation Lab")
+    print("  • 📈 Experimentation Analysis")
     print()
     print("🌐 The workbench will open in your default browser")
     print("🛑 Press Ctrl+C to stop the server")
@@ -56,7 +57,7 @@ def launch_workbench():
     # Launch Streamlit
     try:
         subprocess.run([
-            sys.executable, "-m", "streamlit", "run", "master_review_tool.py",
+            sys.executable, "-m", "streamlit", "run", "pages/1_📖_Data_Review_Alignment.py",
             "--server.port", "8501",
             "--server.headless", "false"
         ])
