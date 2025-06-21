@@ -247,6 +247,52 @@ def translate_with_gemini(raw_text: str, api_key: str, use_cache=True):
         return f"API Request Failed: {e}"
 
 # --- Fine-tuning Functions ---
+def chunk_chapter_for_training(raw_content, english_content, max_chars=4500):
+    """
+    Split chapters into trainable chunks to stay under Gemini's 5000 character output limit.
+    Maintains paragraph boundaries for better context preservation.
+    """
+    chunks = []
+    
+    # Split by paragraphs to maintain context
+    raw_paragraphs = raw_content.strip().split('\n\n')
+    eng_paragraphs = english_content.strip().split('\n\n')
+    
+    # Handle mismatched paragraph counts by using the shorter one
+    min_paragraphs = min(len(raw_paragraphs), len(eng_paragraphs))
+    raw_paragraphs = raw_paragraphs[:min_paragraphs]
+    eng_paragraphs = eng_paragraphs[:min_paragraphs]
+    
+    current_raw = []
+    current_eng = []
+    current_size = 0
+    
+    for raw_para, eng_para in zip(raw_paragraphs, eng_paragraphs):
+        para_size = len(eng_para)
+        
+        # If adding this paragraph would exceed limit and we have content, save current chunk
+        if current_size + para_size > max_chars and current_raw:
+            chunks.append({
+                'raw': '\n\n'.join(current_raw),
+                'english': '\n\n'.join(current_eng)
+            })
+            current_raw = [raw_para]
+            current_eng = [eng_para]
+            current_size = para_size
+        else:
+            current_raw.append(raw_para)
+            current_eng.append(eng_para)
+            current_size += para_size
+    
+    # Don't forget the last chunk
+    if current_raw:
+        chunks.append({
+            'raw': '\n\n'.join(current_raw),
+            'english': '\n\n'.join(current_eng)
+        })
+    
+    return chunks
+
 def load_dataset_for_tuning(alignment_map, limit=None, min_similarity=0.5, max_chars=30000):
     """
     Load dataset from alignment map and prepare for fine-tuning.
@@ -299,29 +345,44 @@ def load_dataset_for_tuning(alignment_map, limit=None, min_similarity=0.5, max_c
     
     return training_examples
 
-def prepare_training_data_for_api(training_examples, train_split=0.8):
+def prepare_training_data_for_api(training_examples, train_split=0.8, max_output_chars=4500):
     """
     Convert training examples to the format expected by fine-tuning APIs.
+    Automatically chunks long chapters to stay under Gemini's 5000 character limit.
     
     Returns:
         tuple: (train_data, val_data) in JSONL format
     """
     import random
     
-    # Shuffle examples
-    examples = training_examples.copy()
-    random.shuffle(examples)
+    # Convert chapters to chunks
+    all_chunks = []
+    total_chapters = 0
+    total_chunks = 0
+    over_limit_count = 0
     
-    # Split
-    split_idx = int(len(examples) * train_split)
-    train_examples = examples[:split_idx]
-    val_examples = examples[split_idx:]
-    
-    # Convert to API format
-    def format_for_api(examples):
-        formatted = []
-        for example in examples:
-            formatted_example = {
+    for example in training_examples:
+        total_chapters += 1
+        
+        # Check if chapter needs chunking
+        if len(example['english_content']) > max_output_chars:
+            # Chunk this chapter
+            chunks = chunk_chapter_for_training(
+                example['raw_content'], 
+                example['english_content'],
+                max_output_chars
+            )
+            over_limit_count += 1
+        else:
+            # Use whole chapter as single chunk
+            chunks = [{
+                'raw': example['raw_content'],
+                'english': example['english_content']
+            }]
+        
+        # Format each chunk
+        for i, chunk in enumerate(chunks):
+            formatted_chunk = {
                 "messages": [
                     {
                         "role": "system",
@@ -329,18 +390,46 @@ def prepare_training_data_for_api(training_examples, train_split=0.8):
                     },
                     {
                         "role": "user",
-                        "content": f"Translate this Chinese web novel chapter to English:\n\n{example['raw_content']}"
+                        "content": f"Translate this Chinese web novel excerpt to English:\n\n{chunk['raw']}"
                     },
                     {
                         "role": "assistant",
-                        "content": example['english_content']
+                        "content": chunk['english']
                     }
-                ]
+                ],
+                "metadata": {
+                    "chapter": example['chapter_number'],
+                    "chunk": i + 1,
+                    "total_chunks": len(chunks),
+                    "is_chunked": len(chunks) > 1
+                }
             }
-            formatted.append(formatted_example)
-        return formatted
+            all_chunks.append(formatted_chunk)
+            total_chunks += 1
     
-    return format_for_api(train_examples), format_for_api(val_examples)
+    print(f"📊 Chunking Summary:")
+    print(f"   • {total_chapters} chapters processed")
+    print(f"   • {over_limit_count} chapters required chunking")
+    print(f"   • {total_chunks} total training examples created")
+    print(f"   • Average {total_chunks/total_chapters:.1f} chunks per chapter")
+    
+    # Shuffle and split chunks
+    random.shuffle(all_chunks)
+    split_idx = int(len(all_chunks) * train_split)
+    
+    train_data = all_chunks[:split_idx]
+    val_data = all_chunks[split_idx:]
+    
+    # Verify no chunks exceed the limit
+    oversized_train = sum(1 for ex in train_data if len(ex['messages'][2]['content']) > max_output_chars)
+    oversized_val = sum(1 for ex in val_data if len(ex['messages'][2]['content']) > max_output_chars)
+    
+    if oversized_train > 0 or oversized_val > 0:
+        print(f"⚠️ Warning: {oversized_train + oversized_val} chunks still exceed {max_output_chars} chars")
+    else:
+        print(f"✅ All chunks are under {max_output_chars} characters")
+    
+    return train_data, val_data
 
 # --- Fine-tuning Job Management (Google AI) ---
 def start_finetuning_job(api_key, training_data, base_model="models/gemini-1.5-flash-001", 
@@ -520,6 +609,51 @@ def calculate_syntactic_similarity_fallback(text1, text2):
     
     # Combined score
     return (length_ratio * 0.3) + (content_similarity * 0.7)
+
+def get_chunking_statistics(training_data):
+    """
+    Analyze chunking statistics for the training data.
+    """
+    stats = {
+        'total_examples': len(training_data),
+        'chunk_sizes': [],
+        'chunked_chapters': 0,
+        'single_chunks': 0,
+        'max_chunk_size': 0,
+        'avg_chunk_size': 0,
+        'over_5k_chars': 0
+    }
+    
+    chapter_chunks = {}
+    
+    for example in training_data:
+        chunk_size = len(example['messages'][2]['content'])
+        stats['chunk_sizes'].append(chunk_size)
+        
+        if chunk_size > 5000:
+            stats['over_5k_chars'] += 1
+        
+        # Track chunks per chapter
+        metadata = example.get('metadata', {})
+        chapter = metadata.get('chapter', 'unknown')
+        
+        if chapter not in chapter_chunks:
+            chapter_chunks[chapter] = 0
+        chapter_chunks[chapter] += 1
+    
+    # Calculate aggregates
+    if stats['chunk_sizes']:
+        stats['max_chunk_size'] = max(stats['chunk_sizes'])
+        stats['avg_chunk_size'] = sum(stats['chunk_sizes']) / len(stats['chunk_sizes'])
+    
+    # Count chunked vs single-chunk chapters
+    for chapter, chunk_count in chapter_chunks.items():
+        if chunk_count > 1:
+            stats['chunked_chapters'] += 1
+        else:
+            stats['single_chunks'] += 1
+    
+    return stats
 
 # --- Evaluation Functions ---
 def calculate_bleu_score(reference, candidate):

@@ -76,8 +76,9 @@ train_split = st.sidebar.slider(
     "Train/Val Split", 
     min_value=0.5, 
     max_value=0.95, 
-    value=0.8, 
-    format_func=lambda x: f"{int(x*100)}% train"
+    value=0.8,
+    format="%.0f%%",
+    help="Percentage of data used for training (rest for validation)"
 )
 
 # --- Main Content ---
@@ -145,10 +146,26 @@ with tab1:
             df = st.session_state.dataset_df
             
             # Summary metrics
-            st.metric("📚 Total Examples", len(df))
+            st.metric("📚 Total Chapters", len(df))
             st.metric("📝 Avg Raw Words", f"{df['Raw_Words'].mean():.0f}")
             st.metric("📖 Avg English Words", f"{df['English_Words'].mean():.0f}")
             st.metric("⚖️ Avg Length Ratio", f"{df['Eng_Raw_Ratio'].mean():.2f}")
+            
+            # Show chunking impact if available
+            if hasattr(st.session_state, 'chunking_stats'):
+                stats = st.session_state.chunking_stats
+                st.divider()
+                st.caption("**Post-Chunking Statistics:**")
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.text(f"Training Examples: {stats['total_examples']}")
+                    st.text(f"Chunked Chapters: {stats['chunked_chapters']}")
+                with col_b:
+                    st.text(f"Max Chunk Size: {stats['max_chunk_size']} chars")
+                    if stats['over_5k_chars'] > 0:
+                        st.text(f"⚠️ {stats['over_5k_chars']} chunks over 5k chars")
+                    else:
+                        st.text("✅ All chunks under 5k chars")
             
             # Quality indicators
             good_ratio = len(df[(df['Eng_Raw_Ratio'] >= 1.5) & (df['Eng_Raw_Ratio'] <= 3.0)])
@@ -196,6 +213,40 @@ with tab1:
         # Show detailed table
         with st.expander("🔍 Detailed Dataset View"):
             st.dataframe(st.session_state.dataset_df, use_container_width=True)
+        
+        # Show chunking analysis if available
+        if hasattr(st.session_state, 'chunking_stats'):
+            with st.expander("✂️ Chunking Analysis"):
+                stats = st.session_state.chunking_stats
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    # Chunk size distribution
+                    import numpy as np
+                    chunk_sizes = stats['chunk_sizes']
+                    
+                    fig_chunks = px.histogram(
+                        x=chunk_sizes,
+                        title="Distribution of Chunk Sizes (Characters)",
+                        nbins=25,
+                        labels={'x': 'Chunk Size (chars)', 'y': 'Count'}
+                    )
+                    fig_chunks.add_vline(x=4500, line_dash="dash", line_color="orange", annotation_text="Target Limit")
+                    fig_chunks.add_vline(x=5000, line_dash="dash", line_color="red", annotation_text="Gemini Limit")
+                    fig_chunks.update_layout(height=400)
+                    st.plotly_chart(fig_chunks, use_container_width=True)
+                
+                with col2:
+                    # Summary stats table
+                    stats_df = pd.DataFrame([
+                        {"Metric": "Total Training Examples", "Value": stats['total_examples']},
+                        {"Metric": "Chapters with Multiple Chunks", "Value": stats['chunked_chapters']},
+                        {"Metric": "Single-chunk Chapters", "Value": stats['single_chunks']},
+                        {"Metric": "Average Chunk Size", "Value": f"{stats['avg_chunk_size']:.0f} chars"},
+                        {"Metric": "Largest Chunk", "Value": f"{stats['max_chunk_size']} chars"},
+                        {"Metric": "Chunks Over 5k Chars", "Value": stats['over_5k_chars']}
+                    ])
+                    st.table(stats_df)
 
 # --- Tab 2: Training Control ---
 with tab2:
@@ -208,11 +259,11 @@ with tab2:
         
         # Show current configuration
         config_df = pd.DataFrame([
-            {"Parameter": "Base Model", "Value": selected_base_model},
-            {"Parameter": "Epochs", "Value": epoch_count},
-            {"Parameter": "Batch Size", "Value": batch_size},
+            {"Parameter": "Base Model", "Value": str(selected_base_model)},
+            {"Parameter": "Epochs", "Value": str(epoch_count)},
+            {"Parameter": "Batch Size", "Value": str(batch_size)},
             {"Parameter": "Learning Rate", "Value": f"{learning_rate:.4f}"},
-            {"Parameter": "Max Examples", "Value": max_training_examples},
+            {"Parameter": "Max Examples", "Value": str(max_training_examples)},
             {"Parameter": "Train/Val Split", "Value": f"{train_split:.0%}"}
         ])
         
@@ -220,20 +271,36 @@ with tab2:
         
         # Training data preparation
         if hasattr(st.session_state, 'training_examples'):
-            st.success(f"✅ Training data ready: {len(st.session_state.training_examples)} examples")
+            st.success(f"✅ Training data ready: {len(st.session_state.training_examples)} chapters")
             
             # Prepare API format
-            if st.button("📋 Prepare Training Data"):
-                with st.spinner("Preparing data for API..."):
+            if st.button("📋 Prepare Training Data with Chunking"):
+                with st.spinner("Preparing data for API with automatic chunking..."):
                     train_data, val_data = prepare_training_data_for_api(
                         st.session_state.training_examples, 
-                        train_split=train_split
+                        train_split=train_split,
+                        max_output_chars=4500  # Stay under Gemini's 5k limit
                     )
                     
                     st.session_state.train_data = train_data
                     st.session_state.val_data = val_data
                     
+                    # Get chunking statistics
+                    chunking_stats = get_chunking_statistics(train_data + val_data)
+                    st.session_state.chunking_stats = chunking_stats
+                    
                     st.success(f"✅ Prepared {len(train_data)} training examples, {len(val_data)} validation examples")
+                    
+                    # Display chunking summary
+                    col_a, col_b, col_c, col_d = st.columns(4)
+                    with col_a:
+                        st.metric("📚 Total Chunks", chunking_stats['total_examples'])
+                    with col_b:
+                        st.metric("📄 Avg Chunk Size", f"{chunking_stats['avg_chunk_size']:.0f} chars")
+                    with col_c:
+                        st.metric("⚠️ Over 5k Chars", chunking_stats['over_5k_chars'])
+                    with col_d:
+                        st.metric("✂️ Chunked Chapters", chunking_stats['chunked_chapters'])
         else:
             st.info("👆 Prepare dataset in the 'Dataset Preparation' tab first")
     

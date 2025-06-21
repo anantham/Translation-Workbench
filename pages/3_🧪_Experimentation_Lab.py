@@ -63,10 +63,11 @@ if api_key and GOOGLE_AI_AVAILABLE:
             
             if completed_models:
                 model_names = [getattr(model, 'name', 'Unknown') for model in completed_models]
+                # Format model names for display
+                display_names = ["None"] + [name.split('/')[-1] if name != "None" else name for name in model_names]
                 selected_tuned_model = st.sidebar.selectbox(
                     "Fine-tuned Model:", 
-                    ["None"] + model_names,
-                    format_func=lambda x: x.split('/')[-1] if x != "None" else x
+                    display_names
                 )
             else:
                 st.sidebar.info("📭 No completed fine-tuned models available")

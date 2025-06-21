@@ -102,6 +102,13 @@ https://www.dxmwx.org/read/43713_33325507.html
 •List every file modified and what was done in each.
 •If there are any assumptions or risks, flag them for review.
 
+6.Maintain Organization
+•Never create scripts, tests, or utilities in the project root directory.
+•Use the organized folder structure: scripts/tests/, scripts/utils/, scripts/diagnostics/, scripts/examples/
+•Keep temporary files in data/temp/ and exports in data/exports/
+•Update scripts/README.md when adding new utility scripts.
+•Remove obsolete test scripts regularly to avoid clutter.
+
 ## GIT COMMIT REQUIREMENTS
 
 ### Commit Message Format

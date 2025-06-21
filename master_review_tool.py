@@ -127,13 +127,16 @@ if alignment_map:
             current_index = 0
             st.session_state.current_chapter = chapter_numbers[0]
         
-        selected_chapter = st.selectbox(
+        # Format chapter options for display
+        chapter_options = [f"Ch. {x}" for x in chapter_numbers]
+        selected_display = st.selectbox(
             "Chapter:", 
-            options=chapter_numbers,
+            options=chapter_options,
             index=current_index,
-            format_func=lambda x: f"Ch. {x}",
             label_visibility="collapsed"
         )
+        # Extract the actual chapter number
+        selected_chapter = int(selected_display.split(". ")[1]) if selected_display else chapter_numbers[0]
     
     with col3:
         if st.button("Next ▶", use_container_width=True, help="Go to next chapter"):

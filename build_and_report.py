@@ -13,6 +13,8 @@ import re
 import pandas as pd
 from datetime import datetime
 from collections import Counter
+from functools import wraps
+import random
 
 # --- Organized Data Structure ---
 DATA_DIR = "data"
@@ -181,9 +183,39 @@ def get_text_stats(content, language_hint=None):
         'language': detected_language
     }
 
+# --- Retry Decorator for Network Resilience ---
+def retry_with_backoff(retries=5, backoff_in_seconds=2):
+    """A decorator to retry a function with exponential backoff."""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            x = 0
+            while x < retries:
+                try:
+                    return func(*args, **kwargs)
+                except (requests.exceptions.RequestException, 
+                        requests.exceptions.ConnectionError,
+                        requests.exceptions.Timeout,
+                        ConnectionResetError) as e:
+                    x += 1
+                    if x < retries:
+                        sleep_time = (backoff_in_seconds * 2 ** (x-1)) + random.uniform(0, 1)
+                        print(f"\n   └─ Retrying ({x}/{retries})... Network error: {type(e).__name__}")
+                        print(f"   └─ Waiting {sleep_time:.1f}s before retry...")
+                        time.sleep(sleep_time)
+                    else:
+                        print(f"\n   └─ Max retries exceeded after {retries} attempts")
+                        return f"API Request Failed: Max retries exceeded - {e}"
+                except Exception as e:
+                    return f"API Request Failed: {e}"
+            return f"API Request Failed: Max retries exceeded"
+        return wrapper
+    return decorator
+
 # --- Translation Functions ---
+@retry_with_backoff(retries=5, backoff_in_seconds=2)
 def translate_with_gemini(raw_text: str, api_key: str, use_cache=True):
-    """Sends raw text to Gemini for translation with caching support."""
+    """Sends raw text to Gemini for translation with caching support and retry logic."""
     # Check cache first if enabled
     if use_cache:
         cached_translation = get_cached_translation(raw_text)
@@ -191,23 +223,21 @@ def translate_with_gemini(raw_text: str, api_key: str, use_cache=True):
             return cached_translation
     
     # Make API call if not cached
-    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key={api_key}"
     headers = {'Content-Type': 'application/json'}
     prompt = f"Provide a high-quality, literal English translation of this Chinese web novel chapter. Keep paragraph breaks:\n\n{raw_text}"
     data = {"contents": [{"parts": [{"text": prompt}]}]}
     
-    try:
-        response = requests.post(gemini_url, headers=headers, json=data, timeout=90)
-        response.raise_for_status()
-        translation = response.json()['candidates'][0]['content']['parts'][0]['text']
-        
-        # Store in cache if successful and caching is enabled
-        if use_cache and translation and not translation.startswith("API Request Failed"):
-            store_translation_in_cache(raw_text, translation)
-        
-        return translation
-    except Exception as e:
-        return f"API Request Failed: {e}"
+    # This will automatically retry on network errors due to the decorator
+    response = requests.post(gemini_url, headers=headers, json=data, timeout=120)
+    response.raise_for_status()
+    translation = response.json()['candidates'][0]['content']['parts'][0]['text']
+    
+    # Store in cache if successful and caching is enabled
+    if use_cache and translation and not translation.startswith("API Request Failed"):
+        store_translation_in_cache(raw_text, translation)
+    
+    return translation
 
 # --- Similarity Functions ---
 def load_semantic_model():
@@ -348,31 +378,57 @@ def process_chapter_data(chapter_num, chapter_data, api_key, semantic_model, sim
     if progress_callback:
         progress_callback(f"Processing Chapter {chapter_num}...")
     
-    # Load content
+    # Load content with detailed error reporting
     raw_file = chapter_data.get('raw_file')
     english_file = chapter_data.get('english_file')
     
-    if not raw_file or not english_file:
-        print(f"⏭️  Skipping Chapter {chapter_num}: Missing files")
+    # Detailed file checking
+    if not raw_file:
+        print(f"\n   └─ ⏭️ Skipping Chapter {chapter_num}: No 'raw_file' in alignment map")
+        return None
+    if not english_file:
+        print(f"\n   └─ ⏭️ Skipping Chapter {chapter_num}: No 'english_file' in alignment map")
         return None
     
+    # Check if files actually exist
+    if not os.path.exists(raw_file):
+        print(f"\n   └─ ⏭️ Skipping Chapter {chapter_num}: Raw file NOT FOUND")
+        print(f"   └─ Expected path: '{raw_file}'")
+        return None
+    if not os.path.exists(english_file):
+        print(f"\n   └─ ⏭️ Skipping Chapter {chapter_num}: English file NOT FOUND")
+        print(f"   └─ Expected path: '{english_file}'")
+        return None
+    
+    # Load content
     raw_content = load_chapter_content(raw_file)
     english_content = load_chapter_content(english_file)
     
-    if "File not found" in raw_content or "File not found" in english_content:
-        print(f"⏭️  Skipping Chapter {chapter_num}: Could not load content")
+    if "File not found" in raw_content:
+        print(f"\n   └─ ⏭️ Skipping Chapter {chapter_num}: Could not read raw file '{raw_file}'")
+        return None
+    if "File not found" in english_content:
+        print(f"\n   └─ ⏭️ Skipping Chapter {chapter_num}: Could not read English file '{english_file}'")
+        return None
+    
+    # Check for empty files
+    if len(raw_content.strip()) < 100:
+        print(f"\n   └─ ⏭️ Skipping Chapter {chapter_num}: Raw file too short ({len(raw_content)} chars)")
+        return None
+    if len(english_content.strip()) < 100:
+        print(f"\n   └─ ⏭️ Skipping Chapter {chapter_num}: English file too short ({len(english_content)} chars)")
         return None
     
     # Extract titles
     raw_title = extract_chapter_title(raw_content, 'chinese')
     english_title = extract_chapter_title(english_content, 'english')
     
-    # Get AI translation (with caching)
+    # Get AI translation (with caching and retry)
     ai_translation = translate_with_gemini(raw_content, api_key, use_cache=True)
     
     if "API Request Failed" in ai_translation:
-        print(f"⚠️  Chapter {chapter_num}: AI translation failed - {ai_translation}")
-        ai_translation = ""
+        print(f"\n   └─ ⚠️ Chapter {chapter_num}: AI translation failed - {ai_translation[:100]}...")
+        ai_translation = ""  # Continue processing even if AI translation fails
     
     # Calculate statistics for all three versions
     raw_stats = get_text_stats(raw_content, 'chinese')
@@ -547,8 +603,30 @@ def create_jsonl_training_files(processed_chapters, train_output_path, val_outpu
 
 def main():
     """Main execution function."""
+    import sys
+    
     print("🚀 Building Complete Dataset and Report")
     print("=" * 50)
+    
+    # Parse command line arguments
+    max_chapters = None
+    start_chapter = 1
+    
+    if len(sys.argv) > 1:
+        try:
+            if len(sys.argv) == 2:
+                max_chapters = int(sys.argv[1])
+                print(f"📊 Processing first {max_chapters} chapters")
+            elif len(sys.argv) == 3:
+                start_chapter = int(sys.argv[1])
+                max_chapters = int(sys.argv[2])
+                print(f"📊 Processing chapters {start_chapter} to {max_chapters}")
+        except ValueError:
+            print("❌ Usage: python build_and_report.py [max_chapters] or [start_chapter] [end_chapter]")
+            print("📝 Examples:")
+            print("   python build_and_report.py 50          # Process first 50 chapters")
+            print("   python build_and_report.py 20 70       # Process chapters 20-70")
+            return
     
     # Check for API key
     api_key = input("🔑 Enter your Gemini API key: ").strip()
@@ -563,7 +641,7 @@ def main():
         print(f"✅ Loaded alignment map with {len(alignment_map)} chapters")
     except FileNotFoundError as e:
         print(f"❌ {e}")
-        print("💡 Run 'python build_complete_alignment_map.py' first")
+        print("💡 Run 'python scripts/utils/build_complete_alignment_map.py' first")
         return
     
     # Load semantic model if available
@@ -571,20 +649,34 @@ def main():
     semantic_model = load_semantic_model() if SEMANTIC_AVAILABLE else None
     similarity_cache = load_similarity_cache()
     
-    # Process parameters
-    process_all = input("\n🎯 Process all chapters? (y/n, default=n): ").strip().lower() == 'y'
+    # Determine chapters to process based on command line args
+    all_available_chapters = sorted([int(k) for k in alignment_map.keys()])
     
-    if process_all:
-        chapters_to_process = sorted([int(k) for k in alignment_map.keys()])
+    if max_chapters is None:
+        # Interactive mode
+        process_all = input("\n🎯 Process all chapters? (y/n, default=n): ").strip().lower() == 'y'
+        
+        if process_all:
+            chapters_to_process = all_available_chapters
+        else:
+            default_max = min(50, len(all_available_chapters))
+            max_chapters = int(input(f"📊 How many chapters to process? (default={default_max}): ").strip() or str(default_max))
+            chapters_to_process = all_available_chapters[:max_chapters]
     else:
-        max_chapters = int(input("📊 How many chapters to process? (default=50): ").strip() or "50")
-        chapters_to_process = sorted([int(k) for k in alignment_map.keys()])[:max_chapters]
+        # Command line mode
+        if len(sys.argv) == 3:  # start and end specified
+            chapters_to_process = [ch for ch in all_available_chapters if start_chapter <= ch <= max_chapters]
+        else:  # just max specified
+            chapters_to_process = all_available_chapters[:max_chapters]
     
     print(f"\n🔄 Processing {len(chapters_to_process)} chapters...")
     
     # Process chapters
     processed_chapters = []
     start_time = time.time()
+    
+    successful_count = 0
+    skipped_count = 0
     
     for i, chapter_num in enumerate(chapters_to_process):
         # Progress indicator
@@ -602,19 +694,27 @@ def main():
         
         if result:
             processed_chapters.append(result)
+            successful_count += 1
             print("✅")
         else:
+            skipped_count += 1
             print("⏭️")
         
-        # Rate limiting
-        time.sleep(0.5)
+        # Show running totals every 50 chapters
+        if (i + 1) % 50 == 0:
+            print(f"\n📊 Progress: {successful_count} successful, {skipped_count} skipped so far...")
+        
+        # Rate limiting - be gentle on the API
+        time.sleep(1.0)
     
     # Save updated cache
     save_similarity_cache(similarity_cache)
     
     elapsed_time = time.time() - start_time
     print(f"\n⏱️  Processing completed in {elapsed_time:.1f} seconds")
-    print(f"✅ Successfully processed: {len(processed_chapters)} chapters")
+    print(f"✅ Successfully processed: {successful_count} chapters")
+    print(f"⏭️  Skipped: {skipped_count} chapters")
+    print(f"📊 Success rate: {(successful_count/(successful_count+skipped_count))*100:.1f}%")
     
     # Generate timestamp for file naming
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
