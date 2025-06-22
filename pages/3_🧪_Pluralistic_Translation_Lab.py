@@ -53,11 +53,13 @@ if not GOOGLE_AI_AVAILABLE:
     st.stop()
 
 # --- API Functions ---
-@st.cache_data
-def get_in_context_examples(alignment_map, current_chapter_num, count):
-    """Gets the historical data for the few-shot prompt."""
+class InsufficientHistoryError(Exception):
+    """Raised when not enough history chapters are available for examples."""
+    pass
+
+def get_official_examples(alignment_map, current_chapter_num, count):
+    """Get examples from official EPUB translations."""
     examples = []
-    # Find chapters before the current chapter that have aligned files
     available_history = sorted([
         int(k) for k, v in alignment_map.items() 
         if int(k) < current_chapter_num and v.get("raw_file") and v.get("english_file")
@@ -65,7 +67,7 @@ def get_in_context_examples(alignment_map, current_chapter_num, count):
     
     chapters_to_use = available_history[:count]
     
-    for chapter_num in reversed(chapters_to_use):  # Reverse back to chronological order
+    for chapter_num in reversed(chapters_to_use):
         data = alignment_map.get(str(chapter_num))
         if data:
             raw_content = load_chapter_content(data["raw_file"])
@@ -74,9 +76,145 @@ def get_in_context_examples(alignment_map, current_chapter_num, count):
                 examples.append({
                     "chapter": chapter_num,
                     "user": raw_content, 
-                    "model": eng_content
+                    "model": eng_content,
+                    "source": "Official"
                 })
     return examples
+
+def get_custom_run_examples(alignment_map, current_chapter_num, count, custom_run_name):
+    """Get examples from a specific custom translation run."""
+    examples = []
+    custom_run_dir = os.path.join(DATA_DIR, "custom_translations", custom_run_name)
+    
+    if not os.path.exists(custom_run_dir):
+        return examples
+    
+    # Find available translated chapters in custom run
+    available_chapters = []
+    for filename in os.listdir(custom_run_dir):
+        if filename.endswith('-translated.txt'):
+            # Extract chapter number from filename like "Chapter-0695-translated.txt"
+            try:
+                chapter_num = int(filename.split('-')[1])
+                if chapter_num < current_chapter_num:
+                    available_chapters.append(chapter_num)
+            except (IndexError, ValueError):
+                continue
+    
+    # Sort by chapter number (most recent first) and take requested count
+    available_chapters.sort(reverse=True)
+    chapters_to_use = available_chapters[:count]
+    
+    # Load examples in chronological order
+    for chapter_num in reversed(chapters_to_use):
+        # Get raw Chinese content from alignment map
+        chapter_data = alignment_map.get(str(chapter_num))
+        if chapter_data and chapter_data.get("raw_file"):
+            raw_content = load_chapter_content(chapter_data["raw_file"])
+            
+            # Get custom translation
+            custom_file = os.path.join(custom_run_dir, f"Chapter-{chapter_num:04d}-translated.txt")
+            if os.path.exists(custom_file):
+                with open(custom_file, 'r', encoding='utf-8') as f:
+                    custom_content = f.read().strip()
+                
+                if raw_content and custom_content:
+                    examples.append({
+                        "chapter": chapter_num,
+                        "user": raw_content,
+                        "model": custom_content,
+                        "source": f"Custom ({custom_run_name})"
+                    })
+    
+    return examples
+
+def get_current_run_examples(alignment_map, current_chapter_num, count, current_run_dir):
+    """Get examples from the current translation run (fresh translations)."""
+    examples = []
+    
+    if not os.path.exists(current_run_dir):
+        return examples
+    
+    # Find available translated chapters in current run
+    available_chapters = []
+    for filename in os.listdir(current_run_dir):
+        if filename.endswith('-translated.txt'):
+            try:
+                chapter_num = int(filename.split('-')[1])
+                if chapter_num < current_chapter_num:
+                    available_chapters.append(chapter_num)
+            except (IndexError, ValueError):
+                continue
+    
+    # Sort by chapter number (most recent first) and take requested count
+    available_chapters.sort(reverse=True)
+    chapters_to_use = available_chapters[:count]
+    
+    # Load examples in chronological order
+    for chapter_num in reversed(chapters_to_use):
+        # Get raw Chinese content from alignment map
+        chapter_data = alignment_map.get(str(chapter_num))
+        if chapter_data and chapter_data.get("raw_file"):
+            raw_content = load_chapter_content(chapter_data["raw_file"])
+            
+            # Get fresh translation
+            fresh_file = os.path.join(current_run_dir, f"Chapter-{chapter_num:04d}-translated.txt")
+            if os.path.exists(fresh_file):
+                with open(fresh_file, 'r', encoding='utf-8') as f:
+                    fresh_content = f.read().strip()
+                
+                if raw_content and fresh_content:
+                    examples.append({
+                        "chapter": chapter_num,
+                        "user": raw_content,
+                        "model": fresh_content,
+                        "source": "Fresh (Current Run)"
+                    })
+    
+    return examples
+
+@st.cache_data
+def get_smart_fallback_examples(alignment_map, current_chapter_num, count, selected_custom_run, current_run_dir):
+    """
+    Smart fallback system for getting translation examples.
+    Priority: Official > Selected Custom > Current Run > Error
+    """
+    examples = []
+    sources_used = []
+    
+    # Priority 1: Official translations
+    official_examples = get_official_examples(alignment_map, current_chapter_num, count)
+    examples.extend(official_examples)
+    if official_examples:
+        sources_used.append(f"Official ({len(official_examples)})")
+    
+    # Priority 2: Selected custom run (if specified and still need more)
+    if len(examples) < count and selected_custom_run:
+        remaining_count = count - len(examples)
+        custom_examples = get_custom_run_examples(alignment_map, current_chapter_num, remaining_count, selected_custom_run)
+        examples.extend(custom_examples)
+        if custom_examples:
+            sources_used.append(f"Custom ({len(custom_examples)})")
+    
+    # Priority 3: Current run (if still need more)
+    if len(examples) < count:
+        remaining_count = count - len(examples)
+        fresh_examples = get_current_run_examples(alignment_map, current_chapter_num, remaining_count, current_run_dir)
+        examples.extend(fresh_examples)
+        if fresh_examples:
+            sources_used.append(f"Fresh ({len(fresh_examples)})")
+    
+    # Error handling: insufficient examples
+    if len(examples) == 0:
+        raise InsufficientHistoryError(
+            f"No history chapters found before chapter {current_chapter_num}. "
+            f"Translation cannot proceed without context examples."
+        )
+    
+    # Sort examples by chapter number (chronological order)
+    examples.sort(key=lambda x: x["chapter"])
+    
+    return examples, sources_used
 
 def generate_translation_with_history(api_key, model_name, system_prompt, history, current_raw_text):
     """Constructs the multi-turn prompt and calls the Gemini API."""
@@ -185,6 +323,48 @@ with st.sidebar.expander("🎯 Translation Task", expanded=True):
         help="Number of preceding chapters to use as in-context examples"
     )
 
+with st.sidebar.expander("📚 History Source", expanded=True):
+    # Scan for available custom translation runs
+    custom_runs_dir = os.path.join(DATA_DIR, "custom_translations")
+    available_runs = ["Official Only"]
+    
+    if os.path.exists(custom_runs_dir):
+        for run_name in os.listdir(custom_runs_dir):
+            run_path = os.path.join(custom_runs_dir, run_name)
+            if os.path.isdir(run_path):
+                # Check if run has translated files
+                txt_files = [f for f in os.listdir(run_path) if f.endswith('-translated.txt')]
+                if txt_files:
+                    # Get metadata if available
+                    metadata_path = os.path.join(run_path, "job_metadata.json")
+                    if os.path.exists(metadata_path):
+                        try:
+                            with open(metadata_path, 'r', encoding='utf-8') as f:
+                                metadata = json.load(f)
+                            chapters_info = f"({len(txt_files)} chapters)"
+                            available_runs.append(f"Custom: {run_name} {chapters_info}")
+                        except:
+                            available_runs.append(f"Custom: {run_name} ({len(txt_files)} chapters)")
+                    else:
+                        available_runs.append(f"Custom: {run_name} ({len(txt_files)} chapters)")
+    
+    selected_history_source = st.selectbox(
+        "History Examples Source:",
+        available_runs,
+        help="Source for few-shot translation examples. Official = EPUB translations, Custom = your previous translation runs"
+    )
+    
+    # Extract run name for custom selections
+    selected_custom_run = None
+    if selected_history_source.startswith("Custom: "):
+        selected_custom_run = selected_history_source.split("Custom: ")[1].split(" (")[0]
+    
+    # Show source info
+    if selected_history_source == "Official Only":
+        st.info("📖 Using official EPUB translations as examples")
+    else:
+        st.info(f"🎨 Using custom translation style: `{selected_custom_run}`")
+
 with st.sidebar.expander("📁 Output Settings", expanded=True):
     run_name = st.text_input(
         "Run Name / Style:", 
@@ -277,7 +457,8 @@ if st.button("🚀 Start Translation Job", disabled=start_button_disabled, type=
         "model_name": model_name,
         "api_key": api_key,
         "api_delay": api_delay,
-        "output_dir": output_dir
+        "output_dir": output_dir,
+        "selected_custom_run": selected_custom_run
     }
 
 if start_button_disabled:
@@ -346,8 +527,31 @@ if st.session_state.get("run_job", False):
             try:
                 # 1. Build Context
                 log_messages.append("  └─ Building few-shot context...")
-                history_examples = get_in_context_examples(alignment_map, chapter_num, params["history_count"])
-                log_messages.append(f"  └─ Found {len(history_examples)} context examples")
+                try:
+                    history_examples, sources_used = get_smart_fallback_examples(
+                        alignment_map, 
+                        chapter_num, 
+                        params["history_count"],
+                        params["selected_custom_run"],
+                        params["output_dir"]
+                    )
+                    log_messages.append(f"  └─ Found {len(history_examples)} context examples from: {', '.join(sources_used)}")
+                except InsufficientHistoryError as e:
+                    log_messages.append(f"  └─ ❌ **INSUFFICIENT HISTORY:** {str(e)}")
+                    log_messages.append("  └─ 🛑 **STOPPING TRANSLATION JOB**")
+                    
+                    # Update live log immediately
+                    recent_logs = log_messages[-10:]
+                    with log_area:
+                        for msg in recent_logs:
+                            st.write(msg)
+                    
+                    st.error("❌ **Insufficient Translation History**")
+                    st.warning(str(e))
+                    st.info("💡 **Solutions:** Use chapters with existing translations, reduce History Chapters count, or provide custom translation examples.")
+                    
+                    # Stop processing further chapters
+                    break
 
                 # 2. Get Raw Text
                 log_messages.append("  └─ Loading raw chapter content...")
@@ -368,8 +572,42 @@ if st.session_state.get("run_job", False):
 
                 # 4. Process Result
                 if error:
-                    log_messages.append(f"  └─ ❌ **ERROR:** {error}")
-                    failed_translations += 1
+                    # Check for quota exceeded error specifically
+                    if "429" in str(error) and "quota" in str(error).lower():
+                        log_messages.append(f"  └─ ❌ **QUOTA EXCEEDED:** {error}")
+                        log_messages.append("  └─ 🛑 **STOPPING TRANSLATION JOB**")
+                        
+                        # Update live log immediately
+                        recent_logs = log_messages[-10:]
+                        with log_area:
+                            for msg in recent_logs:
+                                st.write(msg)
+                        
+                        # Show quota exceeded dialog
+                        st.error("❌ **Google AI API Quota Exceeded**")
+                        st.warning("Your API key has hit rate limits. Please wait or use a different API key.")
+                        
+                        with st.expander("🔑 **Enter New API Key to Continue**", expanded=True):
+                            new_api_key = st.text_input(
+                                "New Google AI API Key:", 
+                                type="password",
+                                help="Get a new key from https://aistudio.google.com/app/apikey"
+                            )
+                            
+                            if st.button("🔄 Resume with New Key", type="primary"):
+                                if new_api_key.strip():
+                                    # Update the job parameters with new key
+                                    st.session_state.job_params["api_key"] = new_api_key.strip()
+                                    log_messages.append("🔑 **New API key provided - resuming job...**")
+                                    st.rerun()
+                                else:
+                                    st.error("Please enter a valid API key")
+                        
+                        # Stop processing further chapters
+                        break
+                    else:
+                        log_messages.append(f"  └─ ❌ **ERROR:** {error}")
+                        failed_translations += 1
                 else:
                     # Save translation
                     with open(output_path, "w", encoding="utf-8") as f:
