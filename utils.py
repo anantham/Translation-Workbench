@@ -1111,6 +1111,39 @@ def get_available_ai_sources():
     
     return sources
 
+# --- Alignment Map Management ---
+def save_alignment_map_safely(alignment_map, output_file="alignment_map.json"):
+    """Save alignment map with backup of existing file in organized backup directory.
+    
+    Args:
+        alignment_map: The alignment map dictionary to save
+        output_file: Path to the output file (should remain in root for app access)
+    
+    Returns:
+        str: Backup filename if created, None if no backup was needed
+    """
+    # Ensure backup directory exists
+    backup_dir = os.path.join(DATA_DIR, "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    
+    backup_filename = None
+    
+    # Create backup if file exists
+    if os.path.exists(output_file):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"{os.path.basename(output_file)}.backup_{timestamp}"
+        backup_path = os.path.join(backup_dir, backup_filename)
+        
+        # Copy to backup directory
+        import shutil
+        shutil.copy(output_file, backup_path)
+    
+    # Save new alignment map to root (where app expects it)
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(alignment_map, f, indent=2, ensure_ascii=False)
+    
+    return backup_filename
+
 # --- Export Functions ---
 def export_training_data_to_jsonl(training_data, output_path):
     """Export training data to JSONL format."""
