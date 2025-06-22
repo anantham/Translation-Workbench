@@ -46,6 +46,232 @@ graph TD
     end
 ```
 
+## 🎯 Project Motivation & Philosophy
+
+### **The Translation Quality Problem**
+Traditional machine translation produces generic, one-size-fits-all outputs. But translation is inherently **pluralistic** - the same source text can be translated differently for different audiences, purposes, and styles:
+
+- **Literal translations** preserve cultural nuances for academic readers
+- **Dynamic translations** adapt content for Western entertainment consumers  
+- **Simplified translations** make content accessible to young adult audiences
+
+### **Our Solution: Pluralistic Translation Research Platform**
+This framework enables systematic exploration of translation approaches by combining:
+
+1. **High-Quality Training Data**: Perfect Chinese-English aligned parallel corpus
+2. **Multiple AI Platforms**: Both Google Gemini and OpenAI fine-tuning capabilities
+3. **Style Experimentation**: Test different prompts, models, and context strategies
+4. **Quantitative Evaluation**: BERT similarity, BLEU scores, and statistical analysis
+5. **Data-Driven Optimization**: Style leaderboards to identify best approaches
+
+### **Core Innovation: Style-Centric Approach**
+Instead of just comparing models, we compare **translation styles** where:
+```
+Style = Model + Prompt + History Context + Hyperparameters
+```
+
+This enables researchers to discover that a base model with excellent prompting might outperform a fine-tuned model with poor context strategy.
+
+## 🏗️ Application Architecture
+
+### **Four-Page Workflow: Military Precision Separation of Concerns**
+
+The application follows a crystal-clear linear workflow where each page has **one focused purpose**:
+
+```mermaid
+graph LR
+    A[📖 Data Review<br/>The Curator's Desk] --> B[🤖 Fine-tuning<br/>The Factory]
+    B --> C[🧪 Translation Lab<br/>The Creative Studio] 
+    C --> D[📈 Experimentation<br/>The Judging Panel]
+    
+    A1[Perfect Alignment] --> B1[Train Models]
+    B1 --> C1[Generate Styles]
+    C1 --> D1[Crown Winner]
+```
+
+#### **📖 Page 1: Data Review & Alignment (The Curator's Desk)**
+**Purpose**: Create pristine, perfectly aligned parallel corpus
+- **Input**: Raw scraped chapters + EPUB English chapters
+- **Tools**: Binary search misalignment detection, surgical corrections, chapter splitting
+- **Output**: Perfect `alignment_map.json`
+- **Philosophy**: "Garbage in, garbage out" - perfect data is the foundation
+
+#### **🤖 Page 2: Fine-tuning Workbench (The Factory)**  
+**Purpose**: Train specialized models for translation
+- **Input**: Perfect alignment map + hyperparameter configs
+- **Tools**: JSONL export, dual-platform training (Gemini/OpenAI), job monitoring
+- **Output**: Fine-tuned models ready for deployment
+- **Philosophy**: Pure model training workflow - no dataset analysis clutter
+
+#### **🧪 Page 3: Pluralistic Translation Lab (The Creative Studio)**
+**Purpose**: Generate multiple translation styles for comparison
+- **Input**: Raw chapters + model/prompt/history configurations  
+- **Tools**: Dynamic model selection, prompt templates, smart history fallbacks, EPUB creation
+- **Output**: Named translation bundles (e.g., `Literary_FineTuned_5shot/`)
+- **Philosophy**: Creative experimentation space for style development
+
+#### **📈 Page 4: Experimentation Analysis (The Judging Panel)**
+**Purpose**: Evaluate and rank translation styles scientifically
+- **Input**: Multiple translation bundles + official reference translations
+- **Tools**: Style leaderboard, BERT/BLEU scoring, statistical analysis, dataset quality analysis
+- **Output**: Data-driven style recommendations + winner EPUB export
+- **Philosophy**: Objective evaluation determines the best approach
+
+### **Why This Architecture Works**
+
+#### **1. Clear Mental Models**
+- **Curator**: "Is my data clean and properly aligned?"
+- **Factory Worker**: "Are my models training successfully?"  
+- **Creative Artist**: "What translation styles can I create?"
+- **Judge**: "Which style performs best?"
+
+#### **2. Logical Dependencies**
+Each page depends on the previous page's output:
+- Can't train without clean data
+- Can't generate styles without models  
+- Can't evaluate without generated styles
+
+#### **3. Resumable Workflow**  
+Users can leave and return to any stage:
+- Data curation is done once
+- Model training runs in background
+- Style generation can be iterative
+- Evaluation can compare any existing styles
+
+#### **4. Scalable Collaboration**
+Different team members can own different pages:
+- **Data Scientists**: Focus on alignment quality
+- **ML Engineers**: Optimize training pipelines
+- **Linguists**: Develop translation approaches
+- **Researchers**: Analyze performance results
+
+## 🔧 Technical Architecture
+
+### **Shared Infrastructure (`utils.py`)**
+All pages share common functionality through a centralized utilities module:
+
+```python
+# API Management
+- load_api_config() / load_openai_api_config()  # Multi-platform API keys
+- generate_translation_unified()                # Unified Gemini/OpenAI interface
+
+# Data Processing  
+- load_alignment_map()                          # Session-cached alignment data
+- load_dataset_for_tuning()                    # ML-ready training examples
+- get_text_stats()                             # Language-aware text analysis
+
+# Quality Assessment
+- calculate_similarity()                        # BERT semantic similarity
+- evaluate_translation_quality()               # Multi-metric assessment
+
+# Fine-tuning Support
+- start_finetuning_job() / start_openai_finetuning_job()  # Dual-platform training
+- create_translation_jsonl()                   # Export training data
+
+# Caching & Performance
+- Smart similarity caching                     # Avoid redundant BERT calculations
+- Translation result caching                   # Resume interrupted jobs
+- Session state management                     # Maintain context across pages
+```
+
+### **Data Organization Strategy**
+
+```
+/data/
+├── cache/                    # Performance optimizations
+│   ├── similarity_scores_cache.json
+│   └── ai_translation_cache/
+├── custom_translations/      # Generated translation bundles
+│   ├── Literary_FineTuned_5shot/
+│   ├── Dynamic_GPT4_NoHistory/
+│   └── Simplified_Gemini_Official/
+├── exports/                  # Research datasets and reports
+│   ├── dataset_report_20250622.csv
+│   └── training_data_500ch.jsonl
+├── models/                   # Fine-tuning metadata
+│   └── model_metadata_20250622.json
+├── prompt_templates/         # Reusable translation styles
+│   ├── Academic_Literal.txt
+│   └── Entertainment_Dynamic.txt
+└── temp/                     # Temporary processing files
+```
+
+### **Key Design Patterns**
+
+#### **1. Progressive Enhancement**
+- Basic functionality works with minimal setup
+- Advanced features activate with additional dependencies
+- Graceful degradation when APIs are unavailable
+
+#### **2. Platform Agnostic**  
+- Same UI supports both Gemini and OpenAI
+- Unified API abstracts platform differences
+- Easy to add new platforms (Claude, etc.)
+
+#### **3. Resume-First Design**
+- All long-running operations can be interrupted and resumed
+- Smart detection of completed work
+- Incremental progress tracking
+
+#### **4. Quality-First Approach**
+- BERT similarity scores track translation quality
+- Statistical validation before model training
+- Multiple evaluation metrics for comprehensive assessment
+
+## 🎯 Research Workflow for Collaborators
+
+### **Typical Research Session**
+
+#### **Phase 1: Data Scientist (One-time Setup)**
+```bash
+# 1. Data curation (once per novel)
+python -m streamlit run pages/1_📖_Data_Review_Alignment.py
+# → Fix alignment issues, create perfect alignment_map.json
+```
+
+#### **Phase 2: ML Engineer (Model Development)**  
+```bash
+# 2. Model training (background process)
+python -m streamlit run pages/2_🤖_Fine-tuning_Workbench.py
+# → Export JSONL, configure hyperparameters, start training jobs
+```
+
+#### **Phase 3: Linguist/Researcher (Style Development)**
+```bash
+# 3. Translation style creation (iterative)
+python -m streamlit run pages/3_🧪_Pluralistic_Translation_Lab.py
+# → Test: Literal vs Dynamic vs Simplified approaches
+# → Generate: Multiple translation bundles for analysis
+```
+
+#### **Phase 4: Research Analyst (Evaluation)**
+```bash
+# 4. Style comparison and selection (conclusion)
+python -m streamlit run pages/4_📈_Experimentation_Lab.py
+# → Analyze: Style leaderboard rankings
+# → Export: Winning approach as final EPUB
+```
+
+### **Collaboration Scenarios**
+
+#### **Scenario A: Academic Research Team**
+- **Data Scientist**: Ensures 99%+ alignment accuracy
+- **Computational Linguist**: Develops domain-specific prompts  
+- **ML Researcher**: Compares fine-tuning vs in-context learning
+- **PhD Student**: Runs systematic experiments and publishes results
+
+#### **Scenario B: Publishing Company**  
+- **Editor**: Reviews and corrects alignment issues
+- **Translator**: Creates and refines prompt templates
+- **Technical Lead**: Manages model training and deployment
+- **Product Manager**: Selects optimal style for target audience
+
+#### **Scenario C: Open Source Contributors**
+- **Data Contributors**: Improve scraping and alignment tools
+- **Platform Engineers**: Add support for new AI providers
+- **Prompt Engineers**: Share effective translation templates
+- **Researchers**: Validate approaches on new language pairs
+
 ## 🚀 Quick Start Guide
 
 ### Prerequisites
@@ -146,11 +372,82 @@ python -m streamlit run master_review_tool.py
    - Use AI translation as reference point
    - Apply one-off corrections as needed
 
-### Stage 5: Export Training Data 📚
+### Stage 5: Translation Workbench 🧪
+
+**Launch the Pluralistic Translation Lab:**
+```bash
+python -m streamlit run "pages/3_🧪_Pluralistic_Translation_Lab.py"
+```
+
+#### Advanced Translation Features:
+
+1. **🎨 Custom Translation Styles**
+   - Built-in templates: Literal, Dynamic, Simplified
+   - Save your own custom prompt templates
+   - Smart run naming based on selected style
+
+2. **📚 Smart History System**
+   - Uses official translations as examples when available
+   - Falls back to your custom translations for recent context
+   - Automatic priority: Official → Custom → Fresh translations
+
+3. **📖 EPUB Creation**
+   - Convert any translation run into downloadable EPUB books
+   - Professional formatting with table of contents
+   - Customizable metadata (title, author, translator)
+
+### Stage 6: Export Training Data 📚
 
 *(Coming Soon - Export aligned pairs to JSONL format for model training)*
 
 ## 🛠️ Advanced Features
+
+### 🧪 Pluralistic Translation Lab
+
+#### 🎨 Prompt Template System
+- **Problem**: Custom prompts are lost after each session
+- **Solution**: Save and reuse translation styles with persistent templates
+- **Result**: Build a library of translation approaches for different purposes
+
+**How It Works:**
+1. Write custom prompt in "Custom" mode
+2. Click "Save This Prompt" and give it a name
+3. Templates appear in dropdown with 🎨 prefix
+4. Run names automatically include template style (e.g., `Poetic_20250622_2031`)
+
+#### 📚 Smart Fallback History System
+- **Problem**: Need different translation sources as few-shot examples
+- **Solution**: 3-tier priority system that automatically finds best available context
+- **Result**: Seamless translations beyond official chapter limits
+
+**Priority Order:**
+1. **Official Translations** (highest quality, most vetted)
+2. **Custom Run Translations** (consistent style, user-selected)
+3. **Current Run Translations** (most recent context, fresh)
+
+**Example Scenarios:**
+- **Chapter 695**: Uses official chapters 690-694 as examples ✅
+- **Chapter 800**: Uses custom chapters 795-799 + fresh chapter 796 ✅
+- **Chapter 1**: Error - no history available (prevents bad translations) ❌
+
+#### 📖 EPUB Package Creator
+- **Problem**: Translated files are scattered, hard to read as complete books
+- **Solution**: One-click EPUB creation with professional formatting
+- **Result**: Instant downloadable books from any translation run
+
+**Features:**
+- Automatic chapter detection and ordering
+- Professional CSS styling (serif fonts, proper margins)
+- Table of contents generation
+- Customizable metadata (title, author, translator credits)
+- File size estimation and download optimization
+
+#### 🔢 Smart Run Naming System
+- **Old Format**: `run_20250622_2031` (unclear what this represents)
+- **New Format**: `Literal_20250622_2031`, `Dynamic_20250622_2031`, `Poetic_Style_20250622_2031`
+- **Number Explanation**: `YYYYMMDD_HHMM` = Date and time when translation started
+  - `20250622` = June 22, 2025
+  - `2031` = 8:31 PM (20:31 in 24-hour format)
 
 ### 🎯 Binary Search Alignment Detection
 
@@ -198,26 +495,103 @@ python -m streamlit run master_review_tool.py
 - **Quick Jump**: Direct input for distant chapter numbers
 - **Context Preservation**: Maintains position when switching between analysis modes
 
-## 📁 Project Structure
+## 📁 Current Project Structure
 
+### **Core Application (Multi-Page Streamlit App)**
 ```
-├── 📄 master_review_tool.py          # Main UI application
-├── 🕷️ robust_scraper.py             # Resilient chapter scraper  
-├── 📖 process_epub.py                # EPUB to text converter
-├── 🗺️ build_complete_alignment_map.py # Creates alignment mapping
-├── 📋 requirements.txt               # All dependencies
-├── 🗺️ alignment_map.json             # Chapter mapping file (main)
-├── 📂 novel_content_dxmwx_complete/  # Chinese chapters
-├── 📂 english_chapters/              # English chapters
-└── 📂 data/                          # Organized data directory
-    ├── 📂 cache/                     # Performance caches
-    │   ├── 📄 similarity_scores_cache.json  # BERT embeddings cache
-    │   └── 📂 ai_translation_cache/  # Gemini API response cache
-    ├── 📂 backups/                   # Timestamped backup files
-    │   └── 📄 alignment_map.json.backup_* # Auto-generated backups
-    └── 📂 temp/                      # Temporary/regenerable files
-        └── 📄 scraping_metadata.json # Scraper progress state
+├── 📄 master_review_tool.py          # Entry point / Home page
+├── 📄 utils.py                       # Shared utilities & API functions
+├── 📄 requirements.txt               # All dependencies (Gemini + OpenAI)
+├── 📄 alignment_map.json             # Perfect chapter alignment mapping
+└── 📂 pages/                         # Four-page application architecture
+    ├── 1_📖_Data_Review_Alignment.py     # 📖 The Curator's Desk
+    ├── 2_🤖_Fine-tuning_Workbench.py     # 🤖 The Factory  
+    ├── 3_🧪_Pluralistic_Translation_Lab.py # 🧪 The Creative Studio
+    └── 4_📈_Experimentation_Lab.py        # 📈 The Judging Panel
 ```
+
+### **Data Preparation Scripts (One-time Setup)**  
+```
+├── 🕷️ robust_scraper.py             # Resilient chapter scraper
+├── 📖 process_epub.py                # EPUB to text converter  
+├── 🗺️ build_complete_alignment_map.py # Initial alignment creation
+└── 📄 build_and_report.py            # Dataset export & BERT analysis
+```
+
+### **Organized Data Architecture**
+```
+├── 📂 novel_content_dxmwx_complete/  # Source: Raw Chinese chapters
+├── 📂 english_chapters/              # Source: EPUB English chapters  
+└── 📂 data/                          # Managed data ecosystem
+    ├── 📂 cache/                     # Performance optimizations
+    │   ├── similarity_scores_cache.json      # BERT score cache
+    │   └── ai_translation_cache/             # API response cache
+    ├── 📂 custom_translations/       # Generated translation bundles  
+    │   ├── Literary_FineTuned_5shot/         # Style: Academic approach
+    │   ├── Dynamic_GPT4_NoHistory/           # Style: Entertainment focus
+    │   └── Simplified_Gemini_Official/       # Style: Accessibility focus
+    ├── 📂 exports/                   # Research datasets & reports
+    │   ├── dataset_report_20250622.csv       # Quality analysis
+    │   ├── training_data_500ch.jsonl         # ML training export
+    │   └── validation_data_500ch.jsonl       # ML validation export
+    ├── 📂 models/                    # Fine-tuning job metadata
+    │   └── model_metadata_20250622.json      # Training job records
+    ├── 📂 prompt_templates/          # Reusable translation styles
+    │   ├── Academic_Literal.txt              # Scholarly approach
+    │   ├── Entertainment_Dynamic.txt         # Commercial appeal
+    │   └── Young_Adult_Simple.txt            # Accessibility focus
+    ├── 📂 backups/                   # Automatic data protection
+    │   └── alignment_map.json.backup_*       # Timestamped backups
+    └── 📂 temp/                      # Temporary processing files
+        └── scraping_metadata.json            # Scraper progress state
+```
+
+### **Key Configuration Files**
+```
+├── 📄 config.json                   # Optional: API keys & settings
+├── 📄 CLAUDE.md                     # Project instructions & context
+└── 📄 README.md                     # This comprehensive guide
+```
+
+### **Launch Points for Different Use Cases**
+
+#### **🔬 Research Workflow**
+```bash
+# Full application suite
+python -m streamlit run master_review_tool.py
+
+# Individual specialized tools  
+python -m streamlit run pages/1_📖_Data_Review_Alignment.py
+python -m streamlit run pages/2_🤖_Fine-tuning_Workbench.py
+python -m streamlit run pages/3_🧪_Pluralistic_Translation_Lab.py
+python -m streamlit run pages/4_📈_Experimentation_Lab.py
+```
+
+#### **📊 Data Pipeline (Command Line)**
+```bash
+# Data acquisition (one-time)
+python robust_scraper.py
+python process_epub.py "novel.epub"
+python build_complete_alignment_map.py
+
+# Analysis & export (repeatable)
+python build_and_report.py
+```
+
+### **Dependencies by Use Case**
+
+#### **Core Requirements (All Features)**
+- `streamlit` - Web application framework
+- `google-generativeai` - Gemini fine-tuning & translation
+- `openai` - OpenAI fine-tuning & translation  
+- `sentence-transformers` - BERT similarity scoring
+- `torch` - Neural network backend
+
+#### **Optional Enhancements**  
+- `ebooklib` - EPUB creation functionality
+- `jieba` - Chinese text segmentation
+- `plotly` - Advanced visualizations
+- `scipy` - Statistical analysis
 
 ## 🚨 Troubleshooting
 

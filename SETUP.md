@@ -24,6 +24,11 @@
    ```bash
    python run_workbench.py
    ```
+   
+   **Alternative direct launch:**
+   ```bash
+   streamlit run app.py
+   ```
 
 ## API Key Setup
 
@@ -102,7 +107,10 @@ source ~/.bashrc
 
 Once configured, you'll have access to:
 
-1. **📖 Data Review & Alignment** - Dataset curation and quality control
-2. **🤖 Fine-tuning Workbench** - Model training and management
-3. **🧪 Pluralistic Translation Lab** - Multi-style translation generation
-4. **📈 Experimentation Analysis** - Quality comparison and evaluation
+1. **🏠 Home** - Main dashboard with system status and quick navigation
+2. **📖 Data Review & Alignment** - Dataset curation and quality control
+3. **🤖 Fine-tuning Workbench** - Model training and management
+4. **🧪 Pluralistic Translation Lab** - Multi-style translation generation
+5. **📈 Experimentation Analysis** - Quality comparison and evaluation
+
+**Navigation**: Use the **sidebar navigation** (left side) to switch between pages. The multi-page interface provides seamless access to all workbench tools.
