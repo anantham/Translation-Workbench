@@ -12,6 +12,7 @@ numpy
 
 # MLOps and Fine-tuning Workbench
 google-generativeai
+openai
 plotly
 scipy
 nltk

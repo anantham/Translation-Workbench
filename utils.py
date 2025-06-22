@@ -56,6 +56,15 @@ try:
 except ImportError:
     print("❌ Google AI SDK not available (pip install google-generativeai)")
 
+# OpenAI SDK
+OPENAI_AVAILABLE = False
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+    print("✅ OpenAI SDK available for fine-tuning")
+except ImportError:
+    print("❌ OpenAI SDK not available (pip install openai)")
+
 # --- API Configuration System ---
 def load_api_config():
     """Load API configuration from environment variable or config file.
@@ -103,6 +112,41 @@ def show_config_status():
         return f"✅ API Key loaded from {source} ({masked_key})"
     else:
         return "❌ API Key not configured"
+
+def load_openai_api_config():
+    """Load OpenAI API configuration from environment variable or config file.
+    
+    Returns:
+        tuple: (api_key, source) where source is 'environment', 'config', or None
+    """
+    # 1. Check environment variable first (highest priority)
+    api_key = os.getenv('OPENAI_API_KEY')
+    if api_key:
+        return api_key, "environment variable"
+    
+    # 2. Check config file
+    config_path = "config.json"
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                api_key = config.get('openai_api_key')
+                if api_key:
+                    return api_key, "config file"
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not read config.json: {e}")
+    
+    # 3. No configuration found
+    return None, None
+
+def show_openai_config_status():
+    """Display OpenAI configuration status for debugging."""
+    api_key, source = load_openai_api_config()
+    if api_key:
+        masked_key = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
+        return f"✅ OpenAI API Key loaded from {source} ({masked_key})"
+    else:
+        return "❌ OpenAI API Key not configured"
 
 # --- Caching System ---
 SIMILARITY_CACHE_FILE = os.path.join(CACHE_DIR, "similarity_scores_cache.json")
@@ -342,15 +386,60 @@ def chunk_chapter_for_training(raw_content, english_content, max_chars=4500):
     
     return chunks
 
-def load_dataset_for_tuning(alignment_map, limit=None, min_similarity=0.5, max_chars=30000):
+def load_bert_scores_from_reports():
+    """Load BERT similarity scores from existing CSV reports."""
+    bert_scores = {}
+    
+    if not os.path.exists(EXPORT_DIR):
+        return bert_scores
+    
+    # Find the most recent CSV report
+    csv_files = [f for f in os.listdir(EXPORT_DIR) if f.startswith('dataset_report_') and f.endswith('.csv')]
+    if not csv_files:
+        return bert_scores
+    
+    # Sort by filename (timestamp) to get most recent
+    csv_files.sort(reverse=True)
+    most_recent_csv = os.path.join(EXPORT_DIR, csv_files[0])
+    
+    try:
+        import pandas as pd
+        df = pd.read_csv(most_recent_csv)
+        
+        # Extract BERT scores by chapter
+        for _, row in df.iterrows():
+            chapter_num = int(row['Chapter'])
+            bert_score = float(row['BERT_Similarity']) if pd.notna(row['BERT_Similarity']) else None
+            bert_scores[chapter_num] = bert_score
+        
+        print(f"✅ Loaded BERT scores for {len(bert_scores)} chapters from {csv_files[0]}")
+        
+    except Exception as e:
+        print(f"⚠️ Could not load BERT scores: {e}")
+    
+    return bert_scores
+
+def load_dataset_for_tuning(alignment_map, limit=None, min_similarity=0.5, max_chars=30000, include_bert_scores=True):
     """
     Load dataset from alignment map and prepare for fine-tuning.
+    
+    Args:
+        alignment_map: Chapter alignment mapping
+        limit: Maximum number of chapters to process
+        min_similarity: Minimum BERT similarity threshold (if available)
+        max_chars: Maximum character count per chapter
+        include_bert_scores: Whether to load BERT scores from existing reports
     
     Returns:
         list: Training examples in the format expected by fine-tuning APIs
     """
     training_examples = []
     processed = 0
+    
+    # Load BERT scores from existing reports if available
+    bert_scores = {}
+    if include_bert_scores:
+        bert_scores = load_bert_scores_from_reports()
     
     # Get sorted chapter numbers
     chapter_numbers = sorted([int(k) for k in alignment_map.keys()])
@@ -380,13 +469,19 @@ def load_dataset_for_tuning(alignment_map, limit=None, min_similarity=0.5, max_c
             raw_stats['char_count'] > max_chars or eng_stats['char_count'] > max_chars):
             continue
         
+        # Check BERT similarity threshold if available
+        bert_score = bert_scores.get(chapter_num)
+        if bert_score is not None and bert_score < min_similarity:
+            continue
+        
         # Create training example
         training_example = {
             "chapter_number": chapter_num,
             "raw_content": raw_content,
             "english_content": english_content,
             "raw_stats": raw_stats,
-            "english_stats": eng_stats
+            "english_stats": eng_stats,
+            "bert_similarity": bert_score  # Include BERT score if available
         }
         
         training_examples.append(training_example)
@@ -538,6 +633,259 @@ def list_tuning_jobs(api_key):
         return list(models), None
     except Exception as e:
         return [], str(e)
+
+# --- OpenAI Fine-tuning Functions ---
+def upload_training_file_openai(api_key, jsonl_content, filename="training_data.jsonl"):
+    """Upload training file to OpenAI for fine-tuning."""
+    if not OPENAI_AVAILABLE:
+        return None, "OpenAI SDK not available"
+    
+    try:
+        client = openai.OpenAI(api_key=api_key)
+        
+        # Create a temporary file for upload
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+            f.write(jsonl_content)
+            temp_file_path = f.name
+        
+        # Upload the file
+        with open(temp_file_path, 'rb') as f:
+            response = client.files.create(
+                file=f,
+                purpose='fine-tune'
+            )
+        
+        # Clean up temp file
+        os.unlink(temp_file_path)
+        
+        return response, None
+        
+    except Exception as e:
+        return None, str(e)
+
+def start_openai_finetuning_job(api_key, training_file_id, model="gpt-4o-mini", 
+                               n_epochs="auto", batch_size="auto", learning_rate_multiplier="auto"):
+    """Start OpenAI fine-tuning job."""
+    if not OPENAI_AVAILABLE:
+        return None, "OpenAI SDK not available"
+    
+    try:
+        client = openai.OpenAI(api_key=api_key)
+        
+        job = client.fine_tuning.jobs.create(
+            training_file=training_file_id,
+            model=model,
+            hyperparameters={
+                "n_epochs": n_epochs,
+                "batch_size": batch_size,
+                "learning_rate_multiplier": learning_rate_multiplier
+            }
+        )
+        
+        return job, None
+        
+    except Exception as e:
+        return None, str(e)
+
+def get_openai_finetuning_status(api_key, job_id):
+    """Get the status of an OpenAI fine-tuning job."""
+    if not OPENAI_AVAILABLE:
+        return None, "OpenAI SDK not available"
+    
+    try:
+        client = openai.OpenAI(api_key=api_key)
+        job = client.fine_tuning.jobs.retrieve(job_id)
+        return job, None
+    except Exception as e:
+        return None, str(e)
+
+def list_openai_finetuning_jobs(api_key):
+    """List all OpenAI fine-tuning jobs."""
+    if not OPENAI_AVAILABLE:
+        return [], "OpenAI SDK not available"
+    
+    try:
+        client = openai.OpenAI(api_key=api_key)
+        jobs = client.fine_tuning.jobs.list()
+        return list(jobs.data), None
+    except Exception as e:
+        return [], str(e)
+
+def list_openai_finetuned_models(api_key):
+    """List user's fine-tuned OpenAI models."""
+    if not OPENAI_AVAILABLE:
+        return [], "OpenAI SDK not available"
+    
+    try:
+        client = openai.OpenAI(api_key=api_key)
+        # Get all fine-tuning jobs and extract completed models
+        jobs = client.fine_tuning.jobs.list()
+        
+        completed_models = []
+        for job in jobs.data:
+            if job.status == "succeeded" and job.fine_tuned_model:
+                completed_models.append({
+                    "model_id": job.fine_tuned_model,
+                    "base_model": job.model,
+                    "job_id": job.id,
+                    "created_at": job.created_at,
+                    "finished_at": job.finished_at
+                })
+        
+        return completed_models, None
+    except Exception as e:
+        return [], str(e)
+
+def get_available_openai_models(api_key):
+    """Get available OpenAI models from API."""
+    if not OPENAI_AVAILABLE:
+        return [], "OpenAI SDK not available"
+    
+    try:
+        client = openai.OpenAI(api_key=api_key)
+        models = client.models.list()
+        
+        # Filter to relevant models for translation
+        translation_models = []
+        for model in models.data:
+            model_id = model.id
+            # Include GPT models suitable for fine-tuning and chat
+            if any(prefix in model_id for prefix in ['gpt-4', 'gpt-3.5', 'ft:']):
+                translation_models.append(model_id)
+        
+        # Sort models: fine-tuned models first, then base models
+        translation_models.sort(key=lambda x: (not x.startswith('ft:'), x))
+        
+        return translation_models, None
+    except Exception as e:
+        return [], str(e)
+
+def get_static_gemini_models():
+    """Get static list of known Gemini models."""
+    return [
+        "gemini-2.5-flash",
+        "gemini-2.5-pro", 
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-pro-001",
+        "gemini-1.5-flash-001",
+        "gemini-1.5-flash-002"
+    ]
+
+def get_available_models_for_translation(platform=None, api_key=None):
+    """Get available models for translation based on platform."""
+    all_models = {}
+    
+    if platform is None or platform == "Gemini":
+        # Add static Gemini models
+        gemini_models = get_static_gemini_models()
+        all_models["Gemini"] = gemini_models
+    
+    if platform is None or platform == "OpenAI":
+        # Add OpenAI models if API key provided
+        if api_key:
+            openai_models, error = get_available_openai_models(api_key)
+            if not error:
+                all_models["OpenAI"] = openai_models
+            else:
+                # Fallback to common OpenAI models
+                all_models["OpenAI"] = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"]
+        else:
+            # Default OpenAI models when no API key
+            all_models["OpenAI"] = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"]
+    
+    return all_models
+
+def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_prompt=None, history_examples=None, use_cache=True):
+    """Translate text using OpenAI API with optional history context."""
+    if not OPENAI_AVAILABLE:
+        return "OpenAI SDK not available", True
+    
+    try:
+        client = openai.OpenAI(api_key=api_key)
+        
+        # Build messages
+        messages = []
+        
+        # Add system prompt
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        
+        # Add history examples as conversation
+        if history_examples:
+            for example in history_examples:
+                messages.append({"role": "user", "content": example["user"]})
+                messages.append({"role": "assistant", "content": example["model"]})
+        
+        # Add current translation request
+        messages.append({"role": "user", "content": f"Translate this Chinese text to English:\n\n{raw_text}"})
+        
+        # Make API call
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=4000
+        )
+        
+        translation = response.choices[0].message.content
+        return translation, False
+        
+    except Exception as e:
+        return f"OpenAI API Request Failed: {e}", True
+
+def generate_translation_unified(api_key, model_name, system_prompt, history, current_raw_text, platform="Gemini"):
+    """Unified translation function supporting both Gemini and OpenAI."""
+    if platform == "Gemini":
+        return translate_with_gemini_history(api_key, model_name, system_prompt, history, current_raw_text)
+    elif platform == "OpenAI":
+        return translate_with_openai(current_raw_text, api_key, model_name, system_prompt, history)
+    else:
+        return f"Unsupported platform: {platform}", True
+
+def translate_with_gemini_history(api_key, model_name, system_prompt, history, current_raw_text):
+    """Translate using Gemini with history context (original implementation)."""
+    try:
+        if not GOOGLE_AI_AVAILABLE:
+            return "Google AI SDK not available", True
+            
+        # Configure API
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_name)
+        
+        # Build the prompt with system instruction + examples + current task
+        user_prompt_parts = []
+        
+        # Add System Prompt (if provided)
+        if system_prompt:
+            user_prompt_parts.append(f"**System:** {system_prompt}")
+        
+        # Add Historical Examples 
+        if history:
+            user_prompt_parts.append("\n**Examples:**")
+            for i, example in enumerate(history, 1):
+                user_prompt_parts.append(f"\n**Example {i}:**")
+                user_prompt_parts.append(f"Chinese: {example['user'][:300]}...")  # Truncate for context
+                user_prompt_parts.append(f"English: {example['model'][:300]}...")
+        
+        # Add Current Task
+        user_prompt_parts.append(f"\n**Now translate this:**\n{current_raw_text}")
+        
+        # Combine all parts
+        full_prompt = "\n".join(user_prompt_parts)
+        
+        # Generate translation
+        response = model.generate_content(full_prompt)
+        
+        if response.text:
+            return response.text, False
+        else:
+            return "No translation generated", True
+            
+    except Exception as e:
+        return f"Gemini API Request Failed: {e}", True
 
 # --- Model Management ---
 def save_model_metadata(job_info, hyperparams, dataset_info):
@@ -745,6 +1093,24 @@ def evaluate_translation_quality(raw_text, reference_translation, candidate_tran
     
     return results
 
+# --- AI Source Management ---
+def get_available_ai_sources():
+    """Get list of available AI translation sources."""
+    sources = ["Fresh Gemini Translation", "Cached Gemini Translation"]
+    
+    # Add custom translation runs
+    custom_translations_dir = os.path.join(DATA_DIR, "custom_translations")
+    if os.path.exists(custom_translations_dir):
+        for run_name in os.listdir(custom_translations_dir):
+            run_path = os.path.join(custom_translations_dir, run_name)
+            if os.path.isdir(run_path):
+                # Check if this run has any translation files
+                translation_files = [f for f in os.listdir(run_path) if f.endswith('-translated.txt')]
+                if translation_files:
+                    sources.append(f"Custom: {run_name}")
+    
+    return sources
+
 # --- Export Functions ---
 def export_training_data_to_jsonl(training_data, output_path):
     """Export training data to JSONL format."""
@@ -755,3 +1121,100 @@ def export_training_data_to_jsonl(training_data, output_path):
         return True, f"Exported {len(training_data)} examples to {output_path}"
     except Exception as e:
         return False, f"Export failed: {e}"
+
+def create_translation_jsonl(training_examples, train_split=0.8, format_type="OpenAI Fine-tuning", system_prompt=None):
+    """
+    Create JSONL training files for translation fine-tuning.
+    
+    Args:
+        training_examples: List of training example dictionaries
+        train_split: Fraction of data to use for training (rest for validation)
+        format_type: Format for JSONL ("OpenAI Fine-tuning", "Gemini Fine-tuning", "Custom Messages")
+        system_prompt: Optional system prompt for translation task
+    
+    Returns:
+        tuple: (train_jsonl_content, val_jsonl_content, stats_dict)
+    """
+    import random
+    import json
+    
+    # Shuffle the data for better train/val split
+    examples = training_examples.copy()
+    random.shuffle(examples)
+    
+    # Split into train and validation
+    split_idx = int(len(examples) * train_split)
+    train_examples = examples[:split_idx]
+    val_examples = examples[split_idx:]
+    
+    def format_example(example, format_type, system_prompt=None):
+        """Format a single example according to the specified format."""
+        chinese_text = example['raw_content']
+        english_text = example['english_content']
+        
+        if format_type == "OpenAI Fine-tuning":
+            # Standard OpenAI format: messages array with user/assistant roles
+            messages = []
+            
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            
+            messages.extend([
+                {"role": "user", "content": chinese_text},
+                {"role": "assistant", "content": english_text}
+            ])
+            
+            return {"messages": messages}
+        
+        elif format_type == "Gemini Fine-tuning":
+            # Gemini format: input_text and output_text
+            formatted = {
+                "input_text": chinese_text,
+                "output_text": english_text
+            }
+            
+            if system_prompt:
+                formatted["input_text"] = f"{system_prompt}\n\nTranslate the following Chinese text to English:\n\n{chinese_text}"
+            
+            return formatted
+        
+        elif format_type == "Custom Messages":
+            # Custom format similar to your sample but for translation
+            return {
+                "messages": [
+                    {"role": "user", "content": f"Translate this Chinese text to English: {chinese_text}"},
+                    {"role": "assistant", "content": english_text}
+                ]
+            }
+        
+        else:
+            # Default to OpenAI format
+            return format_example(example, "OpenAI Fine-tuning", system_prompt)
+    
+    # Convert examples to JSONL format
+    train_jsonl_lines = []
+    val_jsonl_lines = []
+    
+    for example in train_examples:
+        formatted = format_example(example, format_type, system_prompt)
+        train_jsonl_lines.append(json.dumps(formatted, ensure_ascii=False))
+    
+    for example in val_examples:
+        formatted = format_example(example, format_type, system_prompt)
+        val_jsonl_lines.append(json.dumps(formatted, ensure_ascii=False))
+    
+    # Join lines with newlines
+    train_jsonl_content = '\n'.join(train_jsonl_lines)
+    val_jsonl_content = '\n'.join(val_jsonl_lines)
+    
+    # Create statistics
+    stats = {
+        'total_count': len(examples),
+        'train_count': len(train_examples),
+        'val_count': len(val_examples),
+        'train_split': train_split,
+        'format_type': format_type,
+        'has_system_prompt': system_prompt is not None
+    }
+    
+    return train_jsonl_content, val_jsonl_content, stats
