@@ -44,9 +44,11 @@ def chinese_to_int(text):
 def extract_chapter_number(title):
     """
     Extract chapter number from title, handling website typos surgically.
+    Now supports both "第...章" and "都...章" prefixes.
     Only fixes 前→千 in the specific pattern "一前一百" to avoid corrupting legitimate titles.
     """
-    match = re.search(r'第(.+?)章', title)
+    # Allow "第…章", "都…章", or even a missing prefix
+    match = re.search(r'^[第都]?([一二三四五六七八九零十百千万\d]+)章', title)
     if not match: 
         return None
     
@@ -167,8 +169,67 @@ def scrape_backwards_final(start_url: str, output_dir: str, metadata_file: str):
             current_chapter_num = extract_chapter_number(title)
 
             if current_chapter_num is None:
-                print(f"    [FATAL] Could not parse chapter number from title: '{title}'. Stopping.")
-                break
+                print(f"    [PARSE ERROR] Could not read a number from: '{title}'")
+                
+                # Try a heuristic guess so the user sees something helpful
+                guess_txt = re.search(r'([一二三四五六七八九零十百千万\d]+)', title)
+                if guess_txt:
+                    guess_raw = guess_txt.group(1)
+                    guess_num = int(guess_raw) if guess_raw.isdigit() else chinese_to_int(guess_raw)
+                    if guess_num:
+                        print(f"    [GUESS] Possible number: {guess_num} (found '{guess_raw}')")
+                    else:
+                        print(f"    [GUESS] Found '{guess_raw}' but couldn't convert to number")
+                else:
+                    print(f"    [GUESS] No recognizable number pattern found")
+                
+                # Get previous URL for skip option
+                prev_link_tag = soup.find('a', string=re.compile(r'上一章'))
+                next_url = urljoin(current_url, prev_link_tag['href']) if prev_link_tag and prev_link_tag.get('href') else None
+                
+                continue_outer_loop = False
+                while True:
+                    print()
+                    print("    Options:")
+                    print("    [1] Enter chapter number manually and continue")
+                    print("    [2] Skip this chapter")
+                    print("    [3] Stop scraping")
+                    
+                    try:
+                        choice = input("    Your choice (1-3): ").strip()
+                        
+                        if choice == "1":
+                            manual = input("    Enter the correct chapter number: ").strip()
+                            if manual.isdigit():
+                                current_chapter_num = int(manual)
+                                print(f"    [USER] Using manually entered chapter number: {current_chapter_num}")
+                                break
+                            else:
+                                print("    → Please enter a valid integer.")
+                                continue
+                        elif choice == "2":
+                            print(f"    [USER] Skipping chapter. Moving to previous URL.")
+                            current_url = next_url
+                            continue_outer_loop = True
+                            break
+                        elif choice == "3":
+                            print(f"    [USER] Stopping scrape as requested.")
+                            current_url = None
+                            break
+                        else:
+                            print("    → Invalid choice. Please enter 1, 2, or 3.")
+                            continue
+                            
+                    except (KeyboardInterrupt, EOFError):
+                        print(f"\n    [USER] Interrupted. Stopping scrape.")
+                        current_url = None
+                        break
+                
+                # Handle user choices
+                if current_url is None:
+                    break  # Stop scraping
+                elif continue_outer_loop:
+                    continue  # Skip this chapter, move to next URL
 
             # --- INTERACTIVE SEQUENCE VALIDATION ---
             if last_known_good_num is not None:

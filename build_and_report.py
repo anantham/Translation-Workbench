@@ -11,7 +11,7 @@ import hashlib
 import time
 import re
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import Counter
 from functools import wraps
 import random
@@ -45,6 +45,111 @@ try:
     print("✅ Chinese word segmentation enabled (jieba)")
 except ImportError:
     print("📝 Using character count for Chinese (install jieba for word segmentation)")
+
+# --- Smart Resume Functions ---
+def get_recent_exports(hours=24):
+    """Find recent export files within time window."""
+    if not os.path.exists(EXPORT_DIR):
+        return []
+    
+    cutoff_time = datetime.now() - timedelta(hours=hours)
+    recent_files = []
+    
+    for file in os.listdir(EXPORT_DIR):
+        if file.startswith('dataset_report_') and file.endswith('.csv'):
+            file_path = os.path.join(EXPORT_DIR, file)
+            try:
+                file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                if file_time > cutoff_time:
+                    recent_files.append(file_path)
+            except OSError:
+                continue  # Skip files we can't read
+    
+    # Sort by modification time (newest first)
+    recent_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+    return recent_files
+
+def check_completed_chapters(recent_exports):
+    """Extract completed chapters from recent exports."""
+    completed = set()
+    
+    print(f"   └─ 📊 Checking {len(recent_exports)} recent export(s)...")
+    
+    for export_file in recent_exports:
+        try:
+            df = pd.read_csv(export_file)
+            chapters_in_file = set(df['Chapter'].tolist())
+            completed.update(chapters_in_file)
+            print(f"   └─ 📄 {os.path.basename(export_file)}: {len(chapters_in_file)} chapters")
+        except Exception as e:
+            print(f"   └─ ⚠️ Could not read {os.path.basename(export_file)}: {e}")
+    
+    return completed
+
+def smart_chapter_selection(chapters_to_process):
+    """Smart chapter selection with resume capability."""
+    print("\n🔍 Checking for recent exports...")
+    
+    recent_exports = get_recent_exports(hours=24)
+    
+    if not recent_exports:
+        print("   └─ 📭 No recent exports found")
+        return chapters_to_process, False
+    
+    completed_chapters = check_completed_chapters(recent_exports)
+    
+    if not completed_chapters:
+        print("   └─ 📭 No completed chapters in recent exports")
+        return chapters_to_process, False
+    
+    # Check overlap
+    requested_chapters = set(chapters_to_process)
+    overlap = completed_chapters.intersection(requested_chapters)
+    remaining = requested_chapters - completed_chapters
+    
+    if not overlap:
+        print(f"   └─ ✅ No overlap found - all {len(chapters_to_process)} chapters need processing")
+        return chapters_to_process, False
+    
+    print(f"\n📋 Resume Analysis:")
+    print(f"   └─ 🎯 Requested: {len(requested_chapters)} chapters")
+    print(f"   └─ ✅ Completed: {len(overlap)} chapters")
+    print(f"   └─ 🔄 Remaining: {len(remaining)} chapters")
+    
+    if len(remaining) == 0:
+        print("\n🎉 All requested chapters already completed!")
+        return [], True  # Nothing to process
+    
+    # Ask user what to do
+    print(f"\n📝 Options:")
+    print(f"   (a) Append: Process only {len(remaining)} remaining chapters")
+    print(f"   (f) Full: Reprocess all {len(requested_chapters)} chapters")
+    print(f"   (q) Quit: Exit without processing")
+    
+    while True:
+        choice = input("\n🤔 Choose option (a/f/q): ").strip().lower()
+        
+        if choice in ['a', 'append']:
+            return sorted(list(remaining)), True
+        elif choice in ['f', 'full']:
+            return chapters_to_process, False
+        elif choice in ['q', 'quit']:
+            print("👋 Exiting...")
+            return [], True  # Signal to exit
+        else:
+            print("❌ Invalid choice. Please enter 'a', 'f', or 'q'")
+
+def determine_output_strategy(is_resume_mode, chapters_to_process):
+    """Determine whether to create new files or append to existing."""
+    if not is_resume_mode:
+        return "new", None, None
+    
+    if len(chapters_to_process) == 0:
+        return "none", None, None  # Nothing to do
+    
+    # For resume mode, we'll create incremental files
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return "incremental", timestamp, f"incremental_{timestamp}"
 
 # --- Caching System (reused from master_review_tool.py) ---
 SIMILARITY_CACHE_FILE = os.path.join(CACHE_DIR, "similarity_scores_cache.json")
@@ -220,24 +325,66 @@ def translate_with_gemini(raw_text: str, api_key: str, use_cache=True):
     if use_cache:
         cached_translation = get_cached_translation(raw_text)
         if cached_translation:
+            print("   └─ 💾 Using cached translation")
             return cached_translation
     
     # Make API call if not cached
-    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key={api_key}"
+    # Use the same model as other components for consistency
+    model_name = "gemini-2.5-pro"  # Updated to current model
+    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     headers = {'Content-Type': 'application/json'}
     prompt = f"Provide a high-quality, literal English translation of this Chinese web novel chapter. Keep paragraph breaks:\n\n{raw_text}"
     data = {"contents": [{"parts": [{"text": prompt}]}]}
     
-    # This will automatically retry on network errors due to the decorator
-    response = requests.post(gemini_url, headers=headers, json=data, timeout=120)
-    response.raise_for_status()
-    translation = response.json()['candidates'][0]['content']['parts'][0]['text']
+    print(f"   └─ 🌐 Calling Gemini API...")
+    print(f"   └─ 🤖 Model: {model_name}")
+    print(f"   └─ 📄 Prompt length: {len(prompt)} chars")
     
-    # Store in cache if successful and caching is enabled
-    if use_cache and translation and not translation.startswith("API Request Failed"):
-        store_translation_in_cache(raw_text, translation)
+    try:
+        # This will automatically retry on network errors due to the decorator
+        response = requests.post(gemini_url, headers=headers, json=data, timeout=120)
+        
+        # Enhanced error logging
+        if response.status_code != 200:
+            print(f"   └─ ❌ HTTP {response.status_code}: {response.reason}")
+            print(f"   └─ 🔗 URL: {gemini_url}")
+            print(f"   └─ 📄 Response: {response.text[:300]}...")
+            
+            if response.status_code == 404:
+                print(f"   └─ 💡 Model '{model_name}' not found. Check if model name is correct.")
+            elif response.status_code == 400:
+                print(f"   └─ 💡 Bad request. Check API key format and request structure.")
+            elif response.status_code == 403:
+                print(f"   └─ 💡 Permission denied. Check API key permissions and billing.")
+        
+        response.raise_for_status()
+        
+        response_json = response.json()
+        translation = response_json['candidates'][0]['content']['parts'][0]['text']
+        
+        print(f"   └─ ✅ Translation received ({len(translation)} chars)")
+        
+        # Store in cache if successful and caching is enabled
+        if use_cache and translation and not translation.startswith("API Request Failed"):
+            store_translation_in_cache(raw_text, translation)
+        
+        return translation
+        
+    except requests.exceptions.HTTPError as e:
+        error_msg = f"HTTP Error {e.response.status_code}: {e.response.reason}"
+        print(f"   └─ ❌ {error_msg}")
+        return f"API Request Failed: {error_msg}"
     
-    return translation
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Network Error: {type(e).__name__}: {str(e)}"
+        print(f"   └─ ❌ {error_msg}")
+        return f"API Request Failed: {error_msg}"
+    
+    except (KeyError, IndexError) as e:
+        error_msg = f"Response parsing error: {str(e)}"
+        print(f"   └─ ❌ {error_msg}")
+        print(f"   └─ 📄 Raw response: {response.text[:300]}...")
+        return f"API Request Failed: {error_msg}"
 
 # --- Similarity Functions ---
 def load_semantic_model():
@@ -628,10 +775,28 @@ def main():
             print("   python build_and_report.py 20 70       # Process chapters 20-70")
             return
     
-    # Check for API key
-    api_key = input("🔑 Enter your Gemini API key: ").strip()
-    if not api_key:
-        print("❌ API key required. Exiting.")
+    # Load API key from config/environment
+    print("\n🔑 Loading API configuration...")
+    try:
+        # Import the shared config loading function
+        import sys
+        sys.path.append('.')
+        from utils import load_api_config
+        
+        api_key, api_source = load_api_config()
+        if not api_key:
+            print("❌ No API key found.")
+            print("💡 Solutions:")
+            print("   1. Set environment variable: export GEMINI_API_KEY='your-key'")
+            print("   2. Create config.json with your API key")
+            print("   3. Get API key from: https://aistudio.google.com/app/apikey")
+            return
+        
+        print(f"✅ API key loaded from {api_source}")
+        
+    except ImportError as e:
+        print(f"❌ Could not import utils.py: {e}")
+        print("💡 Make sure you're running from the project root directory")
         return
     
     # Load alignment map
@@ -657,19 +822,28 @@ def main():
         process_all = input("\n🎯 Process all chapters? (y/n, default=n): ").strip().lower() == 'y'
         
         if process_all:
-            chapters_to_process = all_available_chapters
+            initial_chapters = all_available_chapters
         else:
             default_max = min(50, len(all_available_chapters))
             max_chapters = int(input(f"📊 How many chapters to process? (default={default_max}): ").strip() or str(default_max))
-            chapters_to_process = all_available_chapters[:max_chapters]
+            initial_chapters = all_available_chapters[:max_chapters]
     else:
         # Command line mode
         if len(sys.argv) == 3:  # start and end specified
-            chapters_to_process = [ch for ch in all_available_chapters if start_chapter <= ch <= max_chapters]
+            initial_chapters = [ch for ch in all_available_chapters if start_chapter <= ch <= max_chapters]
         else:  # just max specified
-            chapters_to_process = all_available_chapters[:max_chapters]
+            initial_chapters = all_available_chapters[:max_chapters]
+    
+    # Smart chapter selection with resume capability
+    chapters_to_process, is_resume_mode = smart_chapter_selection(initial_chapters)
+    
+    if len(chapters_to_process) == 0:
+        print("🎉 Nothing to process. Exiting.")
+        return
     
     print(f"\n🔄 Processing {len(chapters_to_process)} chapters...")
+    if is_resume_mode:
+        print("📝 Resume mode: Processing only remaining chapters")
     
     # Process chapters
     processed_chapters = []
@@ -716,16 +890,32 @@ def main():
     print(f"⏭️  Skipped: {skipped_count} chapters")
     print(f"📊 Success rate: {(successful_count/(successful_count+skipped_count))*100:.1f}%")
     
+    # Determine output strategy based on resume mode
+    output_strategy, timestamp, run_suffix = determine_output_strategy(is_resume_mode, chapters_to_process)
+    
+    if output_strategy == "none":
+        return  # Nothing to export
+    
     # Generate timestamp for file naming
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if timestamp is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     # Create CSV report
-    csv_output = os.path.join(EXPORT_DIR, f"dataset_report_{timestamp}.csv")
+    if output_strategy == "incremental":
+        csv_output = os.path.join(EXPORT_DIR, f"dataset_report_{run_suffix}.csv")
+        print(f"\n📊 Creating incremental CSV report: {os.path.basename(csv_output)}")
+    else:
+        csv_output = os.path.join(EXPORT_DIR, f"dataset_report_{timestamp}.csv")
+        print(f"\n📊 Creating new CSV report: {os.path.basename(csv_output)}")
     df = create_csv_report(processed_chapters, csv_output)
     
     # Create JSONL training files
-    train_output = os.path.join(EXPORT_DIR, f"training_data_{timestamp}.jsonl")
-    val_output = os.path.join(EXPORT_DIR, f"validation_data_{timestamp}.jsonl")
+    if output_strategy == "incremental":
+        train_output = os.path.join(EXPORT_DIR, f"training_data_{run_suffix}.jsonl")
+        val_output = os.path.join(EXPORT_DIR, f"validation_data_{run_suffix}.jsonl")
+    else:
+        train_output = os.path.join(EXPORT_DIR, f"training_data_{timestamp}.jsonl")
+        val_output = os.path.join(EXPORT_DIR, f"validation_data_{timestamp}.jsonl")
     train_count, val_count = create_jsonl_training_files(processed_chapters, train_output, val_output)
     
     # Final summary

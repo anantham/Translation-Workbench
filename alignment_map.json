@@ -35,6 +35,46 @@
     "raw_file": "novel_content_dxmwx_complete/Chapter-0009-第九章 端木婉 一.txt",
     "english_file": "english_chapters/English-Chapter-0009.txt"
   },
+  "10": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0010-第十章 端木婉 二.txt",
+    "english_file": "english_chapters/English-Chapter-0010.txt"
+  },
+  "11": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0011-第十一章 蛰伏 一.txt",
+    "english_file": "english_chapters/English-Chapter-0011.txt"
+  },
+  "12": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0012-第十二章 蛰伏 二.txt",
+    "english_file": "english_chapters/English-Chapter-0012.txt"
+  },
+  "13": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0013-第十三章 蛰伏 三.txt",
+    "english_file": "english_chapters/English-Chapter-0013.txt"
+  },
+  "14": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0014-第十四章 蛰伏 四.txt",
+    "english_file": "english_chapters/English-Chapter-0014.txt"
+  },
+  "15": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0015-第十五章 蛰伏 五.txt",
+    "english_file": "english_chapters/English-Chapter-0015.txt"
+  },
+  "16": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0016-第十六章 变故 一.txt",
+    "english_file": "english_chapters/English-Chapter-0016.txt"
+  },
+  "17": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0017-第十七章 变故 二.txt",
+    "english_file": "english_chapters/English-Chapter-0017.txt"
+  },
+  "18": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0018-第十八章 变故 三.txt",
+    "english_file": "english_chapters/English-Chapter-0018.txt"
+  },
+  "19": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0019-第十九章 上路 一.txt",
+    "english_file": "english_chapters/English-Chapter-0019.txt"
+  },
   "20": {
     "raw_file": "novel_content_dxmwx_complete/Chapter-0020-第二十章 上路 二.txt",
     "english_file": "english_chapters/English-Chapter-0020.txt"
@@ -755,6 +795,10 @@
     "raw_file": "novel_content_dxmwx_complete/Chapter-0199-第一百九十九章 偶然 一.txt",
     "english_file": "english_chapters/English-Chapter-0199.txt"
   },
+  "200": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0200-第两百章 偶然 二.txt",
+    "english_file": "english_chapters/English-Chapter-0200.txt"
+  },
   "201": {
     "raw_file": "novel_content_dxmwx_complete/Chapter-0201-第二百零一章 离开 一.txt",
     "english_file": "english_chapters/English-Chapter-0201.txt"
@@ -962,6 +1006,10 @@
   "252": {
     "raw_file": "novel_content_dxmwx_complete/Chapter-0252-第二百五十二章 十法九意 四.txt",
     "english_file": "english_chapters/English-Chapter-0252.txt"
+  },
+  "253": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0253-第两百五十三章 上阳若 一.txt",
+    "english_file": "english_chapters/English-Chapter-0253.txt"
   },
   "254": {
     "raw_file": "novel_content_dxmwx_complete/Chapter-0254-第二百五十四章 上阳若 二.txt",
@@ -1590,6 +1638,10 @@
   "410": {
     "raw_file": "novel_content_dxmwx_complete/Chapter-0410-第四百一十章 推演 二.txt",
     "english_file": "english_chapters/English-Chapter-0410.txt"
+  },
+  "411": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0411-第四百四十一章 任务 一.txt",
+    "english_file": "english_chapters/English-Chapter-0411.txt"
   },
   "412": {
     "raw_file": "novel_content_dxmwx_complete/Chapter-0412-第四百一十二章 任务 二.txt",
@@ -2563,6 +2615,10 @@
     "raw_file": "novel_content_dxmwx_complete/Chapter-0654-第六百五十四章 感悟 二.txt",
     "english_file": "english_chapters/English-Chapter-0654.txt"
   },
+  "655": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0655-第六百五十五十章 突变 一.txt",
+    "english_file": "english_chapters/English-Chapter-0655.txt"
+  },
   "656": {
     "raw_file": "novel_content_dxmwx_complete/Chapter-0656-第六百五十六章 突变 二.txt",
     "english_file": "english_chapters/English-Chapter-0656.txt"
@@ -3379,6 +3435,10 @@
     "raw_file": "novel_content_dxmwx_complete/Chapter-0859-第八百五十九章 线索 一.txt",
     "english_file": null
   },
+  "860": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0860-第八八六十章 线索 二.txt",
+    "english_file": null
+  },
   "861": {
     "raw_file": "novel_content_dxmwx_complete/Chapter-0861-第八百六十一章 质变 一.txt",
     "english_file": null
@@ -3485,6 +3545,10 @@
   },
   "887": {
     "raw_file": "novel_content_dxmwx_complete/Chapter-0887-第八百八十七章 实战 一.txt",
+    "english_file": null
+  },
+  "888": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-0888-第八白八十八章 实战 二.txt",
     "english_file": null
   },
   "889": {
@@ -3971,6 +4035,10 @@
     "raw_file": "novel_content_dxmwx_complete/Chapter-1010-第一千零一十章 招生 一.txt",
     "english_file": null
   },
+  "1011": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-1011-第一千一十章 阶段 二.txt",
+    "english_file": null
+  },
   "1012": {
     "raw_file": "novel_content_dxmwx_complete/Chapter-1012-第一千零一十二章 招生 二.txt",
     "english_file": null
@@ -4321,6 +4389,10 @@
   },
   "1099": {
     "raw_file": "novel_content_dxmwx_complete/Chapter-1099-第一千零九十九章 治疗 一.txt",
+    "english_file": null
+  },
+  "1100": {
+    "raw_file": "novel_content_dxmwx_complete/Chapter-1100-第一千零九十九章 治疗 二.txt",
     "english_file": null
   },
   "1101": {
@@ -4774,61 +4846,5 @@
   "1213": {
     "raw_file": "novel_content_dxmwx_complete/Chapter-1213-第一千二百一十三章 终章.txt",
     "english_file": null
-  },
-  "200": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0200.txt"
-  },
-  "10": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0010.txt"
-  },
-  "11": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0011.txt"
-  },
-  "12": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0012.txt"
-  },
-  "13": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0013.txt"
-  },
-  "14": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0014.txt"
-  },
-  "15": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0015.txt"
-  },
-  "16": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0016.txt"
-  },
-  "17": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0017.txt"
-  },
-  "18": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0018.txt"
-  },
-  "19": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0019.txt"
-  },
-  "655": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0655.txt"
-  },
-  "411": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0411.txt"
-  },
-  "253": {
-    "raw_file": null,
-    "english_file": "english_chapters/English-Chapter-0253.txt"
   }
 }
