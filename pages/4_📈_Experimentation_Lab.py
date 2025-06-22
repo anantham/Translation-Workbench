@@ -13,7 +13,8 @@ import random
 
 # Import our shared utilities
 import sys
-sys.path.append('..')
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import *
 
 # Page configuration
@@ -24,7 +25,7 @@ st.set_page_config(
 )
 
 st.title("📈 Experimentation Analysis")
-st.caption("**Translation Framework Workbench** | Compare models, analyze quality, and evaluate translation outputs")
+st.caption("**The Judging Panel** | Compare translation styles, analyze quality metrics, and crown the winner")
 
 # --- Sidebar: Experiment Configuration ---
 st.sidebar.header("🎯 Experiment Setup")
@@ -107,15 +108,143 @@ if not alignment_map:
     st.stop()
 
 # Create tabs for different experiment types
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📊 Dataset Quality Analysis",
     "🔬 Quick Translation Test",
     "📊 Batch Evaluation", 
     "📈 Performance Analysis",
-    "🏆 Model Leaderboard"
+    "🏆 Style Leaderboard"
 ])
 
-# --- Tab 1: Quick Translation Test ---
+# --- Tab 1: Dataset Quality Analysis ---
 with tab1:
+    st.header("📊 Dataset Quality Analysis")
+    st.caption("Analyze your training dataset quality and characteristics (moved from Fine-tuning Workbench)")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("🔍 Dataset Analysis")
+        
+        if st.button("🔄 Analyze Dataset Quality", type="primary"):
+            with st.spinner("Analyzing dataset..."):
+                # Load and analyze training examples
+                training_examples = load_dataset_for_tuning(
+                    alignment_map, 
+                    limit=500,  # Analyze up to 500 chapters
+                    min_similarity=0.5,
+                    max_chars=30000
+                )
+                
+                if training_examples:
+                    st.session_state.training_examples = training_examples
+                    
+                    # Create analysis DataFrame
+                    analysis_data = []
+                    for example in training_examples:
+                        bert_score = example.get('bert_similarity')
+                        analysis_data.append({
+                            "Chapter": example['chapter_number'],
+                            "Raw_Words": example['raw_stats']['word_count'],
+                            "Raw_Chars": example['raw_stats']['char_count'],
+                            "English_Words": example['english_stats']['word_count'],
+                            "English_Chars": example['english_stats']['char_count'],
+                            "BERT_Similarity": round(bert_score, 4) if bert_score is not None else "N/A"
+                        })
+                    
+                    df = pd.DataFrame(analysis_data)
+                    st.session_state.dataset_df = df
+                    
+                    st.success(f"✅ Analyzed {len(training_examples)} training examples")
+                else:
+                    st.error("❌ No valid training examples found")
+    
+    with col2:
+        st.subheader("📋 Dataset Summary")
+        
+        if hasattr(st.session_state, 'dataset_df'):
+            df = st.session_state.dataset_df
+            
+            # Summary metrics
+            st.metric("📚 Total Chapters", len(df))
+            st.metric("📝 Avg Raw Words", f"{df['Raw_Words'].mean():.0f}")
+            st.metric("📖 Avg English Words", f"{df['English_Words'].mean():.0f}")
+            
+            # Show BERT similarity metrics if available
+            if 'BERT_Similarity' in df.columns:
+                bert_scores = df[df['BERT_Similarity'] != "N/A"]['BERT_Similarity']
+                if len(bert_scores) > 0:
+                    avg_bert = bert_scores.astype(float).mean()
+                    st.metric("🧠 Avg BERT Similarity", f"{avg_bert:.3f}")
+                else:
+                    st.metric("🧠 BERT Similarity", "Not Available")
+            else:
+                st.metric("🧠 BERT Similarity", "Not Available")
+            
+            # Quality indicators based on BERT similarity
+            if 'BERT_Similarity' in df.columns:
+                bert_scores = df[df['BERT_Similarity'] != "N/A"]['BERT_Similarity']
+                if len(bert_scores) > 0:
+                    bert_numeric = bert_scores.astype(float)
+                    high_quality = len(bert_numeric[bert_numeric >= 0.8])
+                    quality_pct = (high_quality / len(bert_numeric)) * 100
+                    
+                    if quality_pct >= 80:
+                        st.success(f"✅ Quality: {quality_pct:.1f}% high BERT similarity (≥0.8)")
+                    elif quality_pct >= 60:
+                        st.warning(f"⚠️ Quality: {quality_pct:.1f}% high BERT similarity (≥0.8)")
+                    else:
+                        st.error(f"❌ Quality: {quality_pct:.1f}% high BERT similarity (≥0.8)")
+                else:
+                    st.info("🧠 Run build_and_report.py to get BERT similarity scores")
+            else:
+                st.info("🧠 Run build_and_report.py to get BERT similarity scores")
+        else:
+            st.info("👆 Click 'Analyze Dataset Quality' to see summary")
+    
+    # Dataset visualizations
+    if hasattr(st.session_state, 'dataset_df'):
+        st.subheader("📊 Dataset Visualizations")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Length distribution
+            fig_length = px.histogram(
+                st.session_state.dataset_df, 
+                x="English_Words", 
+                title="Distribution of Chapter Lengths (English Words)",
+                nbins=20
+            )
+            fig_length.update_layout(height=400)
+            st.plotly_chart(fig_length, use_container_width=True)
+        
+        with col2:
+            # BERT Similarity distribution
+            if 'BERT_Similarity' in st.session_state.dataset_df.columns:
+                bert_scores = st.session_state.dataset_df[st.session_state.dataset_df['BERT_Similarity'] != "N/A"]['BERT_Similarity']
+                if len(bert_scores) > 0:
+                    fig_bert = px.histogram(
+                        x=bert_scores.astype(float), 
+                        title="Distribution of BERT Similarity Scores",
+                        nbins=20,
+                        labels={'x': 'BERT Similarity', 'y': 'Count'}
+                    )
+                    fig_bert.add_vline(x=0.8, line_dash="dash", line_color="green", annotation_text="Good Threshold")
+                    fig_bert.add_vline(x=0.6, line_dash="dash", line_color="orange", annotation_text="Acceptable")
+                    fig_bert.update_layout(height=400)
+                    st.plotly_chart(fig_bert, use_container_width=True)
+                else:
+                    st.info("📊 Run build_and_report.py to generate BERT similarity scores for visualization")
+            else:
+                st.info("📊 Run build_and_report.py to generate BERT similarity scores for visualization")
+        
+        # Show detailed table
+        with st.expander("🔍 Detailed Dataset View"):
+            st.dataframe(st.session_state.dataset_df, use_container_width=True)
+
+# --- Tab 2: Quick Translation Test ---
+with tab2:
     st.header("🔬 Quick Translation Test")
     st.caption("Compare different models on a single chapter")
     
@@ -303,8 +432,8 @@ with tab1:
             else:
                 st.warning("⚠️ Chapter content not available")
 
-# --- Tab 2: Batch Evaluation ---
-with tab2:
+# --- Tab 3: Batch Evaluation ---
+with tab3:
     st.header("📊 Batch Evaluation")
     st.caption("Evaluate models on multiple chapters for statistical significance")
     
@@ -471,8 +600,8 @@ with tab2:
         else:
             st.info("📊 Run batch evaluation to see results here")
 
-# --- Tab 3: Performance Analysis ---
-with tab3:
+# --- Tab 4: Performance Analysis ---
+with tab4:
     st.header("📈 Performance Analysis")
     
     if hasattr(st.session_state, 'evaluation_results') and st.session_state.evaluation_results:
@@ -547,9 +676,9 @@ with tab3:
     else:
         st.info("📈 Run batch evaluation first to see performance analysis")
 
-# --- Tab 4: Model Leaderboard ---
-with tab4:
-    st.header("🏆 Model Leaderboard")
+# --- Tab 5: Style Leaderboard ---
+with tab5:
+    st.header("🏆 Style Leaderboard")
     
     # Aggregate all evaluation results (could be from multiple sessions)
     if hasattr(st.session_state, 'evaluation_results') and st.session_state.evaluation_results:
