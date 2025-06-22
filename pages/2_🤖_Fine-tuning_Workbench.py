@@ -12,9 +12,10 @@ import time
 import json
 import os
 
-# Import our shared utilities
+# Import our shared utilities  
 import sys
-sys.path.append('..')
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import *
 
 # Page configuration
@@ -25,51 +26,100 @@ st.set_page_config(
 )
 
 st.title("🤖 Fine-tuning Workbench")
-st.caption("**MLOps Interface for Custom Translation Models** | Train, monitor, and evaluate your models")
+st.caption("**The Factory** | Export training datasets, configure hyperparameters, and train specialized models")
 
 # Check for dependencies
-if not GOOGLE_AI_AVAILABLE:
-    st.error("❌ **Google AI SDK not available**")
-    st.info("Install with: `pip install google-generativeai`")
+platforms_available = []
+if GOOGLE_AI_AVAILABLE:
+    platforms_available.append("Google Gemini")
+if OPENAI_AVAILABLE:
+    platforms_available.append("OpenAI")
+
+if not platforms_available:
+    st.error("❌ **No fine-tuning platforms available**")
+    st.info("Install SDKs: `pip install google-generativeai openai`")
     st.stop()
 
 # --- Sidebar: Configuration ---
-st.sidebar.header("🎛️ Model Configuration")
+st.sidebar.header("🎛️ Platform & Model Configuration")
 
-# API Key
-api_key = st.sidebar.text_input("🔑 Gemini API Key:", type="password", help="Required for fine-tuning")
-
-if not api_key:
-    st.sidebar.warning("🔑 API key required for fine-tuning operations")
-
-# Model Selection
-st.sidebar.subheader("📊 Base Model")
-base_models = [
-    "models/gemini-1.5-flash-001",
-    "models/gemini-1.5-flash-002", 
-    "models/gemini-1.5-pro-001"
-]
-selected_base_model = st.sidebar.selectbox("Base Model:", base_models)
-
-# Hyperparameters
-st.sidebar.subheader("⚙️ Hyperparameters")
-epoch_count = st.sidebar.slider("Epochs", min_value=1, max_value=20, value=3, help="Number of training epochs")
-batch_size = st.sidebar.selectbox("Batch Size", [1, 2, 4, 8, 16], index=2, help="Training batch size")
-learning_rate = st.sidebar.select_slider(
-    "Learning Rate", 
-    options=[0.0001, 0.0005, 0.001, 0.005, 0.01], 
-    value=0.001,
-    format_func=lambda x: f"{x:.4f}"
+# Platform Selection
+st.sidebar.subheader("🌐 Fine-tuning Platform")
+selected_platform = st.sidebar.selectbox(
+    "Platform:", 
+    platforms_available,
+    help="Choose between Google Gemini and OpenAI fine-tuning"
 )
+
+# Platform-specific API Key and Models
+if selected_platform == "Google Gemini":
+    api_key = st.sidebar.text_input("🔑 Gemini API Key:", type="password", help="Required for Google fine-tuning")
+    
+    if not api_key:
+        st.sidebar.warning("🔑 Gemini API key required")
+    
+    # Google models
+    st.sidebar.subheader("📊 Base Model")
+    base_models = [
+        "models/gemini-1.5-flash-001",
+        "models/gemini-1.5-flash-002", 
+        "models/gemini-1.5-pro-001"
+    ]
+    selected_base_model = st.sidebar.selectbox("Base Model:", base_models)
+
+elif selected_platform == "OpenAI":
+    api_key = st.sidebar.text_input("🔑 OpenAI API Key:", type="password", help="Required for OpenAI fine-tuning")
+    
+    if not api_key:
+        st.sidebar.warning("🔑 OpenAI API key required")
+    
+    # OpenAI models
+    st.sidebar.subheader("📊 Base Model")
+    base_models = [
+        "gpt-4o-mini",
+        "gpt-4.1-nano-2025-04-14",
+        "gpt-3.5-turbo"
+    ]
+    selected_base_model = st.sidebar.selectbox("Base Model:", base_models)
+
+# Platform-specific Hyperparameters
+st.sidebar.subheader("⚙️ Hyperparameters")
+
+if selected_platform == "Google Gemini":
+    # Gemini-specific hyperparameters
+    epoch_count = st.sidebar.slider("Epochs", min_value=1, max_value=20, value=3, help="Number of training epochs")
+    batch_size = st.sidebar.selectbox("Batch Size", [1, 2, 4, 8, 16], index=2, help="Training batch size")
+    learning_rate = st.sidebar.select_slider(
+        "Learning Rate", 
+        options=[0.0001, 0.0005, 0.001, 0.005, 0.01], 
+        value=0.001,
+        format_func=lambda x: f"{x:.4f}"
+    )
+
+elif selected_platform == "OpenAI":
+    # OpenAI-specific hyperparameters (with auto options)
+    n_epochs_options = ["auto", 1, 2, 3, 4, 5, 10, 20]
+    n_epochs = st.sidebar.selectbox("Epochs (n_epochs)", n_epochs_options, index=0, help="Number of training epochs ('auto' recommended)")
+    
+    batch_size_options = ["auto", 1, 2, 4, 8, 16]
+    batch_size = st.sidebar.selectbox("Batch Size", batch_size_options, index=0, help="Training batch size ('auto' recommended)")
+    
+    learning_rate_options = ["auto", 0.0001, 0.0005, 0.001, 0.005, 0.01]
+    learning_rate_multiplier = st.sidebar.selectbox(
+        "Learning Rate Multiplier", 
+        learning_rate_options, 
+        index=0,
+        help="Learning rate multiplier ('auto' recommended)"
+    )
 
 # Dataset Configuration
 st.sidebar.subheader("📚 Dataset Settings")
 max_training_examples = st.sidebar.number_input(
     "Max Training Examples", 
     min_value=10, 
-    max_value=1000, 
-    value=100, 
-    help="Limit dataset size for faster training"
+    max_value=5000,  # Increased limit for large datasets
+    value=500,       # Higher default for better training
+    help="Maximum chapters to use for training (supports 500+ chapters)"
 )
 
 train_split = st.sidebar.slider(
@@ -123,13 +173,14 @@ with tab1:
                     # Create analysis DataFrame
                     analysis_data = []
                     for example in training_examples:
+                        bert_score = example.get('bert_similarity')
                         analysis_data.append({
                             "Chapter": example['chapter_number'],
                             "Raw_Words": example['raw_stats']['word_count'],
                             "Raw_Chars": example['raw_stats']['char_count'],
                             "English_Words": example['english_stats']['word_count'],
                             "English_Chars": example['english_stats']['char_count'],
-                            "Eng_Raw_Ratio": round(example['english_stats']['word_count'] / example['raw_stats']['word_count'], 2) if example['raw_stats']['word_count'] > 0 else 0
+                            "BERT_Similarity": round(bert_score, 4) if bert_score is not None else "N/A"
                         })
                     
                     df = pd.DataFrame(analysis_data)
@@ -149,7 +200,17 @@ with tab1:
             st.metric("📚 Total Chapters", len(df))
             st.metric("📝 Avg Raw Words", f"{df['Raw_Words'].mean():.0f}")
             st.metric("📖 Avg English Words", f"{df['English_Words'].mean():.0f}")
-            st.metric("⚖️ Avg Length Ratio", f"{df['Eng_Raw_Ratio'].mean():.2f}")
+            
+            # Show BERT similarity metrics if available
+            if 'BERT_Similarity' in df.columns:
+                bert_scores = df[df['BERT_Similarity'] != "N/A"]['BERT_Similarity']
+                if len(bert_scores) > 0:
+                    avg_bert = bert_scores.astype(float).mean()
+                    st.metric("🧠 Avg BERT Similarity", f"{avg_bert:.3f}")
+                else:
+                    st.metric("🧠 BERT Similarity", "Not Available")
+            else:
+                st.metric("🧠 BERT Similarity", "Not Available")
             
             # Show chunking impact if available
             if hasattr(st.session_state, 'chunking_stats'):
@@ -167,86 +228,216 @@ with tab1:
                     else:
                         st.text("✅ All chunks under 5k chars")
             
-            # Quality indicators
-            good_ratio = len(df[(df['Eng_Raw_Ratio'] >= 1.5) & (df['Eng_Raw_Ratio'] <= 3.0)])
-            quality_pct = (good_ratio / len(df)) * 100
-            
-            if quality_pct >= 80:
-                st.success(f"✅ Quality: {quality_pct:.1f}% good ratios")
-            elif quality_pct >= 60:
-                st.warning(f"⚠️ Quality: {quality_pct:.1f}% good ratios")
+            # Quality indicators based on BERT similarity
+            if 'BERT_Similarity' in df.columns:
+                bert_scores = df[df['BERT_Similarity'] != "N/A"]['BERT_Similarity']
+                if len(bert_scores) > 0:
+                    bert_numeric = bert_scores.astype(float)
+                    high_quality = len(bert_numeric[bert_numeric >= 0.8])
+                    quality_pct = (high_quality / len(bert_numeric)) * 100
+                    
+                    if quality_pct >= 80:
+                        st.success(f"✅ Quality: {quality_pct:.1f}% high BERT similarity (≥0.8)")
+                    elif quality_pct >= 60:
+                        st.warning(f"⚠️ Quality: {quality_pct:.1f}% high BERT similarity (≥0.8)")
+                    else:
+                        st.error(f"❌ Quality: {quality_pct:.1f}% high BERT similarity (≥0.8)")
+                else:
+                    st.info("🧠 Run build_and_report.py to get BERT similarity scores")
             else:
-                st.error(f"❌ Quality: {quality_pct:.1f}% good ratios")
+                st.info("🧠 Run build_and_report.py to get BERT similarity scores")
         else:
             st.info("👆 Click 'Analyze Dataset Quality' to see summary")
     
-    # Dataset visualization
+    # Training-focused summary (removed dataset visualizations - moved to Experimentation Lab)
     if hasattr(st.session_state, 'dataset_df'):
-        st.subheader("📊 Dataset Visualizations")
+        st.info("✅ **Training dataset ready.** Use tabs above to configure training or export JSONL files.")
         
-        col1, col2 = st.columns(2)
+        # JSONL Export Section
+        st.subheader("📤 JSONL Export for Fine-tuning")
+        st.caption("Export training data in OpenAI/Gemini fine-tuning format")
         
-        with col1:
-            # Length distribution
-            fig_length = px.histogram(
-                st.session_state.dataset_df, 
-                x="English_Words", 
-                title="Distribution of Chapter Lengths (English Words)",
-                nbins=20
-            )
-            fig_length.update_layout(height=400)
-            st.plotly_chart(fig_length, use_container_width=True)
-        
-        with col2:
-            # Ratio distribution
-            fig_ratio = px.histogram(
-                st.session_state.dataset_df, 
-                x="Eng_Raw_Ratio", 
-                title="Distribution of English/Raw Word Ratios",
-                nbins=20
-            )
-            fig_ratio.add_vline(x=1.5, line_dash="dash", line_color="green", annotation_text="Min Good")
-            fig_ratio.add_vline(x=3.0, line_dash="dash", line_color="green", annotation_text="Max Good")
-            fig_ratio.update_layout(height=400)
-            st.plotly_chart(fig_ratio, use_container_width=True)
-        
-        # Show detailed table
-        with st.expander("🔍 Detailed Dataset View"):
-            st.dataframe(st.session_state.dataset_df, use_container_width=True)
-        
-        # Show chunking analysis if available
-        if hasattr(st.session_state, 'chunking_stats'):
-            with st.expander("✂️ Chunking Analysis"):
-                stats = st.session_state.chunking_stats
+        if hasattr(st.session_state, 'dataset_df'):
+            df = st.session_state.dataset_df
+            
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                # Chapter range selection
+                st.write("📋 **Chapter Selection**")
                 
-                col1, col2 = st.columns(2)
-                with col1:
-                    # Chunk size distribution
-                    import numpy as np
-                    chunk_sizes = stats['chunk_sizes']
+                min_chapter = int(df['Chapter'].min())
+                max_chapter = int(df['Chapter'].max())
+                
+                export_mode = st.radio(
+                    "Export Mode:",
+                    ["All Chapters", "Chapter Range", "Custom Selection"],
+                    horizontal=True
+                )
+                
+                selected_chapters = []
+                
+                if export_mode == "All Chapters":
+                    selected_chapters = df['Chapter'].tolist()
+                    st.info(f"📊 Selected: All {len(selected_chapters)} chapters")
+                
+                elif export_mode == "Chapter Range":
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        start_chapter = st.number_input("Start Chapter", min_value=min_chapter, max_value=max_chapter, value=min_chapter)
+                    with col_b:
+                        end_chapter = st.number_input("End Chapter", min_value=start_chapter, max_value=max_chapter, value=max_chapter)
                     
-                    fig_chunks = px.histogram(
-                        x=chunk_sizes,
-                        title="Distribution of Chunk Sizes (Characters)",
-                        nbins=25,
-                        labels={'x': 'Chunk Size (chars)', 'y': 'Count'}
-                    )
-                    fig_chunks.add_vline(x=4500, line_dash="dash", line_color="orange", annotation_text="Target Limit")
-                    fig_chunks.add_vline(x=5000, line_dash="dash", line_color="red", annotation_text="Gemini Limit")
-                    fig_chunks.update_layout(height=400)
-                    st.plotly_chart(fig_chunks, use_container_width=True)
+                    selected_chapters = df[(df['Chapter'] >= start_chapter) & (df['Chapter'] <= end_chapter)]['Chapter'].tolist()
+                    st.info(f"📊 Selected: {len(selected_chapters)} chapters (Ch.{start_chapter}-{end_chapter})")
                 
-                with col2:
-                    # Summary stats table
-                    stats_df = pd.DataFrame([
-                        {"Metric": "Total Training Examples", "Value": stats['total_examples']},
-                        {"Metric": "Chapters with Multiple Chunks", "Value": stats['chunked_chapters']},
-                        {"Metric": "Single-chunk Chapters", "Value": stats['single_chunks']},
-                        {"Metric": "Average Chunk Size", "Value": f"{stats['avg_chunk_size']:.0f} chars"},
-                        {"Metric": "Largest Chunk", "Value": f"{stats['max_chunk_size']} chars"},
-                        {"Metric": "Chunks Over 5k Chars", "Value": stats['over_5k_chars']}
-                    ])
-                    st.table(stats_df)
+                elif export_mode == "Custom Selection":
+                    # Multi-select for specific chapters
+                    available_chapters = df['Chapter'].tolist()
+                    selected_chapters = st.multiselect(
+                        "Select Chapters:",
+                        available_chapters,
+                        default=available_chapters[:10],  # Default to first 10
+                        help="Choose specific chapters for training"
+                    )
+                    
+                    if selected_chapters:
+                        st.info(f"📊 Selected: {len(selected_chapters)} chapters")
+                    else:
+                        st.warning("⚠️ No chapters selected")
+                
+                # Export format options
+                st.write("🎛️ **Export Options**")
+                
+                export_format = st.selectbox(
+                    "JSONL Format:",
+                    ["OpenAI Fine-tuning", "Gemini Fine-tuning", "Custom Messages"],
+                    help="Choose the format for your fine-tuning platform"
+                )
+                
+                train_val_split = st.slider(
+                    "Training/Validation Split:",
+                    min_value=0.5,
+                    max_value=0.95,
+                    value=0.8,
+                    step=0.05,
+                    help="Percentage of data for training (rest for validation)"
+                )
+                
+                include_system_prompt = st.checkbox(
+                    "Include System Prompt",
+                    value=True,
+                    help="Add system instruction for translation task"
+                )
+                
+                if include_system_prompt:
+                    system_prompt = st.text_area(
+                        "System Prompt:",
+                        "You are a professional translator specializing in Chinese to English translation of web novels. Provide accurate, fluent translations while preserving the original meaning and style.",
+                        height=100
+                    )
+            
+            with col2:
+                st.write("📊 **Export Preview**")
+                
+                if selected_chapters:
+                    num_selected = len(selected_chapters)
+                    num_train = int(num_selected * train_val_split)
+                    num_val = num_selected - num_train
+                    
+                    st.metric("📚 Selected Chapters", num_selected)
+                    st.metric("🏋️ Training Examples", num_train)
+                    st.metric("🔍 Validation Examples", num_val)
+                    
+                    # Estimate file size
+                    avg_chars_per_chapter = df[df['Chapter'].isin(selected_chapters)]['Raw_Chars'].mean() + df[df['Chapter'].isin(selected_chapters)]['English_Chars'].mean()
+                    estimated_size_mb = (num_selected * avg_chars_per_chapter * 2) / (1024 * 1024)  # Rough estimate
+                    
+                    st.metric("📁 Est. File Size", f"{estimated_size_mb:.1f} MB")
+                    
+                    if num_selected > 1000:
+                        st.warning("⚠️ Very large dataset - may need chunking for some platforms")
+                    elif num_selected > 500:
+                        st.info("📊 Large dataset - excellent for training")
+                    elif num_selected < 50:
+                        st.warning("⚠️ Small dataset - consider adding more chapters")
+                    else:
+                        st.success("✅ Good dataset size")
+                else:
+                    st.info("👆 Select chapters to see preview")
+            
+            # Export button and functionality
+            if selected_chapters:
+                if st.button("📤 Export JSONL Files", type="primary", use_container_width=True):
+                    with st.spinner("Creating JSONL training files..."):
+                        # Load the actual training examples
+                        training_examples = st.session_state.training_examples
+                        
+                        # Filter to selected chapters
+                        filtered_examples = [ex for ex in training_examples if ex['chapter_number'] in selected_chapters]
+                        
+                        if filtered_examples:
+                            # Create JSONL content
+                            train_jsonl, val_jsonl, export_stats = create_translation_jsonl(
+                                filtered_examples,
+                                train_split=train_val_split,
+                                format_type=export_format,
+                                system_prompt=system_prompt if include_system_prompt else None
+                            )
+                            
+                            # Generate timestamp for filenames
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            
+                            # Create download buttons
+                            col_a, col_b = st.columns(2)
+                            
+                            with col_a:
+                                st.download_button(
+                                    label="📥 Download Training JSONL",
+                                    data=train_jsonl,
+                                    file_name=f"training_data_{timestamp}.jsonl",
+                                    mime="application/jsonl",
+                                    use_container_width=True
+                                )
+                            
+                            with col_b:
+                                st.download_button(
+                                    label="📥 Download Validation JSONL",
+                                    data=val_jsonl,
+                                    file_name=f"validation_data_{timestamp}.jsonl",
+                                    mime="application/jsonl",
+                                    use_container_width=True
+                                )
+                            
+                            # Show export summary
+                            st.success(f"✅ **Export Complete!**")
+                            
+                            col_stats1, col_stats2, col_stats3 = st.columns(3)
+                            with col_stats1:
+                                st.metric("📚 Training Examples", export_stats['train_count'])
+                            with col_stats2:
+                                st.metric("🔍 Validation Examples", export_stats['val_count'])
+                            with col_stats3:
+                                st.metric("📊 Total Examples", export_stats['total_count'])
+                            
+                            # Show sample data
+                            with st.expander("👀 Sample Training Data"):
+                                import json
+                                sample_lines = train_jsonl.split('\n')[:3]
+                                for i, line in enumerate(sample_lines):
+                                    if line.strip():
+                                        sample_data = json.loads(line)
+                                        st.code(json.dumps(sample_data, indent=2), language="json")
+                                        if i < len(sample_lines) - 1:
+                                            st.divider()
+                        
+                        else:
+                            st.error("❌ No training examples found for selected chapters")
+            else:
+                st.info("📋 Select chapters above to enable export")
+        
+        else:
+            st.info("👆 Click 'Analyze Dataset Quality' first to enable JSONL export")
 
 # --- Tab 2: Training Control ---
 with tab2:
@@ -325,34 +516,88 @@ with tab2:
             
             if train_confirmed and st.button("🚀 **Start Training**", type="primary"):
                 with st.spinner("Starting fine-tuning job..."):
-                    operation, error = start_finetuning_job(
-                        api_key=api_key,
-                        training_data=st.session_state.train_data,
-                        base_model=selected_base_model,
-                        epoch_count=epoch_count,
-                        batch_size=batch_size,
-                        learning_rate=learning_rate
-                    )
+                    if selected_platform == "Google Gemini":
+                        operation, error = start_finetuning_job(
+                            api_key=api_key,
+                            training_data=st.session_state.train_data,
+                            base_model=selected_base_model,
+                            epoch_count=epoch_count,
+                            batch_size=batch_size,
+                            learning_rate=learning_rate
+                        )
+                    elif selected_platform == "OpenAI":
+                        # First, create JSONL content from training data
+                        train_jsonl, val_jsonl, export_stats = create_translation_jsonl(
+                            st.session_state.training_examples,
+                            train_split=0.8,
+                            format_type="OpenAI Fine-tuning",
+                            system_prompt="You are a professional translator specializing in Chinese to English translation of web novels."
+                        )
+                        
+                        # Upload training file to OpenAI
+                        file_response, upload_error = upload_training_file_openai(api_key, train_jsonl)
+                        
+                        if upload_error:
+                            st.error(f"❌ File upload failed: {upload_error}")
+                            operation = None
+                            error = upload_error
+                        else:
+                            # Start fine-tuning job
+                            operation, error = start_openai_finetuning_job(
+                                api_key=api_key,
+                                training_file_id=file_response.id,
+                                model=selected_base_model,
+                                n_epochs=n_epochs,
+                                batch_size=batch_size,
+                                learning_rate_multiplier=learning_rate_multiplier
+                            )
                     
                     if operation:
                         st.success("🎉 Training job started successfully!")
-                        st.info(f"Job Name: {operation.name}")
                         
-                        # Save job metadata
-                        job_metadata = {
-                            "job_name": operation.name,
-                            "base_model": selected_base_model,
-                            "hyperparameters": {
-                                "epoch_count": epoch_count,
-                                "batch_size": batch_size,
-                                "learning_rate": learning_rate
-                            },
-                            "dataset_info": {
-                                "train_examples": len(st.session_state.train_data),
-                                "val_examples": len(st.session_state.val_data),
-                                "train_split": train_split
+                        # Platform-specific job info display
+                        if selected_platform == "Google Gemini":
+                            st.info(f"Job Name: {operation.name}")
+                            job_name = operation.name
+                        elif selected_platform == "OpenAI":
+                            st.info(f"Job ID: {operation.id}")
+                            st.info(f"Model: {operation.model}")
+                            job_name = operation.id
+                        
+                        # Platform-specific job metadata
+                        if selected_platform == "Google Gemini":
+                            job_metadata = {
+                                "platform": "Google Gemini",
+                                "job_name": job_name,
+                                "base_model": selected_base_model,
+                                "hyperparameters": {
+                                    "epoch_count": epoch_count,
+                                    "batch_size": batch_size,
+                                    "learning_rate": learning_rate
+                                },
+                                "dataset_info": {
+                                    "train_examples": len(st.session_state.train_data),
+                                    "val_examples": len(st.session_state.val_data),
+                                    "train_split": train_split
+                                }
                             }
-                        }
+                        elif selected_platform == "OpenAI":
+                            job_metadata = {
+                                "platform": "OpenAI",
+                                "job_name": job_name,
+                                "base_model": selected_base_model,
+                                "hyperparameters": {
+                                    "n_epochs": n_epochs,
+                                    "batch_size": batch_size,
+                                    "learning_rate_multiplier": learning_rate_multiplier
+                                },
+                                "dataset_info": {
+                                    "training_file_id": file_response.id if selected_platform == "OpenAI" else None,
+                                    "train_examples": export_stats['train_count'] if selected_platform == "OpenAI" else len(st.session_state.train_data),
+                                    "val_examples": export_stats['val_count'] if selected_platform == "OpenAI" else len(st.session_state.val_data),
+                                    "train_split": 0.8 if selected_platform == "OpenAI" else train_split
+                                }
+                            }
                         
                         metadata_file = save_model_metadata(
                             job_metadata, 
