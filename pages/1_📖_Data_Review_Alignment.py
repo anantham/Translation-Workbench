@@ -108,10 +108,10 @@ if alignment_map:
     # --- Sidebar Controls ---
     st.sidebar.header("🎛️ Controls")
     
-    # Translation source selection
-    def get_available_translation_sources():
-        """Get list of available translation sources."""
-        sources = ["Official English"]
+    # AI Translation source functions (moved to right column)
+    def get_available_ai_sources():
+        """Get list of available AI translation sources for the right column."""
+        sources = ["Fresh Gemini Translation", "Cached Gemini Translation"]
         custom_dir = os.path.join(DATA_DIR, "custom_translations")
         if os.path.exists(custom_dir):
             for run_name in os.listdir(custom_dir):
@@ -122,28 +122,6 @@ if alignment_map:
                     if txt_files:
                         sources.append(f"Custom: {run_name}")
         return sources
-    
-    def load_translation_content(selected_source, chapter_num, chapter_data):
-        """Load translation content based on selected source."""
-        if selected_source == "Official English":
-            # Use official English from alignment map
-            eng_filepath = chapter_data.get("english_file")
-            return load_chapter_content(eng_filepath), eng_filepath
-        elif selected_source.startswith("Custom: "):
-            # Load from custom translation run
-            run_name = selected_source[8:]  # Remove "Custom: " prefix
-            custom_file = f"Chapter-{chapter_num:04d}-translated.txt"
-            custom_path = os.path.join(DATA_DIR, "custom_translations", run_name, custom_file)
-            return load_chapter_content(custom_path), custom_path
-        else:
-            return "Unknown source selected", None
-    
-    available_sources = get_available_translation_sources()
-    selected_source = st.sidebar.selectbox(
-        "📚 Translation Source:",
-        options=available_sources,
-        help="Choose which translation to compare against raw Chinese"
-    )
     
     # Smart chapter selection with navigation
     col1, col2, col3 = st.sidebar.columns([1, 2, 1])
@@ -751,17 +729,12 @@ streamlit run master_review_tool.py
     # Text statistics
     st.sidebar.subheader("📊 Text Statistics")
     
-    # Translation chapter stats (based on selected source)
-    eng_content, _ = load_translation_content(selected_source, selected_chapter, chapter_data)
-    if eng_content and "File not found" not in eng_content:
+    # Official English chapter stats (always from alignment map)
+    if chapter_data.get("english_file"):
+        eng_content = load_chapter_content(chapter_data["english_file"])
         eng_stats = get_text_stats(eng_content, language_hint='english')
         
-        # Dynamic label based on source
-        if selected_source == "Official English":
-            st.sidebar.markdown("**📖 English Chapter:**")
-        else:
-            run_name = selected_source[8:] if selected_source.startswith("Custom: ") else "Translation"
-            st.sidebar.markdown(f"**📝 {run_name}:**")
+        st.sidebar.markdown("**📖 English Chapter:**")
         col1, col2 = st.sidebar.columns(2)
         with col1:
             st.metric("Words", f"{eng_stats['word_count']:,}")
@@ -776,12 +749,7 @@ streamlit run master_review_tool.py
         elif eng_stats['word_count'] < 1000:
             st.sidebar.warning("⚠️ **Unusually short chapter** - possible content missing!")
     else:
-        # Translation not available
-        if selected_source == "Official English":
-            st.sidebar.warning("❌ No English translation linked")
-        else:
-            run_name = selected_source[8:] if selected_source.startswith("Custom: ") else "Translation"
-            st.sidebar.warning(f"❌ Chapter {selected_chapter} not available in {run_name}")
+        st.sidebar.warning("❌ No English translation linked")
     
     # Chinese chapter stats
     if chapter_data.get("raw_file"):
@@ -1155,67 +1123,90 @@ streamlit run master_review_tool.py
             st.caption(f"File: {chapter_data.get('raw_file', 'N/A')}")
             
         with col2:
-            # Dynamic header based on selected source
-            if selected_source == "Official English":
-                st.subheader("📖 Official Translation")
-            else:
-                st.subheader(f"📝 {selected_source}")
-            
-            # Load content based on selected source
-            eng_content, eng_filepath = load_translation_content(selected_source, selected_chapter, chapter_data)
-            
-            # Show content and source info
-            st.text_area("Translation Content", eng_content, height=600, key="eng_text")
-            
-            # Show source information
-            if selected_source == "Official English":
-                st.caption(f"File: {eng_filepath or 'Not available'}")
-            else:
-                run_name = selected_source[8:] if selected_source.startswith("Custom: ") else "Unknown"
-                if "File not found" in eng_content:
-                    st.caption(f"❌ Chapter {selected_chapter} not found in {run_name}")
-                else:
-                    st.caption(f"📁 Source: {run_name} | File: {os.path.basename(eng_filepath) if eng_filepath else 'N/A'}")
+            st.subheader("📖 Official Translation")
+            # Always show official English translation from alignment map
+            eng_filepath = chapter_data.get("english_file")
+            eng_content = load_chapter_content(eng_filepath)
+            st.text_area("Official English Content", eng_content, height=600, key="eng_text")
+            st.caption(f"File: {eng_filepath or 'Not available'}")
             
         with col3:
             st.subheader("🤖 AI Translation")
             
-            # Check if translation is cached
-            cached_translation = get_cached_translation(raw_content)
-            cache_stats = get_translation_cache_stats()
+            # AI Translation Source Selector
+            available_ai_sources = get_available_ai_sources()
+            selected_ai_source = st.selectbox(
+                "🎯 AI Source:",
+                options=available_ai_sources,
+                help="Choose AI translation source to display"
+            )
             
-            if cached_translation:
-                st.info(f"⚡ **Cached translation available** | Cache: {cache_stats['count']} translations ({cache_stats['size_mb']:.1f} MB)")
+            # Handle different AI sources
+            if selected_ai_source.startswith("Custom: "):
+                # Load from custom translation run
+                run_name = selected_ai_source[8:]  # Remove "Custom: " prefix
+                custom_file = f"Chapter-{selected_chapter:04d}-translated.txt"
+                custom_path = os.path.join(DATA_DIR, "custom_translations", run_name, custom_file)
+                custom_content = load_chapter_content(custom_path)
                 
-                col_load, col_fresh = st.columns(2)
-                with col_load:
-                    if st.button("⚡ Load Cached", use_container_width=True, type="primary"):
-                        st.session_state.ai_translation = cached_translation
-                        st.rerun()
-                with col_fresh:
-                    if st.button("🔄 Fresh Translation", use_container_width=True):
-                        if api_key:
-                            with st.spinner("🔄 Getting fresh translation..."):
-                                st.session_state.ai_translation = translate_with_gemini(raw_content, api_key, use_cache=False)
-                        else:
-                            st.error("🔑 API Key Required")
-            else:
-                st.caption(f"📚 Translation Cache: {cache_stats['count']} translations ({cache_stats['size_mb']:.1f} MB)")
-                if st.button("🔄 Translate Chapter with Gemini", use_container_width=True):
+                if "File not found" in custom_content:
+                    st.error(f"❌ Chapter {selected_chapter} not found in {run_name}")
+                    st.text_area("AI Generated Content", "Chapter not available in this custom run.", height=600, key="ai_text")
+                    st.caption(f"📁 Source: {run_name} (Chapter not found)")
+                else:
+                    st.text_area("AI Generated Content", custom_content, height=600, key="ai_text")
+                    st.caption(f"📁 Source: {run_name} | File: {os.path.basename(custom_path)}")
+            
+            elif selected_ai_source == "Fresh Gemini Translation":
+                # Force fresh translation from Gemini
+                if st.button("🔄 Generate Fresh Translation", use_container_width=True, type="primary"):
                     if api_key:
-                        with st.spinner("🔄 Translating..."):
-                            st.session_state.ai_translation = translate_with_gemini(raw_content, api_key)
+                        with st.spinner("🔄 Getting fresh translation..."):
+                            st.session_state.ai_translation = translate_with_gemini(raw_content, api_key, use_cache=False)
                     else:
                         st.error("🔑 API Key Required")
+                
+                st.text_area("AI Generated Content", st.session_state.ai_translation, height=600, key="ai_text")
+                if st.session_state.ai_translation:
+                    st.caption(f"🌐 Fresh from API • {len(st.session_state.ai_translation)} chars")
+                else:
+                    st.caption("Use button above to generate fresh AI translation")
             
-            st.text_area("AI Generated Content", st.session_state.ai_translation, height=600, key="ai_text")
-            if st.session_state.ai_translation:
-                # Check if current translation came from cache
-                is_cached = st.session_state.ai_translation == cached_translation if cached_translation else False
-                cache_indicator = "⚡ Cached" if is_cached else "🌐 Fresh from API"
-                st.caption(f"{cache_indicator} • {len(st.session_state.ai_translation)} chars")
-            else:
-                st.caption("Use button above to generate AI translation")
+            elif selected_ai_source == "Cached Gemini Translation":
+                # Load cached translation or prompt to create one
+                cached_translation = get_cached_translation(raw_content)
+                cache_stats = get_translation_cache_stats()
+                
+                if cached_translation:
+                    if st.button("⚡ Load Cached Translation", use_container_width=True, type="primary"):
+                        st.session_state.ai_translation = cached_translation
+                        st.rerun()
+                    
+                    st.text_area("AI Generated Content", st.session_state.ai_translation, height=600, key="ai_text")
+                    if st.session_state.ai_translation:
+                        is_cached = st.session_state.ai_translation == cached_translation
+                        cache_indicator = "⚡ Cached" if is_cached else "🌐 Fresh from API"
+                        st.caption(f"{cache_indicator} • {len(st.session_state.ai_translation)} chars")
+                    else:
+                        st.caption("Use button above to load cached translation")
+                        
+                    st.info(f"📚 Cache: {cache_stats['count']} translations ({cache_stats['size_mb']:.1f} MB)")
+                else:
+                    st.warning("❌ No cached translation available for this chapter")
+                    if st.button("🔄 Create Cached Translation", use_container_width=True):
+                        if api_key:
+                            with st.spinner("🔄 Creating cached translation..."):
+                                st.session_state.ai_translation = translate_with_gemini(raw_content, api_key, use_cache=True)
+                        else:
+                            st.error("🔑 API Key Required")
+                    
+                    st.text_area("AI Generated Content", st.session_state.ai_translation, height=600, key="ai_text")
+                    if st.session_state.ai_translation:
+                        st.caption(f"🌐 Newly cached • {len(st.session_state.ai_translation)} chars")
+                    else:
+                        st.caption("No cached translation available - use button above to create one")
+                    
+                    st.caption(f"📚 Translation Cache: {cache_stats['count']} translations ({cache_stats['size_mb']:.1f} MB)")
 
 else:
     st.error("❌ Could not load alignment map. Please ensure 'alignment_map.json' exists.")
