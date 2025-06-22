@@ -24,7 +24,7 @@ graph TD
 
     subgraph "Stage 2: Data Acquisition"
         EPUB[EPUB File] -->|process_epub.py| ENG[📖 English Chapters]
-        WEB[Raw Novel Website] -->|robust_scraper.py| CHN[📜 Chinese Chapters]
+        WEB[Raw Novel Website] -->|scripts/scripts/robust_scraper.py| CHN[📜 Chinese Chapters]
     end
 
     subgraph "Stage 3: Initial Alignment"
@@ -317,7 +317,7 @@ python -c "import sentence_transformers, torch; print('✅ AI dependencies OK')"
 ```bash
 # This creates novel_content_dxmwx_complete/ directory
 # Safe to stop/resume - uses metadata tracking
-python robust_scraper.py
+python scripts/scripts/robust_scraper.py
 ```
 
 **2. Process English EPUB**
@@ -512,10 +512,10 @@ python -m streamlit run "pages/3_🧪_Pluralistic_Translation_Lab.py"
 
 ### **Data Preparation Scripts (One-time Setup)**  
 ```
-├── 🕷️ robust_scraper.py             # Resilient chapter scraper
-├── 📖 process_epub.py                # EPUB to text converter  
-├── 🗺️ build_complete_alignment_map.py # Initial alignment creation
-└── 📄 build_and_report.py            # Dataset export & BERT analysis
+├── 🕷️ scripts/scripts/robust_scraper.py      # Resilient chapter scraper
+├── 📖 scripts/utils/process_epub.py  # EPUB to text converter  
+├── 🗺️ scripts/utils/build_complete_alignment_map.py # Initial alignment creation
+└── 📄 scripts/build_and_report.py    # Dataset export & BERT analysis
 ```
 
 ### **Organized Data Architecture**
@@ -570,12 +570,12 @@ python -m streamlit run pages/4_📈_Experimentation_Lab.py
 #### **📊 Data Pipeline (Command Line)**
 ```bash
 # Data acquisition (one-time)
-python robust_scraper.py
-python process_epub.py "novel.epub"
-python build_complete_alignment_map.py
+python scripts/scripts/robust_scraper.py
+python scripts/utils/process_epub.py "novel.epub"
+python scripts/utils/build_complete_alignment_map.py
 
 # Analysis & export (repeatable)
-python build_and_report.py
+python scripts/build_and_report.py
 ```
 
 ### **Dependencies by Use Case**
@@ -647,11 +647,11 @@ ModuleNotFoundError: No module named 'sentence_transformers'
 1. **Resume from last successful chapter:**
    ```bash
    # Scraper auto-resumes from metadata
-   python robust_scraper.py
+   python scripts/scripts/robust_scraper.py
    ```
 
 2. **Skip problematic chapter:**
-   - Edit `robust_scraper.py`
+   - Edit `scripts/robust_scraper.py`
    - Update starting URL to next valid chapter
 
 ### ❌ Gemini API Errors
