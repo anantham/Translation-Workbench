@@ -4,6 +4,8 @@ import os
 import time
 from datetime import datetime
 import google.generativeai as genai
+from ebooklib import epub
+import zipfile
 
 # Import shared utilities
 from utils import (
@@ -216,41 +218,97 @@ def get_smart_fallback_examples(alignment_map, current_chapter_num, count, selec
     
     return examples, sources_used
 
-def generate_translation_with_history(api_key, model_name, system_prompt, history, current_raw_text):
-    """Constructs the multi-turn prompt and calls the Gemini API."""
+def create_epub_from_translations(translation_dir, output_path, book_title, author="Unknown", translator="AI Translation"):
+    """Create an EPUB file from translated text files."""
     try:
-        # Configure API
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name)
+        # Create EPUB book
+        book = epub.EpubBook()
         
-        # Build the prompt with system instruction + examples + current task
-        user_prompt_parts = []
+        # Set metadata
+        book.set_identifier('way-of-devil-translation')
+        book.set_title(book_title)
+        book.set_language('en')
+        book.add_author(author)
+        book.add_metadata('DC', 'contributor', translator)
         
-        # Add System Prompt (if provided)
-        if system_prompt:
-            user_prompt_parts.append(f"SYSTEM INSTRUCTION:\n{system_prompt}")
+        # Add CSS style
+        style = '''
+        body { font-family: Times, serif; line-height: 1.6; margin: 2em; }
+        h1 { text-align: center; margin-bottom: 2em; }
+        p { text-indent: 2em; margin-bottom: 1em; }
+        '''
+        nav_css = epub.EpubItem(
+            uid="nav_css",
+            file_name="style/nav.css",
+            media_type="text/css",
+            content=style
+        )
+        book.add_item(nav_css)
         
-        # Add In-Context Examples (History)
-        if history:
-            user_prompt_parts.append("EXAMPLES OF HIGH-QUALITY TRANSLATIONS:")
-            for i, example in enumerate(history, 1):
-                user_prompt_parts.append(f"EXAMPLE {i} (Chapter {example['chapter']}):")
-                user_prompt_parts.append(f"Chinese Input:\n{example['user']}")
-                user_prompt_parts.append(f"English Output:\n{example['model']}")
+        # Get all translation files
+        translation_files = []
+        for filename in os.listdir(translation_dir):
+            if filename.endswith('-translated.txt'):
+                try:
+                    chapter_num = int(filename.split('-')[1])
+                    translation_files.append((chapter_num, filename))
+                except (IndexError, ValueError):
+                    continue
         
-        # Add the Final Task
-        user_prompt_parts.append("NOW TRANSLATE THE FOLLOWING:")
-        user_prompt_parts.append(f"Chinese Input:\n{current_raw_text}")
-        user_prompt_parts.append("English Output:")
+        # Sort by chapter number
+        translation_files.sort(key=lambda x: x[0])
         
-        final_prompt = "\n\n" + "="*50 + "\n\n".join(user_prompt_parts)
+        chapters = []
+        spine = ['nav']
         
-        # Make API call
-        response = model.generate_content(final_prompt)
-        return response.text, None
+        # Create chapters
+        for chapter_num, filename in translation_files:
+            file_path = os.path.join(translation_dir, filename)
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+            
+            # Create chapter
+            chapter_id = f"chapter_{chapter_num:04d}"
+            chapter_title = f"Chapter {chapter_num}"
+            
+            # Format content as HTML
+            paragraphs = content.split('\n\n')
+            html_content = f'<h1>{chapter_title}</h1>\n'
+            for paragraph in paragraphs:
+                if paragraph.strip():
+                    html_content += f'<p>{paragraph.strip()}</p>\n'
+            
+            chapter = epub.EpubHtml(
+                title=chapter_title,
+                file_name=f'{chapter_id}.xhtml',
+                content=html_content
+            )
+            chapter.add_item(nav_css)
+            
+            book.add_item(chapter)
+            chapters.append(chapter)
+            spine.append(chapter)
+        
+        # Create table of contents
+        book.toc = [(epub.Section('Chapters'), chapters)]
+        
+        # Add navigation
+        book.add_item(epub.EpubNcx())
+        book.add_item(epub.EpubNav())
+        
+        # Set spine
+        book.spine = spine
+        
+        # Write EPUB
+        epub.write_epub(output_path, book, {})
+        
+        return True, f"Successfully created EPUB with {len(chapters)} chapters"
         
     except Exception as e:
-        return None, str(e)
+        return False, f"Error creating EPUB: {str(e)}"
+
+# Removed old generate_translation_with_history function - replaced by unified function in utils.py
 
 # --- UI Sidebar ---
 st.sidebar.header("🔬 Experiment Controls")
@@ -279,17 +337,93 @@ else:
     st.stop()
 
 with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
-    # Get model from config with fallback
-    model_name = get_config_value("default_model", "gemini-2.5-pro")
-    st.info(f"**Model:** `{model_name}`")
+    # Platform selection
+    platform_options = ["Gemini", "OpenAI"]
+    selected_platform = st.selectbox("🌐 Platform:", platform_options, help="Choose AI platform")
     
-    # Prompt templates
+    # API Key input based on platform
+    if selected_platform == "Gemini":
+        api_key, source = load_api_config()
+        if api_key:
+            st.success(f"✅ Gemini API key loaded from {source}")
+        else:
+            api_key = st.text_input("🔑 Gemini API Key:", type="password", help="Required for Gemini translation")
+            if not api_key:
+                st.warning("⚠️ Gemini API key required")
+    elif selected_platform == "OpenAI":
+        api_key, source = load_openai_api_config()
+        if api_key:
+            st.success(f"✅ OpenAI API key loaded from {source}")
+        else:
+            api_key = st.text_input("🔑 OpenAI API Key:", type="password", help="Required for OpenAI translation")
+            if not api_key:
+                st.warning("⚠️ OpenAI API key required")
+    
+    # Model selection based on platform
+    if selected_platform == "Gemini":
+        available_models = get_static_gemini_models()
+        default_model = "gemini-2.5-pro"
+    elif selected_platform == "OpenAI":
+        if api_key:
+            # Try to fetch models from API
+            with st.spinner("Loading available models..."):
+                openai_models, error = get_available_openai_models(api_key)
+                if error:
+                    st.warning(f"Could not fetch models: {error}")
+                    available_models = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"]
+                else:
+                    available_models = openai_models
+        else:
+            available_models = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"]
+        default_model = "gpt-4o-mini"
+    
+    # Model dropdown
+    if available_models:
+        try:
+            default_index = available_models.index(default_model)
+        except ValueError:
+            default_index = 0
+        
+        model_name = st.selectbox(
+            "🤖 Model:",
+            available_models,
+            index=default_index,
+            help=f"Available {selected_platform} models"
+        )
+        
+        # Show model info
+        if model_name.startswith('ft:'):
+            st.info(f"🎯 **Fine-tuned Model:** `{model_name}`")
+        else:
+            st.info(f"🤖 **Base Model:** `{model_name}`")
+    else:
+        st.error("❌ No models available")
+        model_name = default_model
+    
+    # Load saved prompt templates
+    prompt_templates_dir = os.path.join(DATA_DIR, "prompt_templates")
+    os.makedirs(prompt_templates_dir, exist_ok=True)
+    
+    # Built-in prompt templates
     prompt_templates = {
         "Literal & Accurate": "You are a professional translator specializing in Chinese to English translation of web novels. Provide an accurate, literal translation that preserves the original meaning, structure, and cultural context. Maintain formal tone and precise terminology.",
         "Dynamic & Modern": "You are a skilled literary translator adapting Chinese web novels for Western readers. Create a flowing, engaging translation that captures the spirit and excitement of the original while using natural modern English. Prioritize readability and dramatic impact.",
         "Simplified & Clear": "You are translating Chinese web novels for young adult readers. Use simple, clear language that's easy to understand. Explain cultural concepts briefly when needed. Keep sentences shorter and vocabulary accessible.",
-        "Custom": ""
     }
+    
+    # Load custom prompt templates
+    if os.path.exists(prompt_templates_dir):
+        for filename in os.listdir(prompt_templates_dir):
+            if filename.endswith('.txt'):
+                template_name = filename[:-4]  # Remove .txt extension
+                try:
+                    with open(os.path.join(prompt_templates_dir, filename), 'r', encoding='utf-8') as f:
+                        prompt_templates[f"🎨 {template_name}"] = f.read().strip()
+                except:
+                    continue
+    
+    # Add Custom option
+    prompt_templates["Custom"] = ""
     
     selected_template = st.selectbox("Prompt Template:", list(prompt_templates.keys()))
     
@@ -307,11 +441,37 @@ with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
             height=150,
             help="You can edit this template or use it as-is"
         )
+    
+    # Save prompt template functionality
+    if selected_template == "Custom" and system_prompt.strip():
+        with st.expander("💾 Save This Prompt", expanded=False):
+            template_name = st.text_input(
+                "Template Name:",
+                "",
+                help="Name for your custom prompt template",
+                placeholder="e.g., Poetic Style, Technical Translation"
+            )
+            
+            if st.button("💾 Save Template", disabled=not template_name.strip()):
+                # Save template to file
+                safe_name = "".join(c for c in template_name if c.isalnum() or c in (' ', '-', '_')).strip()
+                template_file = os.path.join(prompt_templates_dir, f"{safe_name}.txt")
+                
+                with open(template_file, 'w', encoding='utf-8') as f:
+                    f.write(system_prompt.strip())
+                
+                st.success(f"✅ Saved template: `{safe_name}`")
+                st.info("💡 Refresh the page to see your new template in the dropdown!")
+    
+    # Store selected template name for run naming
+    template_for_naming = selected_template
+    if selected_template.startswith("🎨 "):
+        template_for_naming = selected_template[3:]  # Remove emoji prefix
 
 with st.sidebar.expander("🎯 Translation Task", expanded=True):
     col1, col2 = st.columns(2)
     start_chapter = col1.number_input("Start Chapter (A)", min_value=1, value=700, help="First chapter to translate")
-    end_chapter = col2.number_input("End Chapter (B)", min_value=start_chapter, value=705, help="Last chapter to translate")
+    end_chapter = col2.number_input("End Chapter (B)", min_value=start_chapter, value=max(705, start_chapter + 5), help="Last chapter to translate")
     
     # Get default from config
     default_history = get_config_value("default_history_count", 5)
@@ -366,10 +526,21 @@ with st.sidebar.expander("📚 History Source", expanded=True):
         st.info(f"🎨 Using custom translation style: `{selected_custom_run}`")
 
 with st.sidebar.expander("📁 Output Settings", expanded=True):
+    # Generate smart default run name based on template
+    if 'template_for_naming' in locals():
+        if template_for_naming == "Custom":
+            default_run_name = f"Custom_{datetime.now().strftime('%Y%m%d_%H%M')}"
+        else:
+            # Clean template name for filename
+            clean_template = template_for_naming.replace(" & ", "_").replace(" ", "_")
+            default_run_name = f"{clean_template}_{datetime.now().strftime('%Y%m%d_%H%M')}"
+    else:
+        default_run_name = f"run_{datetime.now().strftime('%Y%m%d_%H%M')}"
+    
     run_name = st.text_input(
         "Run Name / Style:", 
-        f"run_{datetime.now().strftime('%Y%m%d_%H%M')}", 
-        help="Unique name for this translation bundle"
+        default_run_name, 
+        help="Unique name for this translation bundle (auto-suggested based on prompt template)"
     )
     
     # Add delay option for rate limiting with config default
@@ -458,7 +629,8 @@ if st.button("🚀 Start Translation Job", disabled=start_button_disabled, type=
         "api_key": api_key,
         "api_delay": api_delay,
         "output_dir": output_dir,
-        "selected_custom_run": selected_custom_run
+        "selected_custom_run": selected_custom_run,
+        "platform": selected_platform
     }
 
 if start_button_disabled:
@@ -561,13 +733,14 @@ if st.session_state.get("run_job", False):
                     raise Exception("Failed to load raw chapter content")
 
                 # 3. Call API
-                log_messages.append(f"  └─ Calling {params['model_name']} API...")
-                translation, error = generate_translation_with_history(
+                log_messages.append(f"  └─ Calling {params['platform']} {params['model_name']} API...")
+                translation, error = generate_translation_unified(
                     params["api_key"], 
                     params["model_name"], 
                     params["system_prompt"], 
                     history_examples, 
-                    raw_content
+                    raw_content,
+                    params["platform"]
                 )
 
                 # 4. Process Result
@@ -583,15 +756,21 @@ if st.session_state.get("run_job", False):
                             for msg in recent_logs:
                                 st.write(msg)
                         
-                        # Show quota exceeded dialog
-                        st.error("❌ **Google AI API Quota Exceeded**")
+                        # Platform-specific quota exceeded dialog
+                        platform_name = params["platform"]
+                        st.error(f"❌ **{platform_name} API Quota Exceeded**")
                         st.warning("Your API key has hit rate limits. Please wait or use a different API key.")
                         
                         with st.expander("🔑 **Enter New API Key to Continue**", expanded=True):
+                            if platform_name == "Gemini":
+                                help_text = "Get a new key from https://aistudio.google.com/app/apikey"
+                            else:
+                                help_text = "Get a new key from https://platform.openai.com/api-keys"
+                                
                             new_api_key = st.text_input(
-                                "New Google AI API Key:", 
+                                f"New {platform_name} API Key:", 
                                 type="password",
-                                help="Get a new key from https://aistudio.google.com/app/apikey"
+                                help=help_text
                             )
                             
                             if st.button("🔄 Resume with New Key", type="primary"):
@@ -674,6 +853,129 @@ if st.session_state.get("run_job", False):
     if st.button("🔄 Start New Translation Job"):
         st.session_state.run_job = False
         st.rerun()
+
+# --- EPUB Creation Section ---
+st.divider()
+st.header("📖 EPUB Package Creator")
+st.caption("Convert any custom translation run into a downloadable EPUB book")
+
+# Scan for available custom translation runs
+epub_col1, epub_col2 = st.columns([2, 1])
+
+with epub_col1:
+    custom_runs_dir = os.path.join(DATA_DIR, "custom_translations")
+    available_epub_runs = []
+    
+    if os.path.exists(custom_runs_dir):
+        for run_name in os.listdir(custom_runs_dir):
+            run_path = os.path.join(custom_runs_dir, run_name)
+            if os.path.isdir(run_path):
+                # Check if run has translated files
+                txt_files = [f for f in os.listdir(run_path) if f.endswith('-translated.txt')]
+                if txt_files:
+                    # Get chapter range
+                    chapter_nums = []
+                    for f in txt_files:
+                        try:
+                            chapter_num = int(f.split('-')[1])
+                            chapter_nums.append(chapter_num)
+                        except (IndexError, ValueError):
+                            continue
+                    
+                    if chapter_nums:
+                        chapter_nums.sort()
+                        chapter_range = f"Ch.{min(chapter_nums)}-{max(chapter_nums)}"
+                        available_epub_runs.append({
+                            "name": run_name,
+                            "path": run_path,
+                            "files": len(txt_files),
+                            "range": chapter_range
+                        })
+
+    if available_epub_runs:
+        run_options = [f"{run['name']} ({run['files']} chapters, {run['range']})" for run in available_epub_runs]
+        selected_epub_run = st.selectbox(
+            "Select Translation Run:",
+            run_options,
+            help="Choose which custom translation run to package into EPUB"
+        )
+        
+        # Extract selected run info
+        selected_run_index = run_options.index(selected_epub_run)
+        selected_run_info = available_epub_runs[selected_run_index]
+        
+        # EPUB metadata inputs
+        epub_title = st.text_input(
+            "Book Title:",
+            f"Way of the Devil - {selected_run_info['name']} Translation",
+            help="Title for the EPUB book"
+        )
+        
+        epub_cols = st.columns(2)
+        with epub_cols[0]:
+            epub_author = st.text_input("Author:", "Wang Yu", help="Original author name")
+        with epub_cols[1]:
+            epub_translator = st.text_input("Translator:", "AI Translation", help="Translator credit")
+
+with epub_col2:
+    st.markdown("**📊 EPUB Preview**")
+    if available_epub_runs and 'selected_run_info' in locals():
+        st.metric("Chapters", selected_run_info['files'])
+        st.metric("Range", selected_run_info['range'])
+        
+        # Estimate file size (rough calculation)
+        estimated_mb = selected_run_info['files'] * 0.05  # ~50KB per chapter
+        st.metric("Est. Size", f"{estimated_mb:.1f} MB")
+
+# Create EPUB button
+if available_epub_runs and 'selected_run_info' in locals():
+    if st.button("📖 Create EPUB Book", type="primary", use_container_width=True):
+        with st.spinner("Creating EPUB book..."):
+            # Create output directory
+            epub_output_dir = os.path.join(DATA_DIR, "epub_exports")
+            os.makedirs(epub_output_dir, exist_ok=True)
+            
+            # Generate output filename
+            safe_title = "".join(c for c in epub_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            epub_filename = f"{safe_title.replace(' ', '_')}.epub"
+            epub_output_path = os.path.join(epub_output_dir, epub_filename)
+            
+            # Create EPUB
+            success, message = create_epub_from_translations(
+                selected_run_info['path'],
+                epub_output_path,
+                epub_title,
+                epub_author,
+                epub_translator
+            )
+            
+            if success:
+                st.success(f"✅ **EPUB Created Successfully!**")
+                st.info(f"📁 **Location:** `{epub_output_path}`")
+                
+                # Provide download button
+                with open(epub_output_path, 'rb') as f:
+                    epub_data = f.read()
+                
+                st.download_button(
+                    label="📥 Download EPUB",
+                    data=epub_data,
+                    file_name=epub_filename,
+                    mime="application/epub+zip",
+                    use_container_width=True
+                )
+                
+                # Show file info
+                file_size_mb = len(epub_data) / 1024 / 1024
+                st.caption(f"📊 **File size:** {file_size_mb:.2f} MB | **Format:** EPUB 3.0")
+                
+            else:
+                st.error(f"❌ **EPUB Creation Failed:** {message}")
+else:
+    if not available_epub_runs:
+        st.info("🔍 **No custom translation runs found.** Complete a translation job first to create EPUBs.")
+    else:
+        st.info("📖 Select a translation run above to create an EPUB book.")
 
 # --- Footer ---
 st.divider()
