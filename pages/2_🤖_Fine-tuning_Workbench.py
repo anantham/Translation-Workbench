@@ -40,6 +40,10 @@ if not platforms_available:
     st.info("Install SDKs: `pip install google-generativeai openai`")
     st.stop()
 
+# Load alignment map early to get available chapters
+alignment_map = load_alignment_map()
+max_available_chapters = get_max_available_chapters(alignment_map) if alignment_map else 0
+
 # --- Sidebar: Configuration ---
 st.sidebar.header("🎛️ Platform & Model Configuration")
 
@@ -117,9 +121,9 @@ st.sidebar.subheader("📚 Dataset Settings")
 max_training_examples = st.sidebar.number_input(
     "Max Training Examples", 
     min_value=10, 
-    max_value=5000,  # Increased limit for large datasets
-    value=500,       # Higher default for better training
-    help="Maximum chapters to use for training (supports 500+ chapters)"
+    max_value=max_available_chapters if max_available_chapters > 0 else 5000,
+    value=min(max_available_chapters, 773) if max_available_chapters > 0 else 500,
+    help=f"Maximum chapters to use for training (Available: {max_available_chapters})"
 )
 
 train_split = st.sidebar.slider(
@@ -132,9 +136,6 @@ train_split = st.sidebar.slider(
 )
 
 # --- Main Content ---
-
-# Load alignment map
-alignment_map = load_alignment_map()
 
 if not alignment_map:
     st.error("❌ Could not load alignment map. Please ensure it exists.")
@@ -162,9 +163,7 @@ with tab1:
                 # Load and analyze training examples
                 training_examples = load_dataset_for_tuning(
                     alignment_map, 
-                    limit=max_training_examples,
-                    min_similarity=0.5,
-                    max_chars=30000
+                    limit=max_training_examples
                 )
                 
                 if training_examples:

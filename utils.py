@@ -22,9 +22,10 @@ EXPORT_DIR = os.path.join(DATA_DIR, "exports")
 TEMP_DIR = os.path.join(DATA_DIR, "temp")
 MODELS_DIR = os.path.join(DATA_DIR, "models")
 TRANSLATIONS_DIR = os.path.join(DATA_DIR, "custom_translations")
+EVALUATIONS_DIR = os.path.join(DATA_DIR, "evaluations")
 
 # Ensure directories exist
-for directory in [DATA_DIR, CACHE_DIR, EXPORT_DIR, TEMP_DIR, MODELS_DIR, TRANSLATIONS_DIR]:
+for directory in [DATA_DIR, CACHE_DIR, EXPORT_DIR, TEMP_DIR, MODELS_DIR, TRANSLATIONS_DIR, EVALUATIONS_DIR]:
     os.makedirs(directory, exist_ok=True)
 
 # --- Import detection for optional dependencies ---
@@ -419,15 +420,15 @@ def load_bert_scores_from_reports():
     
     return bert_scores
 
-def load_dataset_for_tuning(alignment_map, limit=None, min_similarity=0.5, max_chars=30000, include_bert_scores=True):
+def load_dataset_for_tuning(alignment_map, limit=None, min_similarity=None, max_chars=None, include_bert_scores=True):
     """
     Load dataset from alignment map and prepare for fine-tuning.
     
     Args:
         alignment_map: Chapter alignment mapping
         limit: Maximum number of chapters to process
-        min_similarity: Minimum BERT similarity threshold (if available)
-        max_chars: Maximum character count per chapter
+        min_similarity: Minimum BERT similarity threshold (if available and specified)
+        max_chars: Maximum character count per chapter (no limit if None)
         include_bert_scores: Whether to load BERT scores from existing reports
     
     Returns:
@@ -460,18 +461,18 @@ def load_dataset_for_tuning(alignment_map, limit=None, min_similarity=0.5, max_c
         if "File not found" in raw_content or "File not found" in english_content:
             continue
         
-        # Quality filters
+        # Get text statistics
         raw_stats = get_text_stats(raw_content, 'chinese')
         eng_stats = get_text_stats(english_content, 'english')
         
-        # Skip if too short, too long, or poor quality
-        if (raw_stats['char_count'] < 500 or eng_stats['char_count'] < 500 or
-            raw_stats['char_count'] > max_chars or eng_stats['char_count'] > max_chars):
-            continue
+        # Apply character count limit only if specified
+        if max_chars is not None:
+            if raw_stats['char_count'] > max_chars or eng_stats['char_count'] > max_chars:
+                continue
         
-        # Check BERT similarity threshold if available
+        # Check BERT similarity threshold only if specified
         bert_score = bert_scores.get(chapter_num)
-        if bert_score is not None and bert_score < min_similarity:
+        if min_similarity is not None and bert_score is not None and bert_score < min_similarity:
             continue
         
         # Create training example
@@ -488,6 +489,37 @@ def load_dataset_for_tuning(alignment_map, limit=None, min_similarity=0.5, max_c
         processed += 1
     
     return training_examples
+
+def get_max_available_chapters(alignment_map):
+    """
+    Get the maximum number of chapters available for training based on 
+    existing English chapter files.
+    
+    Args:
+        alignment_map: Chapter alignment mapping
+    
+    Returns:
+        int: Maximum number of available chapters for training
+    """
+    available_count = 0
+    chapter_numbers = sorted([int(k) for k in alignment_map.keys()])
+    
+    for chapter_num in chapter_numbers:
+        chapter_data = alignment_map[str(chapter_num)]
+        
+        # Check if English file exists
+        if not chapter_data.get('english_file'):
+            continue
+            
+        english_file_path = chapter_data['english_file']
+        if os.path.exists(english_file_path):
+            available_count += 1
+        else:
+            # If we hit a missing file, assume subsequent files might also be missing
+            # But continue counting to get the actual total
+            continue
+    
+    return available_count
 
 def prepare_training_data_for_api(training_examples, train_split=0.8, max_output_chars=4500):
     """
@@ -1251,3 +1283,508 @@ def create_translation_jsonl(training_examples, train_split=0.8, format_type="Op
     }
     
     return train_jsonl_content, val_jsonl_content, stats
+
+# === STYLE EVALUATION SYSTEM ===
+
+def get_available_translation_styles():
+    """
+    Scan the custom_translations directory and return available translation styles.
+    
+    Returns:
+        list: List of style dictionaries with metadata
+    """
+    styles = []
+    
+    if not os.path.exists(TRANSLATIONS_DIR):
+        return styles
+    
+    for style_name in os.listdir(TRANSLATIONS_DIR):
+        style_path = os.path.join(TRANSLATIONS_DIR, style_name)
+        
+        if not os.path.isdir(style_path):
+            continue
+        
+        # Count translation files
+        translation_files = [f for f in os.listdir(style_path) if f.endswith('-translated.txt')]
+        
+        if not translation_files:
+            continue
+        
+        # Load metadata if available
+        metadata_file = os.path.join(style_path, 'job_metadata.json')
+        metadata = {}
+        
+        if os.path.exists(metadata_file):
+            try:
+                with open(metadata_file, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+        
+        # Extract chapter numbers from files
+        chapter_numbers = []
+        for filename in translation_files:
+            try:
+                chapter_num = int(filename.split('-')[1])
+                chapter_numbers.append(chapter_num)
+            except (ValueError, IndexError):
+                continue
+        
+        chapter_numbers.sort()
+        
+        styles.append({
+            'name': style_name,
+            'path': style_path,
+            'chapter_count': len(chapter_numbers),
+            'chapter_range': f"{min(chapter_numbers)}-{max(chapter_numbers)}" if chapter_numbers else "N/A",
+            'metadata': metadata,
+            'model_name': metadata.get('model_name', 'Unknown'),
+            'system_prompt': metadata.get('system_prompt', 'No prompt available'),
+            'timestamp': metadata.get('timestamp', 'Unknown')
+        })
+    
+    # Sort by timestamp (newest first)
+    styles.sort(key=lambda x: x['timestamp'], reverse=True)
+    return styles
+
+def calculate_bert_scores_for_style(style_info, alignment_map, progress_callback=None):
+    """
+    Calculate BERT similarity scores for all chapters in a translation style.
+    
+    Args:
+        style_info: Style dictionary from get_available_translation_styles()
+        alignment_map: Chapter alignment mapping
+        progress_callback: Optional function to call with progress updates (progress, total, chapter_num)
+    
+    Returns:
+        dict: Chapter numbers mapped to BERT scores
+    """
+    # Load semantic model
+    semantic_model = load_semantic_model()
+    if not semantic_model:
+        return {}
+    
+    bert_scores = {}
+    style_path = style_info['path']
+    
+    # Get all translation files
+    translation_files = [f for f in os.listdir(style_path) if f.endswith('-translated.txt')]
+    total_files = len(translation_files)
+    
+    for i, filename in enumerate(sorted(translation_files)):
+        try:
+            # Extract chapter number
+            chapter_num = int(filename.split('-')[1])
+            
+            # Load custom translation
+            custom_path = os.path.join(style_path, filename)
+            with open(custom_path, 'r', encoding='utf-8') as f:
+                custom_translation = f.read().strip()
+            
+            # Load official translation from alignment map
+            if str(chapter_num) in alignment_map:
+                official_file = alignment_map[str(chapter_num)].get('english_file')
+                if official_file and os.path.exists(official_file):
+                    official_translation = load_chapter_content(official_file)
+                    
+                    if "File not found" not in official_translation:
+                        # Calculate BERT similarity
+                        similarity = calculate_similarity(
+                            official_translation, 
+                            custom_translation, 
+                            semantic_model
+                        )
+                        bert_scores[chapter_num] = similarity
+            
+            # Call progress callback if provided
+            if progress_callback:
+                progress_callback(i + 1, total_files, chapter_num)
+                
+        except (ValueError, IndexError, IOError) as e:
+            print(f"Error processing {filename}: {e}")
+            continue
+    
+    return bert_scores
+
+def save_bert_scores(style_name, bert_scores):
+    """Save BERT scores to persistent storage."""
+    style_eval_dir = os.path.join(EVALUATIONS_DIR, style_name)
+    os.makedirs(style_eval_dir, exist_ok=True)
+    
+    bert_file = os.path.join(style_eval_dir, 'bert_scores.json')
+    with open(bert_file, 'w', encoding='utf-8') as f:
+        json.dump(bert_scores, f, indent=2, ensure_ascii=False)
+
+def load_bert_scores(style_name):
+    """Load BERT scores from persistent storage."""
+    bert_file = os.path.join(EVALUATIONS_DIR, style_name, 'bert_scores.json')
+    if os.path.exists(bert_file):
+        try:
+            with open(bert_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {}
+
+def save_human_scores(style_name, human_scores):
+    """Save human evaluation scores to persistent storage."""
+    style_eval_dir = os.path.join(EVALUATIONS_DIR, style_name)
+    os.makedirs(style_eval_dir, exist_ok=True)
+    
+    human_file = os.path.join(style_eval_dir, 'human_scores.json')
+    with open(human_file, 'w', encoding='utf-8') as f:
+        json.dump(human_scores, f, indent=2, ensure_ascii=False)
+
+def load_human_scores(style_name):
+    """Load human evaluation scores from persistent storage."""
+    human_file = os.path.join(EVALUATIONS_DIR, style_name, 'human_scores.json')
+    if os.path.exists(human_file):
+        try:
+            with open(human_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {}
+
+def calculate_composite_score(bert_scores, human_scores, chapter_count):
+    """
+    Calculate comprehensive composite score for a translation style.
+    
+    Args:
+        bert_scores: Dict of chapter_num -> bert_score
+        human_scores: Dict of chapter_num -> human_scores_dict
+        chapter_count: Total number of chapters in the style
+    
+    Returns:
+        dict: Comprehensive scoring breakdown
+    """
+    import numpy as np
+    
+    if not bert_scores and not human_scores:
+        return {
+            'composite_score': 0,
+            'quality_score': 0,
+            'consistency_bonus': 0,
+            'completeness_bonus': 0,
+            'evaluated_chapters': 0
+        }
+    
+    # Get chapters that have both BERT and human scores (if available)
+    evaluated_chapters = set()
+    
+    if bert_scores:
+        evaluated_chapters.update(bert_scores.keys())
+    
+    if human_scores:
+        evaluated_chapters.update(human_scores.keys())
+    
+    evaluated_chapters = list(evaluated_chapters)
+    
+    if not evaluated_chapters:
+        return {
+            'composite_score': 0,
+            'quality_score': 0,
+            'consistency_bonus': 0,
+            'completeness_bonus': 0,
+            'evaluated_chapters': 0
+        }
+    
+    # Calculate quality score (weighted average of all dimensions)
+    quality_scores = []
+    
+    for chapter_num in evaluated_chapters:
+        chapter_quality = 0
+        total_weight = 0
+        
+        # BERT similarity (50% weight when available)
+        if chapter_num in bert_scores:
+            chapter_quality += bert_scores[chapter_num] * 0.5
+            total_weight += 0.5
+        
+        # Human scores (50% weight total, divided among dimensions)
+        if chapter_num in human_scores:
+            human_data = human_scores[chapter_num]
+            human_dimensions = [
+                'english_sophistication',
+                'world_building', 
+                'emotional_impact',
+                'dialogue_naturalness'
+            ]
+            
+            human_avg = 0
+            valid_dimensions = 0
+            
+            for dim in human_dimensions:
+                if dim in human_data:
+                    human_avg += human_data[dim] / 100  # Convert to 0-1 scale
+                    valid_dimensions += 1
+            
+            if valid_dimensions > 0:
+                human_avg /= valid_dimensions
+                chapter_quality += human_avg * 0.5
+                total_weight += 0.5
+        
+        # Normalize by total weight
+        if total_weight > 0:
+            quality_scores.append(chapter_quality / total_weight)
+    
+    if not quality_scores:
+        return {
+            'composite_score': 0,
+            'quality_score': 0,
+            'consistency_bonus': 0,
+            'completeness_bonus': 0,
+            'evaluated_chapters': 0
+        }
+    
+    # Calculate mean quality score
+    mean_quality = np.mean(quality_scores)
+    
+    # Calculate consistency bonus (1 - standard deviation)
+    std_quality = np.std(quality_scores)
+    consistency_bonus = max(0, 1 - std_quality)
+    
+    # Calculate completeness bonus (logarithmic scale)
+    completeness_bonus = np.log10(len(evaluated_chapters) + 1)
+    
+    # Final composite score
+    composite_score = (mean_quality * consistency_bonus) * completeness_bonus
+    
+    return {
+        'composite_score': composite_score,
+        'quality_score': mean_quality,
+        'consistency_bonus': consistency_bonus,
+        'completeness_bonus': completeness_bonus,
+        'evaluated_chapters': len(evaluated_chapters),
+        'mean_bert': np.mean([bert_scores[ch] for ch in evaluated_chapters if ch in bert_scores]) if bert_scores else 0,
+        'std_bert': np.std([bert_scores[ch] for ch in evaluated_chapters if ch in bert_scores]) if bert_scores else 0
+    }
+
+# === WEB SCRAPING SYSTEM ===
+
+def validate_scraping_url(url):
+    """
+    Validate if a URL is suitable for scraping and identify the novel site.
+    
+    Args:
+        url: URL to validate
+        
+    Returns:
+        dict: Validation result with site info and recommendations
+    """
+    import urllib.parse as urlparse
+    
+    result = {
+        'valid': False,
+        'site_type': 'unknown',
+        'recommendations': [],
+        'warnings': []
+    }
+    
+    try:
+        parsed = urlparse.urlparse(url)
+        domain = parsed.netloc.lower()
+        
+        # Check for supported sites
+        if 'dxmwx.org' in domain:
+            result['valid'] = True
+            result['site_type'] = 'dxmwx'
+            result['recommendations'].append("✅ dxmwx.org is fully supported")
+            
+            # Check URL format
+            if '/read/' in url and '_' in url:
+                result['recommendations'].append("✅ URL format looks correct for chapter scraping")
+            else:
+                result['warnings'].append("⚠️ URL should be a chapter page (contains /read/ and chapter ID)")
+        
+        elif 'wtr-lab.com' in domain:
+            result['site_type'] = 'wtr-lab'
+            result['warnings'].append("⚠️ wtr-lab.com support is experimental")
+            result['recommendations'].append("📝 May require custom scraping configuration")
+        
+        else:
+            result['warnings'].append(f"⚠️ Unknown domain: {domain}")
+            result['recommendations'].append("🔧 Custom scraper development may be needed")
+            result['recommendations'].append("📖 Consider using supported sites: dxmwx.org")
+        
+        # General URL checks
+        if not url.startswith(('http://', 'https://')):
+            result['warnings'].append("⚠️ URL should start with http:// or https://")
+        
+        if parsed.scheme == 'http':
+            result['warnings'].append("🔒 Consider using HTTPS for better security")
+            
+    except Exception as e:
+        result['warnings'].append(f"❌ URL parsing error: {str(e)}")
+    
+    return result
+
+def streamlit_scraper(start_url, output_dir, max_chapters=50, delay_seconds=2, progress_callback=None, status_callback=None):
+    """
+    Non-interactive version of the robust scraper for Streamlit integration.
+    
+    Args:
+        start_url: URL to start scraping from
+        output_dir: Directory to save chapters
+        max_chapters: Maximum number of chapters to scrape
+        delay_seconds: Delay between requests
+        progress_callback: Function to call with progress updates (current, total)
+        status_callback: Function to call with status updates (message)
+        
+    Returns:
+        dict: Scraping results with statistics
+    """
+    import requests
+    from bs4 import BeautifulSoup
+    import time
+    import re
+    
+    # Import helper functions from robust_scraper
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), 'scripts'))
+    
+    try:
+        from robust_scraper import extract_chapter_number, sanitize_filename
+    except ImportError:
+        # Fallback simple implementations
+        def extract_chapter_number(title):
+            match = re.search(r'第?(\d+)章', title)
+            return int(match.group(1)) if match else None
+            
+        def sanitize_filename(filename):
+            return re.sub(r'[\\/*?:"<>|]', "", filename).strip()
+    
+    results = {
+        'success': False,
+        'chapters_scraped': 0,
+        'errors': [],
+        'chapters': [],
+        'total_time': 0
+    }
+    
+    start_time = time.time()
+    
+    try:
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
+        
+        current_url = start_url
+        chapters_scraped = 0
+        
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
+        
+        if status_callback:
+            status_callback(f"🌐 Starting scraper from: {start_url}")
+        
+        for i in range(max_chapters):
+            if not current_url:
+                break
+                
+            if status_callback:
+                status_callback(f"📖 Processing chapter {i+1}/{max_chapters}")
+                
+            try:
+                # Fetch page
+                response = session.get(current_url, timeout=10)
+                response.raise_for_status()
+                
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Extract title and content (dxmwx.org specific)
+                title_element = soup.find('h1')
+                title = title_element.get_text().strip() if title_element else f"Chapter {i+1}"
+                
+                content_element = soup.find('div', {'id': 'content'}) or soup.find('div', class_='content')
+                if not content_element:
+                    results['errors'].append(f"No content found at {current_url}")
+                    break
+                
+                content = content_element.get_text().strip()
+                
+                if not content:
+                    results['errors'].append(f"Empty content at {current_url}")
+                    break
+                
+                # Extract chapter number
+                chapter_num = extract_chapter_number(title)
+                if not chapter_num:
+                    chapter_num = 9999 - i  # Fallback numbering
+                
+                # Save chapter
+                safe_title = sanitize_filename(title)
+                filename = f"Chapter-{chapter_num:04d}-{safe_title}.txt"
+                filepath = os.path.join(output_dir, filename)
+                
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(f"Title: {title}\n")
+                    f.write(f"URL: {current_url}\n")
+                    f.write(f"Chapter: {chapter_num}\n")
+                    f.write("=" * 50 + "\n\n")
+                    f.write(content)
+                
+                chapters_scraped += 1
+                results['chapters'].append({
+                    'number': chapter_num,
+                    'title': title,
+                    'filename': filename,
+                    'url': current_url
+                })
+                
+                if progress_callback:
+                    progress_callback(chapters_scraped, max_chapters)
+                
+                if status_callback:
+                    status_callback(f"✅ Saved: Chapter {chapter_num} - {title[:50]}...")
+                
+                # Find next/previous chapter link
+                next_link = None
+                
+                # Look for navigation links (dxmwx.org specific)
+                nav_links = soup.find_all('a', href=True)
+                for link in nav_links:
+                    href = link.get('href', '')
+                    text = link.get_text().strip().lower()
+                    
+                    if any(word in text for word in ['上一页', '上一章', 'previous']):
+                        next_link = href
+                        break
+                
+                if next_link:
+                    if next_link.startswith('/'):
+                        from urllib.parse import urljoin
+                        current_url = urljoin(current_url, next_link)
+                    else:
+                        current_url = next_link
+                else:
+                    if status_callback:
+                        status_callback("🔍 No more navigation links found")
+                    break
+                
+                # Delay between requests
+                if delay_seconds > 0:
+                    time.sleep(delay_seconds)
+                
+            except Exception as e:
+                error_msg = f"Error processing chapter {i+1}: {str(e)}"
+                results['errors'].append(error_msg)
+                if status_callback:
+                    status_callback(f"❌ {error_msg}")
+                break
+        
+        results['success'] = chapters_scraped > 0
+        results['chapters_scraped'] = chapters_scraped
+        results['total_time'] = time.time() - start_time
+        
+        if status_callback:
+            status_callback(f"🎉 Scraping completed! {chapters_scraped} chapters saved in {results['total_time']:.1f}s")
+            
+    except Exception as e:
+        results['errors'].append(f"Fatal scraping error: {str(e)}")
+        if status_callback:
+            status_callback(f"💥 Fatal error: {str(e)}")
+    
+    return results

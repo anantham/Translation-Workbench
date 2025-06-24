@@ -31,8 +31,8 @@ def launch_workbench():
         return
     
     # Verify we're in the right directory
-    if not os.path.exists("app.py"):
-        print("❌ app.py not found. Please run from the project directory.")
+    if not os.path.exists("🏠_Home_Dashboard.py"):
+        print("❌ 🏠_Home_Dashboard.py not found. Please run from the project directory.")
         return
     
     if not os.path.exists("utils.py"):
@@ -45,7 +45,7 @@ def launch_workbench():
     
     print("🎯 Starting multi-page workbench...")
     print("📊 Available pages:")
-    print("  • 🏠 Home (Main Dashboard)")
+    print("  • 🏠 Home Dashboard (Main + Web Scraping)")
     print("  • 📖 Data Review & Alignment")
     print("  • 🤖 Fine-tuning Workbench")
     print("  • 🧪 Pluralistic Translation Lab")
@@ -59,7 +59,7 @@ def launch_workbench():
     # Launch Streamlit - now launches main app which enables multi-page navigation
     try:
         subprocess.run([
-            sys.executable, "-m", "streamlit", "run", "app.py",
+            sys.executable, "-m", "streamlit", "run", "🏠_Home_Dashboard.py",
             "--server.port", "8501",
             "--server.headless", "false"
         ])

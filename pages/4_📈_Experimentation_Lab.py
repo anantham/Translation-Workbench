@@ -27,6 +27,10 @@ st.set_page_config(
 st.title("📈 Experimentation Analysis")
 st.caption("**The Judging Panel** | Compare translation styles, analyze quality metrics, and crown the winner")
 
+# Load alignment map early to get available chapters
+alignment_map = load_alignment_map()
+max_available_chapters = get_max_available_chapters(alignment_map) if alignment_map else 0
+
 # --- Sidebar: Experiment Configuration ---
 st.sidebar.header("🎯 Experiment Setup")
 
@@ -100,9 +104,6 @@ random_seed = st.sidebar.number_input("Random Seed", value=42, help="For reprodu
 
 # --- Main Content ---
 
-# Load alignment map and validation data
-alignment_map = load_alignment_map()
-
 if not alignment_map:
     st.error("❌ Could not load alignment map")
     st.stop()
@@ -131,9 +132,7 @@ with tab1:
                 # Load and analyze training examples
                 training_examples = load_dataset_for_tuning(
                     alignment_map, 
-                    limit=500,  # Analyze up to 500 chapters
-                    min_similarity=0.5,
-                    max_chars=30000
+                    limit=min(max_available_chapters, 100)  # Analyze up to 100 chapters for experimentation
                 )
                 
                 if training_examples:
@@ -678,106 +677,452 @@ with tab4:
 
 # --- Tab 5: Style Leaderboard ---
 with tab5:
-    st.header("🏆 Style Leaderboard")
+    st.header("🏆 Translation Style Evaluation & Leaderboard")
+    st.caption("Comprehensive quality assessment of custom translation styles")
     
-    # Aggregate all evaluation results (could be from multiple sessions)
-    if hasattr(st.session_state, 'evaluation_results') and st.session_state.evaluation_results:
-        results_df = pd.DataFrame(st.session_state.evaluation_results)
-        
-        # Calculate overall scores
-        leaderboard_data = []
-        
-        for (model_type, model_name), group in results_df.groupby(['model_type', 'model_name']):
-            avg_bleu = group['bleu_score'].mean()
-            avg_semantic = group['semantic_similarity'].mean()
-            avg_length_ratio = group['length_ratio'].mean()
+    # Get available translation styles
+    available_styles = get_available_translation_styles()
+    
+    if not available_styles:
+        st.info("🎨 No custom translation styles found. Generate translations in the Pluralistic Translation Lab first.")
+        st.stop()
+    
+    # Style selection interface
+    st.subheader("📚 Available Translation Styles")
+    
+    # Create style selection with metadata display
+    style_options = {}
+    for style in available_styles:
+        label = f"{style['name']} ({style['chapter_count']} chapters, {style['model_name']})"
+        style_options[label] = style
+    
+    selected_styles = st.multiselect(
+        "Select styles to evaluate:",
+        options=list(style_options.keys()),
+        help="Choose one or more translation styles for evaluation"
+    )
+    
+    if not selected_styles:
+        st.info("👆 Please select at least one translation style to evaluate")
+        st.stop()
+    
+    # Display selected styles info
+    with st.expander("📋 Selected Styles Details"):
+        for style_label in selected_styles:
+            style = style_options[style_label]
+            col1, col2, col3 = st.columns(3)
             
-            # Calculate composite score (weighted average)
-            composite_score = (avg_bleu * 0.4) + (avg_semantic * 0.4) + (min(abs(avg_length_ratio - 1.0), 1.0) * 0.2)
+            with col1:
+                st.metric("Style", style['name'])
+                st.metric("Chapters", style['chapter_count'])
             
-            leaderboard_data.append({
-                "Rank": 0,  # Will be set after sorting
-                "Model": model_name,
-                "Type": "🎯 Fine-tuned" if model_type == "fine_tuned" else f"🤖 Base ({group['n_shot'].iloc[0]}-shot)",
-                "BLEU Score": f"{avg_bleu:.3f}",
-                "Semantic Similarity": f"{avg_semantic:.3f}",
-                "Length Ratio": f"{avg_length_ratio:.2f}",
-                "Composite Score": f"{composite_score:.3f}",
-                "Evaluations": len(group)
-            })
-        
-        # Sort by composite score and assign ranks
-        leaderboard_data.sort(key=lambda x: float(x["Composite Score"]), reverse=True)
-        for i, entry in enumerate(leaderboard_data):
-            entry["Rank"] = i + 1
-        
-        # Display leaderboard
-        leaderboard_df = pd.DataFrame(leaderboard_data)
-        
-        # Style the leaderboard
-        def style_rank(val):
-            if val == 1:
-                return "background-color: #FFD700"  # Gold
-            elif val == 2:
-                return "background-color: #C0C0C0"  # Silver
-            elif val == 3:
-                return "background-color: #CD7F32"  # Bronze
-            return ""
-        
-        styled_leaderboard = leaderboard_df.style.applymap(style_rank, subset=['Rank'])
-        st.dataframe(styled_leaderboard, use_container_width=True)
-        
-        # Champion model details
-        if leaderboard_data:
-            champion = leaderboard_data[0]
-            st.success(f"🏆 **Current Champion:** {champion['Model']} ({champion['Type']}) with composite score {champion['Composite Score']}")
-        
-        # Performance trends (if we had historical data)
-        st.subheader("📈 Performance Trends")
-        
-        # Create a performance radar chart for top models
-        if len(leaderboard_data) >= 2:
-            top_models = leaderboard_data[:3]  # Top 3 models
+            with col2:
+                st.metric("Model", style['model_name'])
+                st.metric("Range", style['chapter_range'])
             
-            categories = ['BLEU Score', 'Semantic Similarity', 'Length Accuracy']
-            
-            fig = go.Figure()
-            
-            for model in top_models:
-                # Normalize scores for radar chart (0-1 scale)
-                bleu_norm = float(model["BLEU Score"])
-                semantic_norm = float(model["Semantic Similarity"])
-                length_norm = 1.0 - min(abs(float(model["Length Ratio"]) - 1.0), 1.0)  # Closer to 1.0 is better
+            with col3:
+                # Check evaluation status
+                bert_scores = load_bert_scores(style['name'])
+                human_scores = load_human_scores(style['name'])
                 
-                fig.add_trace(go.Scatterpolar(
-                    r=[bleu_norm, semantic_norm, length_norm],
-                    theta=categories,
-                    fill='toself',
-                    name=f"{model['Model']} ({model['Type']})"
-                ))
+                st.metric("BERT Evaluated", len(bert_scores))
+                st.metric("Human Evaluated", len(human_scores))
             
-            fig.update_layout(
-                polar=dict(
-                    radialaxis=dict(
-                        visible=True,
-                        range=[0, 1]
-                    )),
-                showlegend=True,
-                title="🎯 Top Models Performance Radar"
+            with st.expander(f"System Prompt: {style['name']}"):
+                st.text(style['system_prompt'][:500] + "..." if len(style['system_prompt']) > 500 else style['system_prompt'])
+    
+    st.divider()
+    
+    # BERT Evaluation Section
+    st.subheader("🧠 Semantic Similarity Evaluation")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.write("Calculate BERT similarity scores against official translations for comprehensive semantic fidelity assessment.")
+        
+        if st.button("🔄 Calculate BERT Scores for All Selected Styles", type="primary"):
+            # Process each selected style
+            for style_label in selected_styles:
+                style = style_options[style_label]
+                style_name = style['name']
+                
+                st.write(f"**Processing: {style_name}**")
+                
+                # Check if already calculated
+                existing_scores = load_bert_scores(style_name)
+                if len(existing_scores) >= style['chapter_count'] * 0.95:  # 95% complete
+                    st.success(f"✅ {style_name}: BERT scores already complete ({len(existing_scores)} chapters)")
+                    continue
+                
+                # Create progress tracking
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                def progress_callback(current, total, chapter_num):
+                    progress = current / total
+                    progress_bar.progress(progress)
+                    status_text.text(f"Processing chapter {chapter_num} ({current}/{total})")
+                
+                # Calculate BERT scores
+                with st.spinner(f"Calculating BERT scores for {style_name}..."):
+                    bert_scores = calculate_bert_scores_for_style(style, alignment_map, progress_callback)
+                    
+                    if bert_scores:
+                        # Save scores
+                        save_bert_scores(style_name, bert_scores)
+                        st.success(f"✅ {style_name}: Calculated {len(bert_scores)} BERT scores")
+                    else:
+                        st.error(f"❌ {style_name}: Failed to calculate BERT scores (semantic model issue?)")
+                
+                # Clear progress indicators
+                progress_bar.empty()
+                status_text.empty()
+    
+    with col2:
+        st.subheader("📊 BERT Status")
+        
+        # Show BERT evaluation status for selected styles
+        for style_label in selected_styles:
+            style = style_options[style_label]
+            bert_scores = load_bert_scores(style['name'])
+            
+            completion_rate = len(bert_scores) / style['chapter_count'] if style['chapter_count'] > 0 else 0
+            
+            st.metric(
+                f"🧠 {style['name'][:20]}...",
+                f"{len(bert_scores)}/{style['chapter_count']}",
+                f"{completion_rate:.1%} complete"
             )
             
-            st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("🏆 Run evaluations to build the leaderboard")
+            if bert_scores:
+                import numpy as np
+                scores_array = list(bert_scores.values())
+                st.caption(f"Mean: {np.mean(scores_array):.3f} (±{np.std(scores_array):.3f})")
+    
+    st.divider()
+    
+    # Human Evaluation Section
+    st.subheader("👤 Human Quality Assessment")
+    
+    # Chapter selection for human evaluation
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.write("Evaluate translation quality across multiple dimensions by reviewing specific chapters.")
         
-        # Show example leaderboard
-        st.subheader("📊 Example Leaderboard")
-        example_data = pd.DataFrame([
-            {"Rank": 1, "Model": "your-tuned-model-v1", "Type": "🎯 Fine-tuned", "BLEU Score": "0.872", "Semantic Similarity": "0.891", "Composite Score": "0.845"},
-            {"Rank": 2, "Model": "gemini-1.5-pro-001", "Type": "🤖 Base (3-shot)", "BLEU Score": "0.834", "Semantic Similarity": "0.856", "Composite Score": "0.812"},
-            {"Rank": 3, "Model": "gemini-1.5-flash-001", "Type": "🤖 Base (0-shot)", "BLEU Score": "0.789", "Semantic Similarity": "0.823", "Composite Score": "0.776"}
-        ])
-        st.dataframe(example_data, use_container_width=True)
+        # Select style for human evaluation
+        if len(selected_styles) == 1:
+            eval_style_label = selected_styles[0]
+        else:
+            eval_style_label = st.selectbox(
+                "Select style for human evaluation:",
+                selected_styles,
+                help="Choose one style to evaluate manually"
+            )
+        
+        eval_style = style_options[eval_style_label]
+        
+        # Get chapters available for this style
+        style_path = eval_style['path']
+        available_chapters = []
+        
+        for filename in os.listdir(style_path):
+            if filename.endswith('-translated.txt'):
+                try:
+                    chapter_num = int(filename.split('-')[1])
+                    available_chapters.append(chapter_num)
+                except (ValueError, IndexError):
+                    continue
+        
+        available_chapters.sort()
+        
+        if available_chapters:
+            # Chapter selection
+            selected_chapter = st.selectbox(
+                "Select chapter to evaluate:",
+                available_chapters,
+                format_func=lambda x: f"Chapter {x}",
+                help="Choose a chapter to review and score"
+            )
+            
+            # Load and display chapter content
+            if selected_chapter:
+                # Load custom translation
+                custom_file = os.path.join(style_path, f"Chapter-{selected_chapter:04d}-translated.txt")
+                if os.path.exists(custom_file):
+                    with open(custom_file, 'r', encoding='utf-8') as f:
+                        custom_translation = f.read()
+                    
+                    # Load official translation for comparison
+                    official_translation = ""
+                    if str(selected_chapter) in alignment_map:
+                        official_file = alignment_map[str(selected_chapter)].get('english_file')
+                        if official_file:
+                            official_translation = load_chapter_content(official_file)
+                    
+                    # Display content in columns
+                    st.subheader(f"📖 Chapter {selected_chapter} Comparison")
+                    
+                    col_custom, col_official = st.columns(2)
+                    
+                    with col_custom:
+                        st.markdown("**🎨 Custom Translation**")
+                        st.text_area(
+                            "Custom:", 
+                            custom_translation[:2000] + "..." if len(custom_translation) > 2000 else custom_translation,
+                            height=300,
+                            disabled=True
+                        )
+                    
+                    with col_official:
+                        st.markdown("**📚 Official Translation**")
+                        if official_translation and "File not found" not in official_translation:
+                            st.text_area(
+                                "Official:", 
+                                official_translation[:2000] + "..." if len(official_translation) > 2000 else official_translation,
+                                height=300,
+                                disabled=True
+                            )
+                        else:
+                            st.warning("Official translation not available for comparison")
+                    
+                    # Human scoring interface
+                    st.subheader("📊 Quality Assessment")
+                    
+                    # Load existing human scores for this style and chapter
+                    existing_human_scores = load_human_scores(eval_style['name'])
+                    chapter_scores = existing_human_scores.get(str(selected_chapter), {})
+                    
+                    with st.form(f"human_eval_{eval_style['name']}_{selected_chapter}"):
+                        st.write("Rate this translation on various quality dimensions (1-100):")
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            english_sophistication = st.slider(
+                                "🎯 English Sophistication",
+                                1, 100,
+                                value=chapter_scores.get('english_sophistication', 50),
+                                help="Nuanced, complex, appropriate jargon usage"
+                            )
+                            
+                            world_building = st.slider(
+                                "🌍 World Building & Imagery",
+                                1, 100,
+                                value=chapter_scores.get('world_building', 50),
+                                help="Rich descriptions of scenery, context, background"
+                            )
+                        
+                        with col2:
+                            emotional_impact = st.slider(
+                                "💔 Emotional Impact",
+                                1, 100,
+                                value=chapter_scores.get('emotional_impact', 50),
+                                help="How evocative and heart-gripping the prose is"
+                            )
+                            
+                            dialogue_naturalness = st.slider(
+                                "💬 Dialogue Naturalness",
+                                1, 100,
+                                value=chapter_scores.get('dialogue_naturalness', 50),
+                                help="How natural and authentic conversations sound"
+                            )
+                        
+                        # Additional quality dimensions
+                        st.write("**Additional Quality Metrics:**")
+                        
+                        col3, col4 = st.columns(2)
+                        
+                        with col3:
+                            action_clarity = st.slider(
+                                "⚔️ Action Clarity",
+                                1, 100,
+                                value=chapter_scores.get('action_clarity', 50),
+                                help="Clarity of fight scenes and dynamic sequences"
+                            )
+                            
+                            cultural_adaptation = st.slider(
+                                "🏛️ Cultural Adaptation",
+                                1, 100,
+                                value=chapter_scores.get('cultural_adaptation', 50),
+                                help="Handling of idioms, cultivation terms, cultural references"
+                            )
+                        
+                        with col4:
+                            pacing = st.slider(
+                                "🎵 Narrative Pacing",
+                                1, 100,
+                                value=chapter_scores.get('pacing', 50),
+                                help="Maintains original flow and rhythm"
+                            )
+                            
+                            consistency = st.slider(
+                                "📏 Terminology Consistency",
+                                1, 100,
+                                value=chapter_scores.get('consistency', 50),
+                                help="Consistent use of names, terms, and style"
+                            )
+                        
+                        # Submit button
+                        submitted = st.form_submit_button("💾 Save Evaluation", type="primary")
+                        
+                        if submitted:
+                            # Update scores
+                            if str(selected_chapter) not in existing_human_scores:
+                                existing_human_scores[str(selected_chapter)] = {}
+                            
+                            existing_human_scores[str(selected_chapter)].update({
+                                'english_sophistication': english_sophistication,
+                                'world_building': world_building,
+                                'emotional_impact': emotional_impact,
+                                'dialogue_naturalness': dialogue_naturalness,
+                                'action_clarity': action_clarity,
+                                'cultural_adaptation': cultural_adaptation,
+                                'pacing': pacing,
+                                'consistency': consistency,
+                                'evaluated_at': datetime.now().isoformat(),
+                                'evaluator': 'human'
+                            })
+                            
+                            # Save to file
+                            save_human_scores(eval_style['name'], existing_human_scores)
+                            st.success(f"✅ Evaluation saved for Chapter {selected_chapter}!")
+                            st.rerun()
+    
+    with col2:
+        st.subheader("📋 Evaluation Progress")
+        
+        # Show human evaluation progress
+        human_scores = load_human_scores(eval_style['name'])
+        human_completion = len(human_scores) / len(available_chapters) if available_chapters else 0
+        
+        st.metric(
+            "👤 Human Evaluated",
+            f"{len(human_scores)}/{len(available_chapters)}",
+            f"{human_completion:.1%} complete"
+        )
+        
+        if human_scores:
+            # Show average scores
+            all_scores = list(human_scores.values())
+            if all_scores:
+                avg_sophistication = sum(s.get('english_sophistication', 0) for s in all_scores) / len(all_scores)
+                avg_world = sum(s.get('world_building', 0) for s in all_scores) / len(all_scores)
+                avg_emotion = sum(s.get('emotional_impact', 0) for s in all_scores) / len(all_scores)
+                avg_dialogue = sum(s.get('dialogue_naturalness', 0) for s in all_scores) / len(all_scores)
+                
+                st.caption("**Average Scores:**")
+                st.caption(f"🎯 English: {avg_sophistication:.1f}")
+                st.caption(f"🌍 World: {avg_world:.1f}")
+                st.caption(f"💔 Emotion: {avg_emotion:.1f}")
+                st.caption(f"💬 Dialogue: {avg_dialogue:.1f}")
+    
+    st.divider()
+    
+    # Comprehensive Leaderboard
+    st.subheader("🏆 Comprehensive Style Rankings")
+    
+    # Calculate composite scores for all selected styles
+    leaderboard_data = []
+    
+    for style_label in selected_styles:
+        style = style_options[style_label]
+        style_name = style['name']
+        
+        # Load evaluation data
+        bert_scores = load_bert_scores(style_name)
+        human_scores = load_human_scores(style_name)
+        
+        if not bert_scores and not human_scores:
+            continue
+        
+        # Calculate comprehensive score
+        score_breakdown = calculate_composite_score(bert_scores, human_scores, style['chapter_count'])
+        
+        leaderboard_data.append({
+            'Style': style_name,
+            'Model': style['model_name'],
+            'Chapters': style['chapter_count'],
+            'Evaluated': score_breakdown['evaluated_chapters'],
+            'BERT Mean': f"{score_breakdown['mean_bert']:.3f}" if score_breakdown['mean_bert'] > 0 else "N/A",
+            'BERT Std': f"{score_breakdown['std_bert']:.3f}" if score_breakdown['std_bert'] > 0 else "N/A",
+            'Quality Score': f"{score_breakdown['quality_score']:.3f}",
+            'Consistency': f"{score_breakdown['consistency_bonus']:.3f}",
+            'Completeness': f"{score_breakdown['completeness_bonus']:.3f}",
+            'Composite Score': f"{score_breakdown['composite_score']:.3f}",
+            '_composite_raw': score_breakdown['composite_score']
+        })
+    
+    if leaderboard_data:
+        # Sort by composite score
+        leaderboard_data.sort(key=lambda x: x['_composite_raw'], reverse=True)
+        
+        # Add ranks
+        for i, entry in enumerate(leaderboard_data):
+            entry['Rank'] = i + 1
+        
+        # Create display DataFrame
+        display_columns = ['Rank', 'Style', 'Model', 'Chapters', 'Evaluated', 'BERT Mean', 'Quality Score', 'Composite Score']
+        display_df = pd.DataFrame([{k: v for k, v in item.items() if k in display_columns} for item in leaderboard_data])
+        
+        # Style the DataFrame
+        def style_composite(val):
+            if isinstance(val, str) and val.replace('.', '').isdigit():
+                score = float(val)
+                if score >= 2.0:
+                    return "background-color: #90EE90"  # Light green
+                elif score >= 1.5:
+                    return "background-color: #FFFFE0"  # Light yellow
+                elif score < 1.0:
+                    return "background-color: #FFE4E1"  # Light red
+            return ""
+        
+        def style_rank(val):
+            if val == 1:
+                return "background-color: #FFD700; font-weight: bold"  # Gold
+            elif val == 2:
+                return "background-color: #C0C0C0; font-weight: bold"  # Silver
+            elif val == 3:
+                return "background-color: #CD7F32; font-weight: bold"  # Bronze
+            return ""
+        
+        styled_df = display_df.style.applymap(style_composite, subset=['Composite Score']).applymap(style_rank, subset=['Rank'])
+        st.dataframe(styled_df, use_container_width=True)
+        
+        # Champion announcement
+        if leaderboard_data:
+            champion = leaderboard_data[0]
+            st.success(f"🏆 **Current Champion:** {champion['Style']} with composite score {champion['Composite Score']}")
+        
+        # Detailed breakdown in expander
+        with st.expander("📊 Detailed Score Breakdown"):
+            detailed_columns = ['Rank', 'Style', 'Quality Score', 'Consistency', 'Completeness', 'Composite Score', 'BERT Mean', 'BERT Std']
+            detailed_df = pd.DataFrame([{k: v for k, v in item.items() if k in detailed_columns} for item in leaderboard_data])
+            st.dataframe(detailed_df, use_container_width=True)
+        
+        # Export functionality
+        if st.button("📥 Export Evaluation Report"):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_data = {
+                'timestamp': timestamp,
+                'evaluation_method': {
+                    'bert_weight': 0.5,
+                    'human_weight': 0.5,
+                    'consistency_formula': '(1 - std_deviation)',
+                    'completeness_formula': 'log10(evaluated_chapters + 1)'
+                },
+                'leaderboard': leaderboard_data,
+                'styles_evaluated': len(selected_styles)
+            }
+            
+            report_file = os.path.join(EXPORT_DIR, f"style_evaluation_report_{timestamp}.json")
+            with open(report_file, 'w', encoding='utf-8') as f:
+                json.dump(report_data, f, indent=2, ensure_ascii=False)
+            
+            st.success(f"📁 Report saved: {os.path.basename(report_file)}")
+    else:
+        st.info("📊 No evaluation data available. Calculate BERT scores and add human evaluations to see rankings.")
 
 # --- Footer ---
 st.divider()
