@@ -1788,3 +1788,213 @@ def streamlit_scraper(start_url, output_dir, max_chapters=50, delay_seconds=2, p
             status_callback(f"💥 Fatal error: {str(e)}")
     
     return results
+
+def find_first_misalignment_binary_search(alignment_map, api_key, min_chapter, max_chapter, threshold):
+    """
+    Use binary search to find the first misaligned chapter based on semantic similarity.
+    
+    Args:
+        alignment_map: Chapter alignment mapping
+        api_key: API key for translation/similarity calculation
+        min_chapter: Start of search range
+        max_chapter: End of search range  
+        threshold: Minimum similarity score to consider aligned (0.0-1.0)
+        
+    Returns:
+        dict: Search results with first misaligned chapter and search log
+    """
+    result = {
+        'success': False,
+        'first_misaligned_chapter': None,
+        'total_chapters_checked': 0,
+        'threshold_used': threshold,
+        'search_log': [],
+        'error': None
+    }
+    
+    try:
+        # Load semantic model for similarity calculation
+        semantic_model = load_semantic_model()
+        if not semantic_model:
+            result['error'] = "Semantic similarity model not available"
+            return result
+        
+        chapters_checked = 0
+        search_log = []
+        
+        # Binary search implementation
+        left = min_chapter
+        right = max_chapter
+        first_misaligned = None
+        
+        while left <= right:
+            mid = (left + right) // 2
+            chapters_checked += 1
+            
+            # Check if this chapter exists in alignment map
+            if str(mid) not in alignment_map:
+                search_log.append({
+                    'chapter': mid,
+                    'action': f'Chapter {mid} not in alignment map',
+                    'search_range': f'[{left}, {right}]'
+                })
+                left = mid + 1
+                continue
+            
+            chapter_data = alignment_map[str(mid)]
+            
+            # Load chapter content
+            try:
+                raw_content = load_chapter_content(chapter_data.get('raw_file', ''))
+                english_content = load_chapter_content(chapter_data.get('english_file', ''))
+                
+                if "File not found" in raw_content or "File not found" in english_content:
+                    search_log.append({
+                        'chapter': mid,
+                        'action': f'Files missing for chapter {mid}',
+                        'search_range': f'[{left}, {right}]'
+                    })
+                    left = mid + 1
+                    continue
+                
+                # Calculate semantic similarity
+                similarity_score = calculate_similarity(english_content, raw_content, semantic_model)
+                
+                search_log.append({
+                    'chapter': mid,
+                    'similarity_score': similarity_score,
+                    'action': f'Similarity: {similarity_score:.3f} (threshold: {threshold:.3f})',
+                    'search_range': f'[{left}, {right}]'
+                })
+                
+                # Check if this chapter is misaligned (below threshold)
+                if similarity_score < threshold:
+                    # This chapter is misaligned, search in left half for earlier misalignment
+                    first_misaligned = mid
+                    right = mid - 1
+                    search_log.append({
+                        'chapter': mid,
+                        'action': f'Misaligned (score {similarity_score:.3f} < {threshold:.3f}), searching left half',
+                        'search_range': f'[{left}, {right}]'
+                    })
+                else:
+                    # This chapter is aligned, search in right half
+                    left = mid + 1
+                    search_log.append({
+                        'chapter': mid,
+                        'action': f'Aligned (score {similarity_score:.3f} >= {threshold:.3f}), searching right half',
+                        'search_range': f'[{left}, {right}]'
+                    })
+                    
+            except Exception as e:
+                search_log.append({
+                    'chapter': mid,
+                    'action': f'Error processing chapter {mid}: {str(e)}',
+                    'search_range': f'[{left}, {right}]'
+                })
+                left = mid + 1
+                continue
+        
+        result['success'] = True
+        result['first_misaligned_chapter'] = first_misaligned
+        result['total_chapters_checked'] = chapters_checked
+        result['search_log'] = search_log
+        
+        # Add summary to search log
+        if first_misaligned:
+            search_log.append({
+                'chapter': 'RESULT',
+                'action': f'First misaligned chapter found: {first_misaligned}',
+                'search_range': f'Total checked: {chapters_checked}'
+            })
+        else:
+            search_log.append({
+                'chapter': 'RESULT', 
+                'action': f'No misaligned chapters found in range {min_chapter}-{max_chapter}',
+                'search_range': f'Total checked: {chapters_checked}'
+            })
+            
+    except Exception as e:
+        result['error'] = f"Binary search failed: {str(e)}"
+    
+    return result
+
+def preview_systematic_correction(alignment_map, offset, sample_size=10):
+    """
+    Preview the effects of applying a systematic offset correction to the alignment map.
+    
+    Args:
+        alignment_map: Current chapter alignment mapping
+        offset: Offset to apply (positive or negative integer)
+        sample_size: Number of sample chapters to include in preview
+        
+    Returns:
+        dict: Preview data with before/after comparisons
+    """
+    preview_data = {
+        'offset': offset,
+        'sample_size': sample_size,
+        'samples': [],
+        'total_affected_chapters': 0,
+        'success': False
+    }
+    
+    try:
+        chapter_numbers = sorted([int(k) for k in alignment_map.keys()])
+        affected_chapters = []
+        
+        # Find chapters that would be affected by the offset
+        for chapter_num in chapter_numbers:
+            new_chapter_num = chapter_num + offset
+            
+            # Check if the new chapter number would be valid
+            if new_chapter_num > 0 and str(new_chapter_num) in alignment_map:
+                affected_chapters.append(chapter_num)
+        
+        preview_data['total_affected_chapters'] = len(affected_chapters)
+        
+        # Create sample data
+        sample_chapters = affected_chapters[:sample_size]
+        
+        for chapter_num in sample_chapters:
+            new_chapter_num = chapter_num + offset
+            
+            # Get current alignment
+            current_data = alignment_map[str(chapter_num)]
+            
+            # Get what the new alignment would be
+            new_data = alignment_map.get(str(new_chapter_num), {})
+            
+            sample_info = {
+                'original_chapter': chapter_num,
+                'new_chapter': new_chapter_num,
+                'current_chinese_file': current_data.get('raw_file', 'N/A'),
+                'current_english_file': current_data.get('english_file', 'N/A'),
+                'new_chinese_file': new_data.get('raw_file', 'N/A'),
+                'new_english_file': new_data.get('english_file', 'N/A'),
+                'would_change': current_data.get('raw_file') != new_data.get('raw_file')
+            }
+            
+            # Try to load content for comparison if available
+            try:
+                if current_data.get('raw_file'):
+                    current_chinese = load_chapter_content(current_data['raw_file'])
+                    if "File not found" not in current_chinese:
+                        sample_info['current_chinese_preview'] = current_chinese[:200] + "..."
+                
+                if new_data.get('raw_file'):
+                    new_chinese = load_chapter_content(new_data['raw_file'])
+                    if "File not found" not in new_chinese:
+                        sample_info['new_chinese_preview'] = new_chinese[:200] + "..."
+                        
+            except Exception as e:
+                sample_info['content_error'] = str(e)
+            
+            preview_data['samples'].append(sample_info)
+        
+        preview_data['success'] = True
+        
+    except Exception as e:
+        preview_data['error'] = f"Preview generation failed: {str(e)}"
+    
+    return preview_data
