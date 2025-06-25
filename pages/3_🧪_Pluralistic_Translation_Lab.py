@@ -18,11 +18,62 @@ from utils import (
     load_api_config,
     load_openai_api_config,
     get_config_value,
-    show_config_status,
     get_static_gemini_models,
     get_available_openai_models,
-    generate_translation_unified
+    generate_translation_unified,
+    get_all_available_prompts,
+    save_custom_prompt,
+    delete_custom_prompt,
+    load_custom_prompts
 )
+
+# --- Helper Functions ---
+def get_model_abbreviation(platform, model_name):
+    """Generate short model abbreviation for run naming.
+    
+    Args:
+        platform: "Gemini" or "OpenAI"
+        model_name: Full model name
+    
+    Returns:
+        str: Short abbreviation like "gem15p", "oai_gpt4o", "oai_ft_mymodel"
+    """
+    if platform == "Gemini":
+        if "gemini-1.5-pro" in model_name:
+            return "gem15p"
+        elif "gemini-1.5-flash" in model_name:
+            return "gem15f"
+        else:
+            # Generic gemini abbreviation
+            return "gemini"
+    
+    elif platform == "OpenAI":
+        if model_name.startswith("ft:"):
+            # Fine-tuned model: extract custom name
+            # Format: ft:gpt-4o-mini:org:custom-name:id
+            parts = model_name.split(":")
+            if len(parts) >= 4:
+                custom_name = parts[3]  # Get the custom name part
+                # Clean and shorten the custom name
+                clean_name = "".join(c for c in custom_name if c.isalnum() or c in "-_")[:8]
+                return f"oai_ft_{clean_name}"
+            else:
+                return "oai_ft"
+        elif "gpt-4o" in model_name:
+            if "mini" in model_name:
+                return "oai_gpt4m"
+            else:
+                return "oai_gpt4o"
+        elif "gpt-4" in model_name:
+            return "oai_gpt4"
+        elif "gpt-3.5" in model_name:
+            return "oai_gpt35"
+        else:
+            # Generic OpenAI abbreviation
+            return "oai"
+    
+    # Fallback
+    return platform.lower()[:3]
 
 # --- Page Configuration ---
 st.set_page_config(layout="wide", page_title="🧪 Pluralistic Translation Lab", page_icon="🧪")
@@ -318,28 +369,8 @@ def create_epub_from_translations(translation_dir, output_path, book_title, auth
 # --- UI Sidebar ---
 st.sidebar.header("🔬 Experiment Controls")
 
-# API Configuration Status
+# API Configuration - check availability but don't display status (shown on Home Dashboard)
 api_key, api_source = load_api_config()
-config_status = show_config_status()
-
-if api_key:
-    st.sidebar.success(config_status)
-else:
-    st.sidebar.error(config_status)
-    st.sidebar.markdown("""
-    **Setup Instructions:**
-    1. **Option A (Recommended):** Set environment variable:
-       ```bash
-       export GEMINI_API_KEY="your-api-key-here"
-       ```
-    2. **Option B:** Create `config.json`:
-       ```bash
-       cp config.example.json config.json
-       # Edit config.json with your API key
-       ```
-    3. Get your API key from: https://aistudio.google.com/app/apikey
-    """)
-    st.stop()
 
 with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
     # Platform selection
@@ -349,17 +380,13 @@ with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
     # API Key input based on platform
     if selected_platform == "Gemini":
         api_key, source = load_api_config()
-        if api_key:
-            st.success(f"✅ Gemini API key loaded from {source}")
-        else:
+        if not api_key:
             api_key = st.text_input("🔑 Gemini API Key:", type="password", help="Required for Gemini translation")
             if not api_key:
                 st.warning("⚠️ Gemini API key required")
     elif selected_platform == "OpenAI":
         api_key, source = load_openai_api_config()
-        if api_key:
-            st.success(f"✅ OpenAI API key loaded from {source}")
-        else:
+        if not api_key:
             api_key = st.text_input("🔑 OpenAI API Key:", type="password", help="Required for OpenAI translation")
             if not api_key:
                 st.warning("⚠️ OpenAI API key required")
@@ -405,30 +432,8 @@ with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
         st.error("❌ No models available")
         model_name = default_model
     
-    # Load saved prompt templates
-    prompt_templates_dir = os.path.join(DATA_DIR, "prompt_templates")
-    os.makedirs(prompt_templates_dir, exist_ok=True)
-    
-    # Built-in prompt templates
-    prompt_templates = {
-        "Literal & Accurate": "You are a professional translator specializing in Chinese to English translation of web novels. Provide an accurate, literal translation that preserves the original meaning, structure, and cultural context. Maintain formal tone and precise terminology.",
-        "Dynamic & Modern": "You are a skilled literary translator adapting Chinese web novels for Western readers. Create a flowing, engaging translation that captures the spirit and excitement of the original while using natural modern English. Prioritize readability and dramatic impact.",
-        "Simplified & Clear": "You are translating Chinese web novels for young adult readers. Use simple, clear language that's easy to understand. Explain cultural concepts briefly when needed. Keep sentences shorter and vocabulary accessible.",
-    }
-    
-    # Load custom prompt templates
-    if os.path.exists(prompt_templates_dir):
-        for filename in os.listdir(prompt_templates_dir):
-            if filename.endswith('.txt'):
-                template_name = filename[:-4]  # Remove .txt extension
-                try:
-                    with open(os.path.join(prompt_templates_dir, filename), 'r', encoding='utf-8') as f:
-                        prompt_templates[f"🎨 {template_name}"] = f.read().strip()
-                except:
-                    continue
-    
-    # Add Custom option
-    prompt_templates["Custom"] = ""
+    # Load all available prompt templates (built-in + custom)
+    prompt_templates = get_all_available_prompts()
     
     selected_template = st.selectbox("Prompt Template:", list(prompt_templates.keys()))
     
@@ -447,31 +452,73 @@ with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
             help="You can edit this template or use it as-is"
         )
     
-    # Save prompt template functionality
-    if selected_template == "Custom" and system_prompt.strip():
-        with st.expander("💾 Save This Prompt", expanded=False):
-            template_name = st.text_input(
-                "Template Name:",
-                "",
-                help="Name for your custom prompt template",
-                placeholder="e.g., Poetic Style, Technical Translation"
-            )
+    # Enhanced save prompt functionality
+    if system_prompt.strip():
+        with st.expander("💾 Save Current Prompt", expanded=False):
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                template_name = st.text_input(
+                    "Template Name:",
+                    "",
+                    help="Name for your custom prompt template",
+                    placeholder="e.g., Poetic Style, Technical Translation"
+                )
+            
+            with col2:
+                st.metric("Prompt Length", f"{len(system_prompt)} chars")
             
             if st.button("💾 Save Template", disabled=not template_name.strip()):
-                # Save template to file
-                safe_name = "".join(c for c in template_name if c.isalnum() or c in (' ', '-', '_')).strip()
-                template_file = os.path.join(prompt_templates_dir, f"{safe_name}.txt")
+                # Check if name already exists
+                existing_prompts = load_custom_prompts()
+                if template_name in existing_prompts:
+                    st.warning(f"⚠️ Template '{template_name}' already exists. Choose a different name or delete the existing one first.")
+                else:
+                    # Save template using new system
+                    success = save_custom_prompt(template_name, system_prompt)
+                    if success:
+                        st.success(f"✅ Saved template: `{template_name}`")
+                        st.info("💡 Your new template is now available in the dropdown above!")
+                        st.rerun()  # Refresh to show the new template
+                    else:
+                        st.error("❌ Failed to save template. Please try again.")
+    
+    # Custom prompt management section
+    custom_prompts = load_custom_prompts()
+    if custom_prompts:
+        with st.expander("🗂️ Manage Custom Prompts", expanded=False):
+            st.subheader("📋 Your Saved Prompts")
+            
+            for prompt_name, prompt_data in custom_prompts.items():
+                col1, col2, col3 = st.columns([3, 1, 1])
                 
-                with open(template_file, 'w', encoding='utf-8') as f:
-                    f.write(system_prompt.strip())
+                with col1:
+                    # Show prompt preview
+                    preview = prompt_data["content"][:100] + "..." if len(prompt_data["content"]) > 100 else prompt_data["content"]
+                    st.text(f"🎨 {prompt_name}")
+                    st.caption(f"Preview: {preview}")
                 
-                st.success(f"✅ Saved template: `{safe_name}`")
-                st.info("💡 Refresh the page to see your new template in the dropdown!")
+                with col2:
+                    created_date = prompt_data.get("created", "Unknown")[:10]  # Just the date part
+                    st.caption(f"Created: {created_date}")
+                
+                with col3:
+                    if st.button(f"🗑️ Delete", key=f"delete_{prompt_name}"):
+                        if delete_custom_prompt(prompt_name):
+                            st.success(f"✅ Deleted '{prompt_name}'")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to delete")
+            
+            if len(custom_prompts) > 0:
+                st.info(f"📊 Total custom prompts: {len(custom_prompts)}")
+            else:
+                st.info("📝 No custom prompts saved yet. Create one above!")
     
     # Store selected template name for run naming
     template_for_naming = selected_template
     if selected_template.startswith("🎨 "):
-        template_for_naming = selected_template[3:]  # Remove emoji prefix
+        template_for_naming = selected_template.split("🎨 ", 1)[1]  # Remove emoji prefix safely
 
 with st.sidebar.expander("🎯 Translation Task", expanded=True):
     col1, col2 = st.columns(2)
@@ -531,22 +578,69 @@ with st.sidebar.expander("📚 History Source", expanded=True):
         st.info(f"🎨 Using custom translation style: `{selected_custom_run}`")
 
 with st.sidebar.expander("📁 Output Settings", expanded=True):
-    # Generate smart default run name based on template
-    if 'template_for_naming' in locals():
-        if template_for_naming == "Custom":
-            default_run_name = f"Custom_{datetime.now().strftime('%Y%m%d_%H%M')}"
+    # Initialize session state for run name if needed
+    if 'run_name_base' not in st.session_state:
+        # Generate base name with fixed timestamp for this session
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+        
+        if 'template_for_naming' in locals():
+            if template_for_naming == "Custom":
+                st.session_state.run_name_base = f"Custom_{timestamp}"
+            else:
+                # Clean template name for filename
+                clean_template = template_for_naming.replace(" & ", "_").replace(" ", "_")
+                st.session_state.run_name_base = f"{clean_template}_{timestamp}"
         else:
-            # Clean template name for filename
-            clean_template = template_for_naming.replace(" & ", "_").replace(" ", "_")
-            default_run_name = f"{clean_template}_{datetime.now().strftime('%Y%m%d_%H%M')}"
-    else:
-        default_run_name = f"run_{datetime.now().strftime('%Y%m%d_%H%M')}"
+            st.session_state.run_name_base = f"run_{timestamp}"
     
-    run_name = st.text_input(
-        "Run Name / Style:", 
-        default_run_name, 
-        help="Unique name for this translation bundle (auto-suggested based on prompt template)"
-    )
+    # Get model abbreviation
+    model_abbrev = get_model_abbreviation(selected_platform, model_name)
+    
+    # Generate enhanced default name with model info
+    enhanced_default = f"{st.session_state.run_name_base}_{model_abbrev}"
+    
+    # Initialize session state for full run name if needed
+    if 'run_name' not in st.session_state:
+        st.session_state.run_name = enhanced_default
+    
+    # Update session state if model changed
+    if 'last_model_abbrev' not in st.session_state or st.session_state.last_model_abbrev != model_abbrev:
+        # Model changed, update the model part of the run name
+        base_parts = st.session_state.run_name.split('_')
+        if len(base_parts) >= 3:
+            # Keep everything except the last part (old model abbrev) and append new model abbrev
+            base_without_model = '_'.join(base_parts[:-1])
+            st.session_state.run_name = f"{base_without_model}_{model_abbrev}"
+        else:
+            # Fallback to enhanced default
+            st.session_state.run_name = enhanced_default
+        st.session_state.last_model_abbrev = model_abbrev
+    
+    # Run name input with reset option
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        run_name = st.text_input(
+            "Run Name / Style:", 
+            value=st.session_state.run_name,
+            help="Unique name for this translation bundle (auto-suggested based on template + model)",
+            key="run_name_input"
+        )
+    
+    with col2:
+        st.text("")  # Spacing
+        if st.button("🔄 Reset", help="Reset to auto-generated name"):
+            # Reset session state to regenerate with current model
+            if 'run_name_base' in st.session_state:
+                del st.session_state.run_name_base
+            if 'run_name' in st.session_state:
+                del st.session_state.run_name
+            if 'last_model_abbrev' in st.session_state:
+                del st.session_state.last_model_abbrev
+            st.rerun()
+    
+    # Update session state when user edits the text input
+    if run_name != st.session_state.run_name:
+        st.session_state.run_name = run_name
     
     # Add delay option for rate limiting with config default
     default_delay = get_config_value("api_delay", 1.0)

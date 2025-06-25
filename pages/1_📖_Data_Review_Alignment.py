@@ -13,6 +13,7 @@ import hashlib
 
 # Import shared utilities for modular architecture
 from utils import *
+from utils import get_ai_translation_content  # Explicit import for Streamlit caching
 
 # All shared functions now imported from utils.py
 
@@ -108,20 +109,7 @@ if alignment_map:
     # --- Sidebar Controls ---
     st.sidebar.header("🎛️ Controls")
     
-    # AI Translation source functions (moved to right column)
-    def get_available_ai_sources():
-        """Get list of available AI translation sources for the right column."""
-        sources = ["Fresh Gemini Translation", "Cached Gemini Translation"]
-        custom_dir = os.path.join(DATA_DIR, "custom_translations")
-        if os.path.exists(custom_dir):
-            for run_name in os.listdir(custom_dir):
-                run_path = os.path.join(custom_dir, run_name)
-                if os.path.isdir(run_path):
-                    # Check if it has translation files
-                    txt_files = [f for f in os.listdir(run_path) if f.endswith('.txt') and 'translated' in f]
-                    if txt_files:
-                        sources.append(f"Custom: {run_name}")
-        return sources
+    # AI Translation source functions now imported from utils.py with chapter-aware filtering
     
     # Smart chapter selection with navigation
     col1, col2, col3 = st.sidebar.columns([1, 2, 1])
@@ -189,15 +177,8 @@ if alignment_map:
     # --- Gemini Translation ---
     st.sidebar.header("🤖 Gemini AI Translation")
     
-    # API Configuration Status
+    # API Configuration - check availability but don't display status (shown on Home Dashboard)
     api_key, api_source = load_api_config()
-    config_status = show_config_status()
-    
-    if api_key:
-        st.sidebar.success(config_status)
-    else:
-        st.sidebar.error(config_status)
-        st.sidebar.markdown("ℹ️ Configure API key to enable AI translation features.")
     
     # --- Systematic Analysis Tab ---
     st.sidebar.divider()
@@ -798,29 +779,7 @@ streamlit run master_review_tool.py
                 else:
                     st.sidebar.success("✅ **AI translation length looks reasonable**")
     
-    # Length comparison if both English and Chinese files exist
-    if chapter_data.get("english_file") and chapter_data.get("raw_file"):
-        eng_content = load_chapter_content(chapter_data["english_file"])
-        raw_content = load_chapter_content(chapter_data["raw_file"])
-        eng_stats = get_text_stats(eng_content, language_hint='english')
-        raw_stats = get_text_stats(raw_content, language_hint='chinese')
-        
-        # Calculate ratio (English words vs Chinese characters)
-        if eng_stats['word_count'] > 0 and raw_stats['word_count'] > 0:
-            ratio = eng_stats['word_count'] / raw_stats['word_count']
-            st.sidebar.markdown("**🔄 Translation Comparison:**")
-            
-            # English words to Chinese characters ratio analysis
-            if ratio > 2.5:
-                st.sidebar.error(f"📏 Eng.Words/Chi.Chars: {ratio:.1f} - **Very suspicious!**")
-            elif ratio > 2.0:
-                st.sidebar.warning(f"📏 Eng.Words/Chi.Chars: {ratio:.1f} - **Check alignment**")
-            elif ratio < 1.0:
-                st.sidebar.warning(f"📏 Eng.Words/Chi.Chars: {ratio:.1f} - **Too compressed?**")
-            else:
-                st.sidebar.success(f"📏 Eng.Words/Chi.Chars: {ratio:.1f} - **Normal range**")
-            
-            st.sidebar.caption("💡 Typical ratio: 1.0-2.0 (English words per Chinese character)")
+    # BERT Similarity calculation moved to main content area (after AI source selection)
 
     # --- Main Content Display using container ---
     with main_content:
@@ -1133,13 +1092,16 @@ streamlit run master_review_tool.py
         with col3:
             st.subheader("🤖 AI Translation")
             
-            # AI Translation Source Selector
-            available_ai_sources = get_available_ai_sources()
+            # AI Translation Source Selector - only show sources with current chapter available
+            available_ai_sources = get_available_ai_sources(selected_chapter)
             selected_ai_source = st.selectbox(
                 "🎯 AI Source:",
                 options=available_ai_sources,
-                help="Choose AI translation source to display"
+                help="Choose AI translation source to display (filtered to show only sources with this chapter)"
             )
+            
+            # Store selected AI source in session state for sidebar access
+            st.session_state.selected_ai_source = selected_ai_source
             
             # Handle different AI sources
             if selected_ai_source.startswith("Custom: "):
@@ -1207,6 +1169,68 @@ streamlit run master_review_tool.py
                         st.caption("No cached translation available - use button above to create one")
                     
                     st.caption(f"📚 Translation Cache: {cache_stats['count']} translations ({cache_stats['size_mb']:.1f} MB)")
+
+        # BERT Similarity calculation (moved from sidebar for proper execution order)
+        st.divider()
+        st.subheader("🔄 Translation Comparison")
+        
+        # Get current AI translation content based on selected source
+        if hasattr(st.session_state, 'selected_ai_source'):
+            selected_ai_source = st.session_state.selected_ai_source
+            
+            # Get AI content based on the current selection
+            if selected_ai_source.startswith("Custom: "):
+                # For custom runs, get the content from the text area or load from file
+                custom_content = None
+                try:
+                    run_name = selected_ai_source[8:]
+                    custom_file = f"Chapter-{selected_chapter:04d}-translated.txt"
+                    custom_path = os.path.join(DATA_DIR, "custom_translations", run_name, custom_file)
+                    custom_content = load_chapter_content(custom_path)
+                    if "File not found" not in custom_content:
+                        ai_translation_content = custom_content
+                    else:
+                        ai_translation_content = None
+                except:
+                    ai_translation_content = None
+            else:
+                # For Gemini sources, use session state
+                ai_translation_content = st.session_state.ai_translation if st.session_state.ai_translation else None
+            
+            # Calculate BERT similarity if both contents are available
+            if ai_translation_content and chapter_data.get("english_file"):
+                eng_content = load_chapter_content(chapter_data["english_file"])
+                if eng_content and "File not found" not in eng_content:
+                    with st.spinner("🧠 Calculating BERT similarity..."):
+                        bert_similarity = calculate_similarity(ai_translation_content, eng_content)
+                    
+                    # Display result with appropriate styling
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        if bert_similarity >= 0.8:
+                            st.success(f"🧠 **BERT Similarity: {bert_similarity:.3f}** - Excellent meaning preservation!")
+                        elif bert_similarity >= 0.6:
+                            st.warning(f"🧠 **BERT Similarity: {bert_similarity:.3f}** - Moderate semantic match")
+                        elif bert_similarity >= 0.3:
+                            st.error(f"🧠 **BERT Similarity: {bert_similarity:.3f}** - Low semantic alignment")
+                        else:
+                            st.error(f"🧠 **BERT Similarity: {bert_similarity:.3f}** - Very poor semantic match")
+                    
+                    with col2:
+                        ai_source_display = selected_ai_source.replace("Custom: ", "").replace(" Translation", "")
+                        st.metric("Comparing", f"{ai_source_display} vs Official", delta=f"{bert_similarity:.3f}")
+                    
+                    st.caption("💡 BERT similarity measures semantic meaning preservation between AI translation and official English")
+                else:
+                    st.info("📖 Official English content not available for comparison")
+            else:
+                if not ai_translation_content:
+                    st.info("🤖 No AI translation content available for comparison")
+                    st.caption("💡 Generate or load AI translation to see BERT similarity")
+                else:
+                    st.info("📖 Official English content not available for comparison")
+        else:
+            st.info("🎯 Select an AI source above to see BERT similarity comparison")
 
 else:
     st.error("❌ Could not load alignment map. Please ensure 'alignment_map.json' exists.")

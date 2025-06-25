@@ -1126,8 +1126,15 @@ def evaluate_translation_quality(raw_text, reference_translation, candidate_tran
     return results
 
 # --- AI Source Management ---
-def get_available_ai_sources():
-    """Get list of available AI translation sources."""
+def get_available_ai_sources(current_chapter=None):
+    """Get list of available AI translation sources.
+    
+    Args:
+        current_chapter: If provided, only include custom runs that have this chapter available
+    
+    Returns:
+        list: Available AI translation sources
+    """
     sources = ["Fresh Gemini Translation", "Cached Gemini Translation"]
     
     # Add custom translation runs
@@ -1136,12 +1143,161 @@ def get_available_ai_sources():
         for run_name in os.listdir(custom_translations_dir):
             run_path = os.path.join(custom_translations_dir, run_name)
             if os.path.isdir(run_path):
-                # Check if this run has any translation files
-                translation_files = [f for f in os.listdir(run_path) if f.endswith('-translated.txt')]
-                if translation_files:
-                    sources.append(f"Custom: {run_name}")
+                if current_chapter is not None:
+                    # Check if this specific chapter exists in the run
+                    chapter_file = f"Chapter-{current_chapter:04d}-translated.txt"
+                    chapter_path = os.path.join(run_path, chapter_file)
+                    if os.path.exists(chapter_path):
+                        sources.append(f"Custom: {run_name}")
+                else:
+                    # Check if this run has any translation files (original behavior)
+                    translation_files = [f for f in os.listdir(run_path) if f.endswith('-translated.txt')]
+                    if translation_files:
+                        sources.append(f"Custom: {run_name}")
     
     return sources
+
+def get_ai_translation_content(selected_ai_source, selected_chapter, session_state_ai_translation="", raw_content=""):
+    """Get AI translation content based on selected source and chapter.
+    
+    Args:
+        selected_ai_source: The selected AI source from the dropdown
+        selected_chapter: The current chapter number
+        session_state_ai_translation: Current session state AI translation
+        raw_content: Raw Chinese content for fresh translation
+    
+    Returns:
+        str: AI translation content or empty string if not available
+    """
+    if selected_ai_source.startswith("Custom: "):
+        # Load from custom translation run
+        run_name = selected_ai_source[8:]  # Remove "Custom: " prefix
+        custom_file = f"Chapter-{selected_chapter:04d}-translated.txt"
+        custom_path = os.path.join(DATA_DIR, "custom_translations", run_name, custom_file)
+        custom_content = load_chapter_content(custom_path)
+        
+        if "File not found" in custom_content:
+            return ""
+        return custom_content
+    
+    elif selected_ai_source == "Fresh Gemini Translation":
+        # Use session state AI translation (might be empty if not generated yet)
+        return session_state_ai_translation
+    
+    elif selected_ai_source == "Cached Gemini Translation":
+        # Try cached translation first, then session state
+        cached_translation = get_cached_translation(raw_content) if raw_content else ""
+        if cached_translation:
+            return cached_translation
+        return session_state_ai_translation
+    
+    return ""
+
+# --- Custom Prompt Management ---
+def load_custom_prompts():
+    """Load custom prompt templates from JSON file.
+    
+    Returns:
+        dict: Dictionary of custom prompts {name: {"content": str, "created": str}}
+    """
+    custom_prompts_file = os.path.join(DATA_DIR, "custom_prompts.json")
+    
+    if os.path.exists(custom_prompts_file):
+        try:
+            with open(custom_prompts_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+def save_custom_prompt(name, content):
+    """Save a custom prompt template.
+    
+    Args:
+        name: Name of the prompt template
+        content: The prompt content
+    
+    Returns:
+        bool: True if saved successfully, False otherwise
+    """
+    try:
+        custom_prompts = load_custom_prompts()
+        
+        # Add timestamp
+        from datetime import datetime
+        custom_prompts[name] = {
+            "content": content.strip(),
+            "created": datetime.now().isoformat(),
+            "category": "user"
+        }
+        
+        # Save back to file
+        custom_prompts_file = os.path.join(DATA_DIR, "custom_prompts.json")
+        with open(custom_prompts_file, 'w', encoding='utf-8') as f:
+            json.dump(custom_prompts, f, indent=2, ensure_ascii=False)
+        
+        return True
+    except Exception as e:
+        print(f"Error saving custom prompt: {e}")
+        return False
+
+def delete_custom_prompt(name):
+    """Delete a custom prompt template.
+    
+    Args:
+        name: Name of the prompt template to delete
+    
+    Returns:
+        bool: True if deleted successfully, False otherwise
+    """
+    try:
+        custom_prompts = load_custom_prompts()
+        
+        if name in custom_prompts:
+            del custom_prompts[name]
+            
+            # Save back to file
+            custom_prompts_file = os.path.join(DATA_DIR, "custom_prompts.json")
+            with open(custom_prompts_file, 'w', encoding='utf-8') as f:
+                json.dump(custom_prompts, f, indent=2, ensure_ascii=False)
+            
+            return True
+        return False
+    except Exception as e:
+        print(f"Error deleting custom prompt: {e}")
+        return False
+
+def get_all_available_prompts():
+    """Get all available prompt templates (built-in + custom).
+    
+    Returns:
+        dict: Combined dictionary of all prompts
+    """
+    # Built-in prompt templates
+    builtin_prompts = {
+        "Literal & Accurate": "You are a professional translator specializing in Chinese to English translation of web novels. Provide an accurate, literal translation that preserves the original meaning, structure, and cultural context. Maintain formal tone and precise terminology.",
+        "Dynamic & Modern": "You are a skilled literary translator adapting Chinese web novels for Western readers. Create a flowing, engaging translation that captures the spirit and excitement of the original while using natural modern English. Prioritize readability and dramatic impact.",
+        "Simplified & Clear": "You are translating Chinese web novels for young adult readers. Use simple, clear language that's easy to understand. Explain cultural concepts briefly when needed. Keep sentences shorter and vocabulary accessible.",
+    }
+    
+    # Load custom prompts
+    custom_prompts = load_custom_prompts()
+    
+    # Combine prompts with prefixes for organization
+    all_prompts = {}
+    
+    # Add built-in prompts
+    for name, content in builtin_prompts.items():
+        all_prompts[name] = content
+    
+    # Add custom prompts with prefix
+    for name, prompt_data in custom_prompts.items():
+        all_prompts[f"🎨 {name}"] = prompt_data["content"]
+    
+    # Add Custom option for creating new prompts
+    all_prompts["Custom"] = ""
+    
+    return all_prompts
 
 # --- Alignment Map Management ---
 def save_alignment_map_safely(alignment_map, output_file="alignment_map.json"):
@@ -1998,3 +2154,159 @@ def preview_systematic_correction(alignment_map, offset, sample_size=10):
         preview_data['error'] = f"Preview generation failed: {str(e)}"
     
     return preview_data
+
+# --- UI Components ---
+def create_synchronized_text_display(left_text, right_text, left_title="Left Text", right_title="Right Text", height=400):
+    """
+    Create a synchronized scrolling display for two text blocks.
+    
+    Args:
+        left_text (str): Text content for left panel
+        right_text (str): Text content for right panel  
+        left_title (str): Title for left panel
+        right_title (str): Title for right panel
+        height (int): Height of display panels in pixels
+    
+    Returns:
+        None: Renders HTML component directly in Streamlit
+    """
+    # Escape HTML special characters and preserve line breaks
+    def escape_html(text):
+        return (text.replace('&', '&amp;')
+                   .replace('<', '&lt;')
+                   .replace('>', '&gt;')
+                   .replace('"', '&quot;')
+                   .replace("'", '&#x27;')
+                   .replace('\n', '<br>'))
+    
+    left_escaped = escape_html(left_text)
+    right_escaped = escape_html(right_text)
+    
+    # Generate unique IDs for this component instance
+    import random
+    component_id = f"sync_scroll_{random.randint(1000, 9999)}"
+    
+    html_content = f"""
+    <style>
+        .sync-container-{component_id} {{
+            display: flex;
+            gap: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+        }}
+        
+        .sync-panel-{component_id} {{
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            background: white;
+        }}
+        
+        .sync-header-{component_id} {{
+            background: #f8f9fa;
+            padding: 12px 16px;
+            border-bottom: 1px solid #ddd;
+            font-weight: 600;
+            font-size: 14px;
+            color: #333;
+        }}
+        
+        .sync-content-{component_id} {{
+            height: {height}px;
+            overflow-y: auto;
+            padding: 16px;
+            line-height: 1.6;
+            font-size: 14px;
+            color: #333;
+            background: white;
+            word-wrap: break-word;
+        }}
+        
+        /* Custom scrollbar styling */
+        .sync-content-{component_id}::-webkit-scrollbar {{
+            width: 8px;
+        }}
+        
+        .sync-content-{component_id}::-webkit-scrollbar-track {{
+            background: #f1f1f1;
+            border-radius: 4px;
+        }}
+        
+        .sync-content-{component_id}::-webkit-scrollbar-thumb {{
+            background: #c1c1c1;
+            border-radius: 4px;
+        }}
+        
+        .sync-content-{component_id}::-webkit-scrollbar-thumb:hover {{
+            background: #a1a1a1;
+        }}
+        
+        /* Highlight synchronized scrolling */
+        .sync-content-{component_id}.scrolling {{
+            box-shadow: inset 0 0 5px rgba(0, 123, 255, 0.3);
+            transition: box-shadow 0.2s ease;
+        }}
+    </style>
+    
+    <div class="sync-container-{component_id}">
+        <div class="sync-panel-{component_id}">
+            <div class="sync-header-{component_id}">{left_title}</div>
+            <div class="sync-content-{component_id}" id="left-{component_id}">
+                {left_escaped}
+            </div>
+        </div>
+        
+        <div class="sync-panel-{component_id}">
+            <div class="sync-header-{component_id}">{right_title}</div>
+            <div class="sync-content-{component_id}" id="right-{component_id}">
+                {right_escaped}
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    (function() {{
+        const leftPanel = document.getElementById('left-{component_id}');
+        const rightPanel = document.getElementById('right-{component_id}');
+        
+        let isScrollingSynced = false;
+        
+        function syncScroll(source, target) {{
+            if (isScrollingSynced) return;
+            
+            isScrollingSynced = true;
+            
+            // Calculate scroll percentage
+            const scrollPercentage = source.scrollTop / (source.scrollHeight - source.clientHeight);
+            
+            // Apply to target
+            target.scrollTop = scrollPercentage * (target.scrollHeight - target.clientHeight);
+            
+            // Visual feedback
+            source.classList.add('scrolling');
+            target.classList.add('scrolling');
+            
+            setTimeout(() => {{
+                source.classList.remove('scrolling');
+                target.classList.remove('scrolling');
+                isScrollingSynced = false;
+            }}, 150);
+        }}
+        
+        if (leftPanel && rightPanel) {{
+            leftPanel.addEventListener('scroll', () => syncScroll(leftPanel, rightPanel));
+            rightPanel.addEventListener('scroll', () => syncScroll(rightPanel, leftPanel));
+        }}
+    }})();
+    </script>
+    """
+    
+    # Use Streamlit's HTML component
+    try:
+        import streamlit.components.v1 as components
+        components.html(html_content, height=height + 80)  # Extra height for headers
+    except ImportError:
+        # Fallback to markdown if components not available
+        st.markdown("**Synchronized display component not available - missing streamlit.components.v1**")
+        st.text_area(left_title, left_text, height=height//2, disabled=True)
+        st.text_area(right_title, right_text, height=height//2, disabled=True)

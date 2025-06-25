@@ -495,6 +495,130 @@ python -m streamlit run "pages/3_🧪_Pluralistic_Translation_Lab.py"
 - **Quick Jump**: Direct input for distant chapter numbers
 - **Context Preservation**: Maintains position when switching between analysis modes
 
+## 📊 Style Evaluation & Scoring System
+
+The Translation Workbench uses a sophisticated **composite scoring system** to objectively rank translation styles in the Experimentation Lab. This enables data-driven selection of the best translation approach for any given use case.
+
+### 🎯 **Core Formula**
+```
+Composite Score = (Quality Score × Consistency Bonus) × Completeness Bonus
+```
+
+### ⚖️ **Component Breakdown**
+
+#### **1. Quality Score (Base Score 0.0 - 1.0)**
+The foundation metric combining automated and human evaluation:
+
+**Primary Components:**
+- **BERT Similarity**: **50% weight** - Semantic similarity to official translations
+- **Human Evaluation**: **50% weight** - Multi-dimensional quality assessment
+
+**Human Evaluation Dimensions** (Equal weight within 50%):
+- **English Sophistication**: Nuanced vocabulary and complex sentence structures
+- **World Building & Imagery**: Rich descriptions of scenery, context, and background
+- **Emotional Impact**: How evocative and heart-gripping the prose is
+- **Dialogue Naturalness**: How authentic and natural conversations sound
+
+**Calculation:**
+```python
+# Per chapter
+chapter_quality = (bert_score * 0.5) + (human_average * 0.5)
+
+# Final quality score
+quality_score = mean(all_chapter_qualities)
+```
+
+#### **2. Consistency Bonus (Reliability Multiplier 0.0 - 1.0)**
+**Formula:** `max(0, 1 - standard_deviation)`
+
+- **Purpose**: Rewards consistent performance across all evaluated chapters
+- **High consistency** (low standard deviation) → bonus closer to 1.0
+- **Low consistency** (high variance) → bonus closer to 0.0
+- **Impact**: Multiplies quality score, so inconsistent styles are penalized
+
+#### **3. Completeness Bonus (Volume Multiplier 0.3 - 2.0+)**
+**Formula:** `log10(evaluated_chapters + 1)`
+
+- **Purpose**: Rewards styles with more comprehensive evaluation data
+- **Examples**:
+  - 1 chapter: `log10(2) = 0.301` (30% bonus)
+  - 10 chapters: `log10(11) = 1.041` (4% bonus) 
+  - 100 chapters: `log10(101) = 2.004` (100% bonus)
+- **Rationale**: More evaluation data = higher confidence in ranking
+
+### 📈 **Score Interpretation Guide**
+
+| Composite Score Range | Interpretation | Translation Quality |
+|----------------------|----------------|-------------------|
+| **< 1.0** | Below Average | Inconsistent or low quality |
+| **1.0 - 1.5** | Good Quality | Solid translation with decent consistency |
+| **1.5 - 2.0** | Excellent | High quality with strong consistency |
+| **> 2.0** | Outstanding | Exceptional across all metrics with high volume |
+
+### 🎯 **Strategic Optimization**
+
+#### **To Maximize Composite Score:**
+
+1. **Improve Quality Score (50% impact)**:
+   - **BERT Optimization**: Ensure semantic fidelity to reference translations
+   - **Human Dimensions**: Focus on sophisticated language, vivid imagery, emotional resonance, natural dialogue
+
+2. **Enhance Consistency (multiplier effect)**:
+   - Maintain uniform quality across all chapters
+   - Avoid dramatic quality variations that increase standard deviation
+   - Use consistent prompt templates and model settings
+
+3. **Increase Completeness (logarithmic bonus)**:
+   - Evaluate more chapters for better statistical confidence
+   - Aim for 10+ chapters minimum for meaningful bonus
+   - 100+ chapters provide maximum logarithmic benefit
+
+#### **Common Optimization Strategies:**
+
+**For Academic/Research Translation:**
+- Prioritize high BERT scores (literal accuracy)
+- Focus on "English Sophistication" in human evaluation
+- Maintain consistency with formal academic tone
+
+**For Entertainment/Commercial Translation:**
+- Balance BERT scores with engaging prose
+- Emphasize "Emotional Impact" and "Dialogue Naturalness"
+- Consistent dramatic flair without sacrificing readability
+
+**For Accessibility/YA Translation:**
+- Moderate BERT scores acceptable if clarity improves
+- Focus on "Dialogue Naturalness" and simplified "English Sophistication"
+- Consistent accessibility without dumbing down content
+
+### 🔬 **Technical Implementation**
+
+The scoring system is implemented in `utils.py:calculate_composite_score()` with the following methodology:
+
+```python
+# Exported evaluation metadata (accessible in reports)
+evaluation_method = {
+    'bert_weight': 0.5,
+    'human_weight': 0.5,
+    'consistency_formula': '(1 - std_deviation)', 
+    'completeness_formula': 'log10(evaluated_chapters + 1)'
+}
+```
+
+**Quality Assurance:**
+- Scores are normalized to 0-1 scale before combination
+- Human scores converted from 0-100 to 0-1 range
+- Statistical validation prevents division by zero
+- Graceful degradation when partial data available
+
+### 💡 **Research Applications**
+
+This scoring system enables systematic translation research:
+
+- **A/B Testing**: Compare different prompt approaches objectively
+- **Model Comparison**: Evaluate fine-tuned vs. base models with context
+- **Style Optimization**: Identify which human dimensions correlate with user satisfaction
+- **Publication Ready**: Transparent, reproducible methodology for academic papers
+
 ## 📁 Current Project Structure
 
 ### **Core Application (Multi-Page Streamlit App)**

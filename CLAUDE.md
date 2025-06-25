@@ -272,6 +272,7 @@ Stage 6: EPUB Export (NEW)
 2. **🔐 Authentication & Permissions**: Role-based access
 3. **☁️ Cloud Deployment**: Scale beyond local machine
 4. **📈 Analytics Dashboard**: Usage tracking, quality trends
+5. **🕷️ Dynamic Chapter Detection**: Auto-detect available chapters from target websites instead of hardcoded limits
 
 ### Known Issues to Debug
 - **build_and_report.py**: Needs debugging for dataset export functionality

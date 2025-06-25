@@ -204,9 +204,9 @@ with scraping_col1:
         max_chapters = st.number_input(
             "Max Chapters to Scrape:",
             min_value=1,
-            max_value=500,
+            max_value=1500,
             value=50,
-            help="Maximum number of chapters to scrape in this session"
+            help="Maximum number of chapters to scrape in this session (772+ needed to match English chapters)"
         )
         
         output_directory = st.text_input(

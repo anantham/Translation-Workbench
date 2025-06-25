@@ -861,31 +861,28 @@ with tab5:
                         if official_file:
                             official_translation = load_chapter_content(official_file)
                     
-                    # Display content in columns
+                    # Display content with synchronized scrolling
                     st.subheader(f"📖 Chapter {selected_chapter} Comparison")
                     
-                    col_custom, col_official = st.columns(2)
-                    
-                    with col_custom:
+                    if official_translation and "File not found" not in official_translation:
+                        # Use the new synchronized scrolling component
+                        create_synchronized_text_display(
+                            left_text=custom_translation,
+                            right_text=official_translation,
+                            left_title="🎨 Custom Translation",
+                            right_title="📚 Official Translation",
+                            height=350
+                        )
+                    else:
+                        # Fallback for when official translation is not available
+                        st.warning("Official translation not available for comparison")
                         st.markdown("**🎨 Custom Translation**")
                         st.text_area(
-                            "Custom:", 
-                            custom_translation[:2000] + "..." if len(custom_translation) > 2000 else custom_translation,
+                            "Custom Translation:", 
+                            custom_translation,
                             height=300,
                             disabled=True
                         )
-                    
-                    with col_official:
-                        st.markdown("**📚 Official Translation**")
-                        if official_translation and "File not found" not in official_translation:
-                            st.text_area(
-                                "Official:", 
-                                official_translation[:2000] + "..." if len(official_translation) > 2000 else official_translation,
-                                height=300,
-                                disabled=True
-                            )
-                        else:
-                            st.warning("Official translation not available for comparison")
                     
                     # Human scoring interface
                     st.subheader("📊 Quality Assessment")
