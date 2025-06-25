@@ -31,76 +31,36 @@ st.caption("**The Judging Panel** | Compare translation styles, analyze quality 
 alignment_map = load_alignment_map()
 max_available_chapters = get_max_available_chapters(alignment_map) if alignment_map else 0
 
-# --- Sidebar: Experiment Configuration ---
-st.sidebar.header("🎯 Experiment Setup")
+# --- Sidebar: Style Selection for Visualization ---
+st.sidebar.header("📊 Graph Visualization")
 
-# API Key
-api_key = st.sidebar.text_input("🔑 Gemini API Key:", type="password")
+# Get available translation styles
+available_styles = get_available_translation_styles()
 
-if not api_key:
-    st.sidebar.warning("🔑 API key required for experiments")
+if not available_styles:
+    st.sidebar.error("❌ No translation styles found")
+    st.error("❌ No translation styles available for analysis. Please generate translations in the Pluralistic Translation Lab first.")
+    st.stop()
 
-# Model Selection
-st.sidebar.subheader("🤖 Model Selection")
+# Style selection for visualization
+st.sidebar.subheader("🎨 Select Styles to Visualize")
+style_options = {}
+for style in available_styles:
+    label = f"{style['name']} ({style['chapter_count']} chapters)"
+    style_options[label] = style
 
-# Base models for comparison
-base_models = [
-    "gemini-1.5-flash-001",
-    "gemini-1.5-pro-001",
-    "gemini-2.0-flash-exp"
-]
-
-selected_base_model = st.sidebar.selectbox("Base Model:", base_models)
-
-# Fine-tuned models (would be populated from actual tuned models)
-st.sidebar.subheader("🎯 Fine-tuned Models")
-if api_key and GOOGLE_AI_AVAILABLE:
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        tuned_models, error = list_tuning_jobs(api_key)
-        
-        if tuned_models and not error:
-            completed_models = [
-                model for model in tuned_models 
-                if getattr(model, 'state', '') == 'COMPLETED'
-            ]
-            
-            if completed_models:
-                model_names = [getattr(model, 'name', 'Unknown') for model in completed_models]
-                # Format model names for display
-                display_names = ["None"] + [name.split('/')[-1] if name != "None" else name for name in model_names]
-                selected_tuned_model = st.sidebar.selectbox(
-                    "Fine-tuned Model:", 
-                    display_names
-                )
-            else:
-                st.sidebar.info("📭 No completed fine-tuned models available")
-                selected_tuned_model = "None"
-        else:
-            st.sidebar.warning("⚠️ Could not load fine-tuned models")
-            selected_tuned_model = "None"
-    except Exception as e:
-        st.sidebar.error(f"❌ Error loading models: {e}")
-        selected_tuned_model = "None"
-else:
-    selected_tuned_model = "None"
-
-# In-context learning settings
-st.sidebar.subheader("📚 In-Context Learning")
-n_shot_examples = st.sidebar.slider("N-Shot Examples", min_value=0, max_value=10, value=3)
-
-# Evaluation settings
-st.sidebar.subheader("🎯 Evaluation Settings")
-evaluation_chapters = st.sidebar.number_input(
-    "Test Chapters", 
-    min_value=1, 
-    max_value=50, 
-    value=10,
-    help="Number of chapters to evaluate"
+selected_style_labels = st.sidebar.multiselect(
+    "Choose styles to compare:",
+    options=list(style_options.keys()),
+    default=list(style_options.keys())[:3] if len(style_options) >= 3 else list(style_options.keys()),
+    help="Select one or more translation styles to visualize performance across chapters"
 )
 
-random_seed = st.sidebar.number_input("Random Seed", value=42, help="For reproducible results")
+# Graph display options
+st.sidebar.subheader("📈 Display Options")
+show_bert_scores = st.sidebar.checkbox("Show BERT Scores", value=True)
+show_human_scores = st.sidebar.checkbox("Show Human Evaluation Scores", value=True)
+show_composite_trend = st.sidebar.checkbox("Show Composite Score Trend", value=False)
 
 # --- Main Content ---
 
@@ -108,575 +68,244 @@ if not alignment_map:
     st.error("❌ Could not load alignment map")
     st.stop()
 
-# Create tabs for different experiment types
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊 Dataset Quality Analysis",
-    "🔬 Quick Translation Test",
-    "📊 Batch Evaluation", 
-    "📈 Performance Analysis",
-    "🏆 Style Leaderboard"
+# Create simplified tabs focused on visualization
+tab1, tab2 = st.tabs([
+    "📈 Chapter Performance Graphs",
+    "🏆 Style Leaderboard & Rankings"
 ])
 
-# --- Tab 1: Dataset Quality Analysis ---
+# --- Tab 1: Chapter Performance Graphs ---
 with tab1:
-    st.header("📊 Dataset Quality Analysis")
-    st.caption("Analyze your training dataset quality and characteristics (moved from Fine-tuning Workbench)")
+    st.header("📈 Chapter Performance Graphs")
+    st.caption("Visualize translation quality metrics across chapters for selected styles")
     
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("🔍 Dataset Analysis")
+    if not selected_style_labels:
+        st.info("👆 Please select at least one translation style from the sidebar to visualize")
+    else:
+        selected_styles = [style_options[label] for label in selected_style_labels]
         
-        if st.button("🔄 Analyze Dataset Quality", type="primary"):
-            with st.spinner("Analyzing dataset..."):
-                # Load and analyze training examples
-                training_examples = load_dataset_for_tuning(
-                    alignment_map, 
-                    limit=min(max_available_chapters, 100)  # Analyze up to 100 chapters for experimentation
-                )
+        # Collect data for all selected styles
+        all_style_data = []
+        
+        for style in selected_styles:
+            style_name = style['name']
+            
+            # Load BERT scores
+            bert_scores = load_bert_scores(style_name) if show_bert_scores else {}
+            
+            # Load human scores  
+            human_scores = load_human_scores(style_name) if show_human_scores else {}
+            
+            # Combine all available chapters
+            all_chapters = set()
+            if bert_scores:
+                all_chapters.update([int(ch) for ch in bert_scores.keys()])
+            if human_scores:
+                all_chapters.update([int(ch) for ch in human_scores.keys()])
+            
+            if not all_chapters:
+                continue
                 
-                if training_examples:
-                    st.session_state.training_examples = training_examples
-                    
-                    # Create analysis DataFrame
-                    analysis_data = []
-                    for example in training_examples:
-                        bert_score = example.get('bert_similarity')
-                        analysis_data.append({
-                            "Chapter": example['chapter_number'],
-                            "Raw_Words": example['raw_stats']['word_count'],
-                            "Raw_Chars": example['raw_stats']['char_count'],
-                            "English_Words": example['english_stats']['word_count'],
-                            "English_Chars": example['english_stats']['char_count'],
-                            "BERT_Similarity": round(bert_score, 4) if bert_score is not None else "N/A"
-                        })
-                    
-                    df = pd.DataFrame(analysis_data)
-                    st.session_state.dataset_df = df
-                    
-                    st.success(f"✅ Analyzed {len(training_examples)} training examples")
-                else:
-                    st.error("❌ No valid training examples found")
-    
-    with col2:
-        st.subheader("📋 Dataset Summary")
-        
-        if hasattr(st.session_state, 'dataset_df'):
-            df = st.session_state.dataset_df
-            
-            # Summary metrics
-            st.metric("📚 Total Chapters", len(df))
-            st.metric("📝 Avg Raw Words", f"{df['Raw_Words'].mean():.0f}")
-            st.metric("📖 Avg English Words", f"{df['English_Words'].mean():.0f}")
-            
-            # Show BERT similarity metrics if available
-            if 'BERT_Similarity' in df.columns:
-                bert_scores = df[df['BERT_Similarity'] != "N/A"]['BERT_Similarity']
-                if len(bert_scores) > 0:
-                    avg_bert = bert_scores.astype(float).mean()
-                    st.metric("🧠 Avg BERT Similarity", f"{avg_bert:.3f}")
-                else:
-                    st.metric("🧠 BERT Similarity", "Not Available")
-            else:
-                st.metric("🧠 BERT Similarity", "Not Available")
-            
-            # Quality indicators based on BERT similarity
-            if 'BERT_Similarity' in df.columns:
-                bert_scores = df[df['BERT_Similarity'] != "N/A"]['BERT_Similarity']
-                if len(bert_scores) > 0:
-                    bert_numeric = bert_scores.astype(float)
-                    high_quality = len(bert_numeric[bert_numeric >= 0.8])
-                    quality_pct = (high_quality / len(bert_numeric)) * 100
-                    
-                    if quality_pct >= 80:
-                        st.success(f"✅ Quality: {quality_pct:.1f}% high BERT similarity (≥0.8)")
-                    elif quality_pct >= 60:
-                        st.warning(f"⚠️ Quality: {quality_pct:.1f}% high BERT similarity (≥0.8)")
-                    else:
-                        st.error(f"❌ Quality: {quality_pct:.1f}% high BERT similarity (≥0.8)")
-                else:
-                    st.info("🧠 Run build_and_report.py to get BERT similarity scores")
-            else:
-                st.info("🧠 Run build_and_report.py to get BERT similarity scores")
-        else:
-            st.info("👆 Click 'Analyze Dataset Quality' to see summary")
-    
-    # Dataset visualizations
-    if hasattr(st.session_state, 'dataset_df'):
-        st.subheader("📊 Dataset Visualizations")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Length distribution
-            fig_length = px.histogram(
-                st.session_state.dataset_df, 
-                x="English_Words", 
-                title="Distribution of Chapter Lengths (English Words)",
-                nbins=20
-            )
-            fig_length.update_layout(height=400)
-            st.plotly_chart(fig_length, use_container_width=True)
-        
-        with col2:
-            # BERT Similarity distribution
-            if 'BERT_Similarity' in st.session_state.dataset_df.columns:
-                bert_scores = st.session_state.dataset_df[st.session_state.dataset_df['BERT_Similarity'] != "N/A"]['BERT_Similarity']
-                if len(bert_scores) > 0:
-                    fig_bert = px.histogram(
-                        x=bert_scores.astype(float), 
-                        title="Distribution of BERT Similarity Scores",
-                        nbins=20,
-                        labels={'x': 'BERT Similarity', 'y': 'Count'}
-                    )
-                    fig_bert.add_vline(x=0.8, line_dash="dash", line_color="green", annotation_text="Good Threshold")
-                    fig_bert.add_vline(x=0.6, line_dash="dash", line_color="orange", annotation_text="Acceptable")
-                    fig_bert.update_layout(height=400)
-                    st.plotly_chart(fig_bert, use_container_width=True)
-                else:
-                    st.info("📊 Run build_and_report.py to generate BERT similarity scores for visualization")
-            else:
-                st.info("📊 Run build_and_report.py to generate BERT similarity scores for visualization")
-        
-        # Show detailed table
-        with st.expander("🔍 Detailed Dataset View"):
-            st.dataframe(st.session_state.dataset_df, use_container_width=True)
-
-# --- Tab 2: Quick Translation Test ---
-with tab2:
-    st.header("🔬 Quick Translation Test")
-    st.caption("Compare different models on a single chapter")
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.subheader("📖 Chapter Selection")
-        
-        # Chapter selector
-        available_chapters = sorted([int(k) for k in alignment_map.keys()])
-        selected_chapter = st.selectbox(
-            "Test Chapter:", 
-            available_chapters,
-            index=random.randint(0, min(50, len(available_chapters)-1))
-        )
-        
-        # Load chapter content
-        chapter_data = alignment_map[str(selected_chapter)]
-        raw_content = load_chapter_content(chapter_data.get('raw_file', ''))
-        official_translation = load_chapter_content(chapter_data.get('english_file', ''))
-        
-        if raw_content and "File not found" not in raw_content:
-            # Show chapter stats
-            raw_stats = get_text_stats(raw_content, 'chinese')
-            official_stats = get_text_stats(official_translation, 'english')
-            
-            st.metric("📜 Chinese Characters", f"{raw_stats['char_count']:,}")
-            st.metric("📖 Official Words", f"{official_stats['word_count']:,}")
-            
-            # Show preview
-            with st.expander("👀 Preview Chinese Text"):
-                st.text_area("Chinese Content:", raw_content[:500] + "...", height=150, disabled=True)
-            
-            with st.expander("👀 Preview Official Translation"):
-                st.text_area("Official Translation:", official_translation[:500] + "...", height=150, disabled=True)
-        else:
-            st.error("❌ Could not load chapter content")
-    
-    with col2:
-        st.subheader("🚀 Translation Comparison")
-        
-        if api_key and raw_content and "File not found" not in raw_content:
-            # Translation buttons
-            col_a, col_b = st.columns(2)
-            
-            with col_a:
-                if st.button("🤖 Translate with Base Model", type="primary"):
-                    with st.spinner(f"Translating with {selected_base_model}..."):
-                        # Create in-context learning prompt if n-shot > 0
-                        if n_shot_examples > 0:
-                            # Get random examples for in-context learning
-                            example_chapters = random.sample(
-                                [ch for ch in available_chapters if ch != selected_chapter], 
-                                min(n_shot_examples, len(available_chapters)-1)
-                            )
-                            
-                            prompt_parts = ["You are a professional translator. Here are some examples:"]
-                            
-                            for ex_ch in example_chapters:
-                                ex_data = alignment_map[str(ex_ch)]
-                                ex_raw = load_chapter_content(ex_data.get('raw_file', ''))
-                                ex_eng = load_chapter_content(ex_data.get('english_file', ''))
-                                
-                                if ex_raw and ex_eng and "File not found" not in ex_raw:
-                                    # Use first 200 chars for examples
-                                    prompt_parts.append(f"\nChinese: {ex_raw[:200]}...")
-                                    prompt_parts.append(f"English: {ex_eng[:200]}...")
-                            
-                            prompt_parts.append(f"\nNow translate this Chinese text to English:\n{raw_content}")
-                            full_prompt = "\n".join(prompt_parts)
-                        else:
-                            full_prompt = f"Translate this Chinese web novel chapter to English:\n\n{raw_content}"
-                        
-                        base_translation = translate_with_gemini(full_prompt, api_key, use_cache=False)
-                        st.session_state.base_translation = base_translation
-                        st.session_state.base_model_used = selected_base_model
-            
-            with col_b:
-                if selected_tuned_model != "None":
-                    if st.button("🎯 Translate with Fine-tuned Model", type="primary"):
-                        with st.spinner("Translating with fine-tuned model..."):
-                            # For fine-tuned models, use simpler prompt
-                            tuned_translation = translate_with_gemini(
-                                f"Translate this Chinese text to English:\n\n{raw_content}",
-                                api_key,
-                                use_cache=False
-                            )
-                            st.session_state.tuned_translation = tuned_translation
-                            st.session_state.tuned_model_used = selected_tuned_model
-                else:
-                    st.info("🎯 No fine-tuned model selected")
-            
-            # Display translations
-            if hasattr(st.session_state, 'base_translation') or hasattr(st.session_state, 'tuned_translation'):
-                st.subheader("📊 Translation Results")
+            # Create data for this style
+            for chapter_num in sorted(all_chapters):
+                chapter_str = str(chapter_num)
                 
-                # Create comparison table
-                results = []
-                
-                # Official translation
-                if official_translation and "File not found" not in official_translation:
-                    official_stats = get_text_stats(official_translation, 'english')
-                    results.append({
-                        "Model": "📖 Official Translation",
-                        "Content": official_translation[:200] + "...",
-                        "Word Count": official_stats['word_count'],
-                        "Character Count": official_stats['char_count']
+                # BERT score data
+                if show_bert_scores and chapter_str in bert_scores:
+                    all_style_data.append({
+                        'Style': style_name,
+                        'Chapter': chapter_num,
+                        'Metric': 'BERT Similarity',
+                        'Score': bert_scores[chapter_str],
+                        'Category': 'Automated'
                     })
                 
-                # Base model translation
-                if hasattr(st.session_state, 'base_translation'):
-                    base_stats = get_text_stats(st.session_state.base_translation, 'english')
-                    n_shot_label = f" ({n_shot_examples}-shot)" if n_shot_examples > 0 else " (0-shot)"
-                    results.append({
-                        "Model": f"🤖 {st.session_state.base_model_used}{n_shot_label}",
-                        "Content": st.session_state.base_translation[:200] + "...",
-                        "Word Count": base_stats['word_count'],
-                        "Character Count": base_stats['char_count']
-                    })
-                
-                # Tuned model translation
-                if hasattr(st.session_state, 'tuned_translation'):
-                    tuned_stats = get_text_stats(st.session_state.tuned_translation, 'english')
-                    results.append({
-                        "Model": f"🎯 {st.session_state.tuned_model_used.split('/')[-1]}",
-                        "Content": st.session_state.tuned_translation[:200] + "...",
-                        "Word Count": tuned_stats['word_count'],
-                        "Character Count": tuned_stats['char_count']
-                    })
-                
-                # Display results
-                if results:
-                    results_df = pd.DataFrame(results)
-                    st.dataframe(results_df, use_container_width=True)
+                # Human evaluation data
+                if show_human_scores and chapter_str in human_scores:
+                    human_data = human_scores[chapter_str]
                     
-                    # Quality analysis
-                    if len(results) > 1 and official_translation:
-                        st.subheader("🎯 Quality Analysis")
-                        
-                        # Load semantic model for similarity calculation
-                        semantic_model = load_semantic_model()
-                        
-                        quality_results = []
-                        
-                        for result in results[1:]:  # Skip official translation
-                            if "base_translation" in st.session_state and "Base" in result["Model"]:
-                                translation = st.session_state.base_translation
-                            elif "tuned_translation" in st.session_state and "tuned" in result["Model"]:
-                                translation = st.session_state.tuned_translation
-                            else:
-                                continue
-                            
-                            # Calculate quality metrics
-                            evaluation = evaluate_translation_quality(
-                                raw_content, 
-                                official_translation, 
-                                translation, 
-                                semantic_model
-                            )
-                            
-                            quality_results.append({
-                                "Model": result["Model"],
-                                "BLEU Score": f"{evaluation['bleu_score']:.3f}",
-                                "Semantic Similarity": f"{evaluation['semantic_similarity']:.3f}",
-                                "Length Ratio": f"{evaluation['length_ratio']:.2f}"
+                    # Individual human dimensions
+                    human_dimensions = {
+                        'English Sophistication': human_data.get('english_sophistication', 0) / 100,
+                        'World Building': human_data.get('world_building', 0) / 100,
+                        'Emotional Impact': human_data.get('emotional_impact', 0) / 100,
+                        'Dialogue Naturalness': human_data.get('dialogue_naturalness', 0) / 100
+                    }
+                    
+                    for dimension, score in human_dimensions.items():
+                        if score > 0:  # Only include non-zero scores
+                            all_style_data.append({
+                                'Style': style_name,
+                                'Chapter': chapter_num,
+                                'Metric': dimension,
+                                'Score': score,
+                                'Category': 'Human Evaluation'
                             })
+                
+                # Composite score if requested
+                if show_composite_trend and chapter_str in bert_scores and chapter_str in human_scores:
+                    # Calculate chapter-level composite score
+                    bert_score = bert_scores[chapter_str]
+                    human_data = human_scores[chapter_str]
+                    
+                    # Average human scores
+                    human_dims = ['english_sophistication', 'world_building', 'emotional_impact', 'dialogue_naturalness']
+                    valid_human_scores = [human_data.get(dim, 0) / 100 for dim in human_dims if human_data.get(dim, 0) > 0]
+                    
+                    if valid_human_scores:
+                        avg_human = sum(valid_human_scores) / len(valid_human_scores)
+                        composite = (bert_score * 0.5) + (avg_human * 0.5)
                         
-                        if quality_results:
-                            quality_df = pd.DataFrame(quality_results)
-                            st.dataframe(quality_df, use_container_width=True)
-                            
-                            # Highlight best performer
-                            if len(quality_results) > 1:
-                                best_bleu = max(float(r["BLEU Score"]) for r in quality_results)
-                                best_similarity = max(float(r["Semantic Similarity"]) for r in quality_results)
-                                
-                                for result in quality_results:
-                                    if (float(result["BLEU Score"]) == best_bleu or 
-                                        float(result["Semantic Similarity"]) == best_similarity):
-                                        st.success(f"🏆 Best performer: {result['Model']}")
-                                        break
+                        all_style_data.append({
+                            'Style': style_name,
+                            'Chapter': chapter_num,
+                            'Metric': 'Composite Score',
+                            'Score': composite,
+                            'Category': 'Combined'
+                        })
+        
+        if not all_style_data:
+            st.warning("⚠️ No evaluation data found for selected styles. Please run BERT evaluation and human assessment first.")
         else:
-            if not api_key:
-                st.warning("🔑 API key required for translation")
-            else:
-                st.warning("⚠️ Chapter content not available")
-
-# --- Tab 3: Batch Evaluation ---
-with tab3:
-    st.header("📊 Batch Evaluation")
-    st.caption("Evaluate models on multiple chapters for statistical significance")
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.subheader("🎯 Evaluation Setup")
-        
-        # Evaluation parameters
-        st.write("**📊 Evaluation Parameters:**")
-        st.info(f"""
-        • **Test Chapters:** {evaluation_chapters}
-        • **Random Seed:** {random_seed}
-        • **Base Model:** {selected_base_model}
-        • **N-Shot Examples:** {n_shot_examples}
-        • **Fine-tuned Model:** {selected_tuned_model.split('/')[-1] if selected_tuned_model != "None" else "None"}
-        """)
-        
-        # Start evaluation
-        if api_key and st.button("🚀 Start Batch Evaluation", type="primary"):
-            # Set random seed for reproducibility
-            random.seed(random_seed)
+            # Create DataFrame for visualization
+            df = pd.DataFrame(all_style_data)
             
-            # Select random chapters for evaluation
-            available_chapters = [
-                ch for ch in sorted([int(k) for k in alignment_map.keys()])
-                if alignment_map[str(ch)].get('raw_file') and alignment_map[str(ch)].get('english_file')
-            ]
+            # Display summary statistics
+            st.subheader("📊 Performance Overview")
             
-            if len(available_chapters) < evaluation_chapters:
-                st.error(f"❌ Only {len(available_chapters)} chapters available, requested {evaluation_chapters}")
-            else:
-                test_chapters = random.sample(available_chapters, evaluation_chapters)
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                total_data_points = len(df)
+                st.metric("📈 Total Data Points", total_data_points)
+            
+            with col2:
+                unique_chapters = df['Chapter'].nunique()
+                st.metric("📚 Chapters Analyzed", unique_chapters)
+            
+            with col3:
+                avg_score = df['Score'].mean()
+                st.metric("⭐ Average Score", f"{avg_score:.3f}")
+            
+            st.divider()
+            
+            # Create visualizations based on selected options
+            if show_bert_scores:
+                st.subheader("🧠 BERT Similarity Scores by Chapter")
                 
-                st.session_state.evaluation_in_progress = True
-                st.session_state.test_chapters = test_chapters
-                st.session_state.evaluation_results = []
-                
-                # Progress tracking
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                semantic_model = load_semantic_model()
-                
-                for i, chapter_num in enumerate(test_chapters):
-                    # Update progress
-                    progress = (i + 1) / len(test_chapters)
-                    progress_bar.progress(progress)
-                    status_text.text(f"Evaluating Chapter {chapter_num}... ({i+1}/{len(test_chapters)})")
+                bert_data = df[df['Metric'] == 'BERT Similarity']
+                if not bert_data.empty:
+                    fig_bert = px.line(
+                        bert_data,
+                        x='Chapter',
+                        y='Score',
+                        color='Style',
+                        title='BERT Similarity Across Chapters',
+                        labels={'Score': 'BERT Similarity Score', 'Chapter': 'Chapter Number'},
+                        markers=True
+                    )
+                    fig_bert.add_hline(y=0.8, line_dash="dash", line_color="green", 
+                                     annotation_text="Excellent (≥0.8)")
+                    fig_bert.add_hline(y=0.6, line_dash="dash", line_color="orange", 
+                                     annotation_text="Good (≥0.6)")
+                    fig_bert.update_layout(height=500)
+                    st.plotly_chart(fig_bert, use_container_width=True)
                     
-                    # Load chapter data
-                    chapter_data = alignment_map[str(chapter_num)]
-                    raw_content = load_chapter_content(chapter_data['raw_file'])
-                    official_translation = load_chapter_content(chapter_data['english_file'])
+                    # Show statistics
+                    with st.expander("📊 BERT Score Statistics"):
+                        bert_stats = bert_data.groupby('Style')['Score'].agg(['mean', 'std', 'min', 'max']).round(3)
+                        st.dataframe(bert_stats, use_container_width=True)
+                else:
+                    st.info("📊 No BERT scores available for visualization")
+            
+            if show_human_scores:
+                st.subheader("👤 Human Evaluation Dimensions")
+                
+                human_data = df[df['Category'] == 'Human Evaluation']
+                if not human_data.empty:
+                    # Create subplots for each human dimension
+                    human_metrics = human_data['Metric'].unique()
                     
-                    if "File not found" in raw_content or "File not found" in official_translation:
-                        continue
+                    for metric in human_metrics:
+                        metric_data = human_data[human_data['Metric'] == metric]
+                        
+                        fig_human = px.line(
+                            metric_data,
+                            x='Chapter',
+                            y='Score',
+                            color='Style',
+                            title=f'{metric} Scores Across Chapters',
+                            labels={'Score': f'{metric} Score (0-1)', 'Chapter': 'Chapter Number'},
+                            markers=True
+                        )
+                        fig_human.update_layout(height=400)
+                        st.plotly_chart(fig_human, use_container_width=True)
                     
-                    # Get base model translation (with n-shot if specified)
-                    base_translation = None
-                    if n_shot_examples > 0:
-                        # Create n-shot prompt
-                        example_chapters = random.sample(
-                            [ch for ch in available_chapters if ch != chapter_num], 
-                            min(n_shot_examples, len(available_chapters)-1)
+                    # Human evaluation heatmap
+                    st.subheader("🔥 Human Evaluation Heatmap")
+                    
+                    # Create pivot table for heatmap
+                    if len(selected_styles) > 1:
+                        pivot_data = human_data.pivot_table(
+                            values='Score', 
+                            index='Metric', 
+                            columns='Style', 
+                            aggfunc='mean'
                         )
                         
-                        prompt_parts = ["You are a professional translator. Here are examples:"]
-                        for ex_ch in example_chapters:
-                            ex_data = alignment_map[str(ex_ch)]
-                            ex_raw = load_chapter_content(ex_data.get('raw_file', ''))
-                            ex_eng = load_chapter_content(ex_data.get('english_file', ''))
-                            if ex_raw and ex_eng and "File not found" not in ex_raw:
-                                prompt_parts.append(f"\nChinese: {ex_raw[:200]}...")
-                                prompt_parts.append(f"English: {ex_eng[:200]}...")
-                        
-                        prompt_parts.append(f"\nNow translate:\n{raw_content}")
-                        base_translation = translate_with_gemini("\n".join(prompt_parts), api_key, use_cache=False)
-                    else:
-                        base_translation = translate_with_gemini(f"Translate this Chinese text to English:\n\n{raw_content}", api_key, use_cache=False)
-                    
-                    # Evaluate base model
-                    if base_translation and "API Request Failed" not in base_translation:
-                        base_evaluation = evaluate_translation_quality(
-                            raw_content, official_translation, base_translation, semantic_model
+                        fig_heatmap = px.imshow(
+                            pivot_data,
+                            title="Average Human Evaluation Scores by Style and Dimension",
+                            labels={'color': 'Average Score'},
+                            aspect='auto'
                         )
-                        
-                        result = {
-                            "chapter": chapter_num,
-                            "model_type": "base",
-                            "model_name": selected_base_model,
-                            "n_shot": n_shot_examples,
-                            "bleu_score": base_evaluation['bleu_score'],
-                            "semantic_similarity": base_evaluation['semantic_similarity'],
-                            "length_ratio": base_evaluation['length_ratio'],
-                            "translation": base_translation[:200] + "..."
-                        }
-                        
-                        st.session_state.evaluation_results.append(result)
+                        fig_heatmap.update_layout(height=400)
+                        st.plotly_chart(fig_heatmap, use_container_width=True)
+                else:
+                    st.info("📊 No human evaluation scores available for visualization")
+            
+            if show_composite_trend:
+                st.subheader("🎯 Composite Score Trends")
+                
+                composite_data = df[df['Metric'] == 'Composite Score']
+                if not composite_data.empty:
+                    fig_composite = px.line(
+                        composite_data,
+                        x='Chapter',
+                        y='Score',
+                        color='Style',
+                        title='Composite Scores (BERT + Human) Across Chapters',
+                        labels={'Score': 'Composite Score', 'Chapter': 'Chapter Number'},
+                        markers=True
+                    )
+                    fig_composite.update_layout(height=500)
+                    st.plotly_chart(fig_composite, use_container_width=True)
                     
-                    # Get fine-tuned model translation if available
-                    if selected_tuned_model != "None":
-                        tuned_translation = translate_with_gemini(
-                            f"Translate this Chinese text to English:\n\n{raw_content}",
-                            api_key, 
-                            use_cache=False
-                        )
-                        
-                        if tuned_translation and "API Request Failed" not in tuned_translation:
-                            tuned_evaluation = evaluate_translation_quality(
-                                raw_content, official_translation, tuned_translation, semantic_model
-                            )
-                            
-                            result = {
-                                "chapter": chapter_num,
-                                "model_type": "fine_tuned",
-                                "model_name": selected_tuned_model.split('/')[-1],
-                                "n_shot": 0,
-                                "bleu_score": tuned_evaluation['bleu_score'],
-                                "semantic_similarity": tuned_evaluation['semantic_similarity'],
-                                "length_ratio": tuned_evaluation['length_ratio'],
-                                "translation": tuned_translation[:200] + "..."
-                            }
-                            
-                            st.session_state.evaluation_results.append(result)
-                
-                # Clear progress indicators
-                progress_bar.empty()
-                status_text.empty()
-                
-                st.session_state.evaluation_in_progress = False
-                st.success(f"✅ Evaluation complete! Tested {len(test_chapters)} chapters")
-    
-    with col2:
-        st.subheader("📈 Evaluation Results")
-        
-        if hasattr(st.session_state, 'evaluation_results') and st.session_state.evaluation_results:
-            results_df = pd.DataFrame(st.session_state.evaluation_results)
+                    # Trend analysis
+                    with st.expander("📈 Trend Analysis"):
+                        trend_stats = composite_data.groupby('Style').agg({
+                            'Score': ['mean', 'std', 'count'],
+                            'Chapter': ['min', 'max']
+                        }).round(3)
+                        st.dataframe(trend_stats, use_container_width=True)
+                else:
+                    st.info("📊 No composite scores available. Need both BERT and human evaluations.")
             
-            # Summary statistics
-            st.write("**📊 Summary Statistics:**")
+            # Data export
+            st.divider()
+            st.subheader("💾 Export Visualization Data")
             
-            summary_stats = results_df.groupby(['model_type', 'model_name']).agg({
-                'bleu_score': ['mean', 'std'],
-                'semantic_similarity': ['mean', 'std'],
-                'length_ratio': ['mean', 'std']
-            }).round(4)
-            
-            st.dataframe(summary_stats, use_container_width=True)
-            
-            # Detailed results
-            with st.expander("🔍 Detailed Results"):
-                st.dataframe(results_df, use_container_width=True)
-            
-            # Export results
-            if st.button("💾 Export Results"):
-                export_data = results_df.to_csv(index=False)
+            if st.button("📥 Download Graph Data as CSV"):
+                csv_data = df.to_csv(index=False)
                 st.download_button(
-                    label="📥 Download CSV",
-                    data=export_data,
-                    file_name=f"evaluation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    label="📊 Download CSV",
+                    data=csv_data,
+                    file_name=f"style_performance_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv"
                 )
-        else:
-            st.info("📊 Run batch evaluation to see results here")
 
-# --- Tab 4: Performance Analysis ---
-with tab4:
-    st.header("📈 Performance Analysis")
-    
-    if hasattr(st.session_state, 'evaluation_results') and st.session_state.evaluation_results:
-        results_df = pd.DataFrame(st.session_state.evaluation_results)
-        
-        # Performance comparison charts
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # BLEU score comparison
-            fig_bleu = px.box(
-                results_df,
-                x='model_name',
-                y='bleu_score',
-                color='model_type',
-                title="📊 BLEU Score Distribution by Model"
-            )
-            fig_bleu.update_layout(height=400)
-            st.plotly_chart(fig_bleu, use_container_width=True)
-        
-        with col2:
-            # Semantic similarity comparison
-            fig_semantic = px.box(
-                results_df,
-                x='model_name',
-                y='semantic_similarity',
-                color='model_type',
-                title="🧠 Semantic Similarity Distribution by Model"
-            )
-            fig_semantic.update_layout(height=400)
-            st.plotly_chart(fig_semantic, use_container_width=True)
-        
-        # Correlation analysis
-        st.subheader("🔗 Metric Correlation Analysis")
-        
-        correlation_data = results_df[['bleu_score', 'semantic_similarity', 'length_ratio']].corr()
-        
-        fig_corr = px.imshow(
-            correlation_data,
-            text_auto=True,
-            aspect="auto",
-            title="📊 Correlation Matrix of Quality Metrics"
-        )
-        st.plotly_chart(fig_corr, use_container_width=True)
-        
-        # Statistical significance testing
-        if len(results_df['model_name'].unique()) > 1:
-            st.subheader("📈 Statistical Significance")
-            
-            try:
-                from scipy import stats
-                
-                # Compare models on BLEU scores
-                model_groups = results_df.groupby('model_name')['bleu_score'].apply(list)
-                
-                if len(model_groups) == 2:
-                    group1, group2 = model_groups.iloc[0], model_groups.iloc[1]
-                    t_stat, p_value = stats.ttest_ind(group1, group2)
-                    
-                    st.metric("T-statistic", f"{t_stat:.4f}")
-                    st.metric("P-value", f"{p_value:.4f}")
-                    
-                    if p_value < 0.05:
-                        st.success("✅ Statistically significant difference (p < 0.05)")
-                    else:
-                        st.info("📊 No statistically significant difference (p ≥ 0.05)")
-                else:
-                    st.info("📊 Statistical testing requires exactly 2 models")
-                    
-            except ImportError:
-                st.info("📊 Install scipy for statistical significance testing")
-    else:
-        st.info("📈 Run batch evaluation first to see performance analysis")
-
-# --- Tab 5: Style Leaderboard ---
-with tab5:
+# --- Tab 2: Style Leaderboard & Rankings ---
+with tab2:
     st.header("🏆 Translation Style Evaluation & Leaderboard")
     st.caption("Comprehensive quality assessment of custom translation styles")
     
