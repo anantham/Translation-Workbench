@@ -36,7 +36,7 @@ def get_model_abbreviation(platform, model_name):
         model_name: Full model name
     
     Returns:
-        str: Short abbreviation like "gem15p", "oai_gpt4o", "oai_ft_mymodel"
+        str: Short abbreviation like "gem15p", "oai_gpt4o", "oai_BlJU60q"
     """
     if platform == "Gemini":
         if "gemini-1.5-pro" in model_name:
@@ -49,14 +49,19 @@ def get_model_abbreviation(platform, model_name):
     
     elif platform == "OpenAI":
         if model_name.startswith("ft:"):
-            # Fine-tuned model: extract custom name
-            # Format: ft:gpt-4o-mini:org:custom-name:id
+            # Fine-tuned model: extract actual model ID
+            # Format: ft:gpt-4o-mini:org:custom-name:BlJU60q
             parts = model_name.split(":")
-            if len(parts) >= 4:
-                custom_name = parts[3]  # Get the custom name part
-                # Clean and shorten the custom name
+            if len(parts) >= 5:
+                model_id = parts[4]  # Get the actual model ID (e.g., BlJU60q)
+                # Clean the model ID (should already be clean but ensure safety)
+                clean_id = "".join(c for c in model_id if c.isalnum() or c in "-_")
+                return f"oai_{clean_id}"
+            elif len(parts) >= 4:
+                # Fallback to custom name if model ID not available
+                custom_name = parts[3]
                 clean_name = "".join(c for c in custom_name if c.isalnum() or c in "-_")[:8]
-                return f"oai_ft_{clean_name}"
+                return f"oai_{clean_name}"
             else:
                 return "oai_ft"
         elif "gpt-4o" in model_name:
@@ -605,15 +610,23 @@ with st.sidebar.expander("📁 Output Settings", expanded=True):
     
     # Update session state if model changed
     if 'last_model_abbrev' not in st.session_state or st.session_state.last_model_abbrev != model_abbrev:
-        # Model changed, update the model part of the run name
-        base_parts = st.session_state.run_name.split('_')
-        if len(base_parts) >= 3:
-            # Keep everything except the last part (old model abbrev) and append new model abbrev
-            base_without_model = '_'.join(base_parts[:-1])
-            st.session_state.run_name = f"{base_without_model}_{model_abbrev}"
+        # Model changed, remove old model abbreviation and add new one
+        current_name = st.session_state.run_name
+        
+        # Remove the old model abbreviation if it exists
+        if 'last_model_abbrev' in st.session_state:
+            old_abbrev = st.session_state.last_model_abbrev
+            if current_name.endswith(f"_{old_abbrev}"):
+                # Remove the old model abbreviation completely
+                base_without_model = current_name[:-len(f"_{old_abbrev}")]
+                st.session_state.run_name = f"{base_without_model}_{model_abbrev}"
+            else:
+                # Fallback: rebuild from base
+                st.session_state.run_name = enhanced_default
         else:
-            # Fallback to enhanced default
+            # First time setting model, use enhanced default
             st.session_state.run_name = enhanced_default
+        
         st.session_state.last_model_abbrev = model_abbrev
     
     # Run name input with reset option
