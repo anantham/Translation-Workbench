@@ -24,8 +24,8 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("📈 Experimentation Analysis")
-st.caption("**The Judging Panel** | Compare translation styles, analyze quality metrics, and crown the winner")
+st.title("📈 Translation Style Analytics")
+st.caption("**Performance Visualization Dashboard** | Analyze translation quality trends across chapters and compare style effectiveness")
 
 # Load alignment map early to get available chapters
 alignment_map = load_alignment_map()
