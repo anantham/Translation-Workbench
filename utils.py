@@ -2317,7 +2317,7 @@ def apply_comment_highlighting(text, comments):
     return highlighted_text
 
 # --- UI Components ---
-def create_synchronized_text_display(left_text, right_text, left_title="Left Text", right_title="Right Text", height=400, full_width=True, enable_comments=False, chapter_id=None, style_name=None):
+def create_synchronized_text_display(left_text, right_text, left_title="Left Text", right_title="Right Text", height=400, full_width=True, enable_comments=False, chapter_id=None, style_name=None, key=None):
     """
     Create a synchronized scrolling display for two text blocks with optional inline commenting.
     
@@ -2331,9 +2331,10 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
         enable_comments (bool): If True, enable text selection and inline commenting
         chapter_id (str): Chapter identifier for comment storage
         style_name (str): Translation style name for comment storage
+        key (str): Unique key for the component
     
     Returns:
-        None: Renders HTML component directly in Streamlit
+        dict: Selection event data when text is selected for commenting
     """
     # Process text with optional comment highlighting
     def escape_html(text):
@@ -2569,18 +2570,19 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
             `;
             
             button.onclick = function() {{
-                // Store selection in browser storage for Streamlit pickup
-                sessionStorage.setItem('pending_comment_selection', JSON.stringify({{
-                    text: selectedText,
-                    startOffset: selectionRange.startOffset,
-                    endOffset: selectionRange.endOffset,
-                    chapterId: '{chapter_id}',
-                    styleName: '{style_name}',
-                    componentId: '{component_id}'
-                }}));
-                
-                // Trigger page refresh to show comment form
-                location.reload();
+                // Send selection data back to Streamlit
+                window.parent.postMessage({{
+                    type: 'streamlit:setComponentValue',
+                    data: {{
+                        type: 'text_selected',
+                        text: selectedText,
+                        start_char: selectionRange.startOffset,
+                        end_char: selectionRange.endOffset,
+                        chapter_id: '{chapter_id}',
+                        style_name: '{style_name}',
+                        timestamp: new Date().toISOString()
+                    }}
+                }}, '*');
                 
                 hideCommentButton();
             }};
@@ -2612,12 +2614,15 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
     </script>
     """
     
-    # Use Streamlit's HTML component
+    # Use Streamlit's HTML component with bi-directional communication
     try:
         import streamlit.components.v1 as components
-        components.html(html_content, height=height + 80)  # Extra height for headers
+        # Return the component value to capture selection events
+        selection_event = components.html(html_content, height=height + 80, key=key)
+        return selection_event
     except ImportError:
         # Fallback to markdown if components not available
         st.markdown("**Synchronized display component not available - missing streamlit.components.v1**")
         st.text_area(left_title, left_text, height=height//2, disabled=True)
         st.text_area(right_title, right_text, height=height//2, disabled=True)
+        return None

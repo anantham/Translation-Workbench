@@ -550,17 +550,23 @@ with tab2:
                         total_chars = len(left_content) + len(right_content)
                         dynamic_height = min(800, max(500, total_chars // 25))
                         
-                        # Use enhanced synchronized scrolling with full width and inline commenting
-                        create_synchronized_text_display(
+                        # Use enhanced synchronized scrolling with full width and automatic inline commenting
+                        selection_event = create_synchronized_text_display(
                             left_text=left_content,
                             right_text=right_content,
                             left_title=f"📖 {left_style}",
-                            right_title=f"📖 {right_style}",
+                            right_title=f"📖 {right_style} (Select text to comment)",
                             height=dynamic_height,
                             enable_comments=True,
                             chapter_id=str(selected_chapter),
-                            style_name=right_style.replace("Custom: ", "") if right_style.startswith("Custom: ") else "official"
+                            style_name=right_style.replace("Custom: ", "") if right_style.startswith("Custom: ") else "official",
+                            key=f"text_display_{selected_chapter}_{right_style}"
                         )
+                        
+                        # Handle automatic text selection for commenting
+                        if selection_event and selection_event.get('type') == 'text_selected':
+                            st.session_state['pending_comment'] = selection_event
+                            st.rerun()
                         
                         # Show comparison stats
                         col1, col2, col3 = st.columns(3)
@@ -577,28 +583,18 @@ with tab2:
                             similarity = (overlap / total_unique * 100) if total_unique > 0 else 0
                             st.metric("Word Overlap", f"{similarity:.1f}%")
                         
-                        # Enhanced: Inline Comment Creation Interface
+                        # Enhanced: Automatic Inline Comment Creation Interface
                         st.divider()
                         st.subheader("💬 Inline Comments")
                         
-                        # Check for pending comment selection from JavaScript
-                        if "pending_comment_data" not in st.session_state:
-                            st.session_state.pending_comment_data = None
-                        
-                        # JavaScript bridge for comment selection (this would be populated by the frontend)
-                        st.caption("📖 **How to use**: Select any text in the right panel to add an inline comment with dimension-specific feedback.")
-                        
-                        # Comment creation form
-                        with st.expander("➕ Add New Inline Comment", expanded=False):
-                            with st.form("inline_comment_form"):
-                                st.write("**Manual Comment Creation**")
-                                
-                                # Text selection inputs
-                                selected_text_input = st.text_area(
-                                    "Selected Text",
-                                    placeholder="Copy and paste the text you want to comment on...",
-                                    help="Select and copy text from the translation above"
-                                )
+                        # Show automatic comment form when text is selected
+                        if 'pending_comment' in st.session_state and st.session_state.pending_comment:
+                            pending = st.session_state.pending_comment
+                            
+                            st.success("✨ **Text Selected!** Create your inline comment below:")
+                            
+                            with st.form("automatic_comment_form"):
+                                st.info(f"**Selected Text:** \"{pending['text']}\"")
                                 
                                 # Dimension selection
                                 comment_dimension = st.selectbox(
@@ -609,14 +605,16 @@ with tab2:
                                         "world_building": "🌍 World Building & Imagery", 
                                         "emotional_impact": "💔 Emotional Impact",
                                         "dialogue_naturalness": "💬 Dialogue Naturalness"
-                                    }[x]
+                                    }[x],
+                                    help="Choose the quality dimension this text exemplifies"
                                 )
                                 
                                 # Comment text
                                 comment_text = st.text_area(
                                     "Your Comment",
                                     placeholder="Explain why this text exemplifies this quality dimension...",
-                                    help="Detailed feedback about this specific text segment"
+                                    help="Detailed feedback about this specific text segment",
+                                    height=120
                                 )
                                 
                                 # Evaluator info (optional)
@@ -626,37 +624,45 @@ with tab2:
                                 with col2:
                                     evaluator_email = st.text_input("Email (Optional)", placeholder="e.g., aditya@example.com")
                                 
-                                # Submit button
-                                submit_comment = st.form_submit_button("💾 Save Inline Comment", type="primary")
+                                # Form buttons
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    submit_comment = st.form_submit_button("💾 Save Comment", type="primary", use_container_width=True)
+                                with col2:
+                                    cancel_comment = st.form_submit_button("❌ Cancel", use_container_width=True)
                                 
-                                if submit_comment and selected_text_input.strip() and comment_text.strip():
+                                if submit_comment and comment_text.strip():
                                     from utils import add_inline_comment
                                     
-                                    # Calculate approximate text offsets (simplified)
-                                    right_text_clean = right_content.replace('<br>', '\n').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
-                                    start_offset = right_text_clean.find(selected_text_input.strip())
+                                    comment_data = {
+                                        'start_char': pending['start_char'],
+                                        'end_char': pending['end_char'],
+                                        'selected_text': pending['text'],
+                                        'dimension': comment_dimension,
+                                        'comment': comment_text.strip(),
+                                        'evaluator_name': evaluator_name.strip() if evaluator_name.strip() else 'Anonymous',
+                                        'evaluator_email': evaluator_email.strip() if evaluator_email.strip() else ''
+                                    }
                                     
-                                    if start_offset != -1:
-                                        end_offset = start_offset + len(selected_text_input.strip())
-                                        
-                                        comment_data = {
-                                            'start_offset': start_offset,
-                                            'end_offset': end_offset,
-                                            'selected_text': selected_text_input.strip(),
-                                            'dimension': comment_dimension,
-                                            'comment': comment_text.strip(),
-                                            'evaluator_name': evaluator_name.strip() if evaluator_name.strip() else 'Anonymous',
-                                            'evaluator_email': evaluator_email.strip() if evaluator_email.strip() else ''
-                                        }
-                                        
-                                        # Save the comment
-                                        style_name_clean = right_style.replace("Custom: ", "") if right_style.startswith("Custom: ") else "official"
-                                        comment_id = add_inline_comment(style_name_clean, str(selected_chapter), comment_data)
-                                        
-                                        st.success(f"✅ Inline comment saved! ID: {comment_id}")
-                                        st.rerun()
-                                    else:
-                                        st.error("❌ Selected text not found in the translation. Please copy the exact text.")
+                                    # Save the comment
+                                    comment_id = add_inline_comment(pending['style_name'], pending['chapter_id'], comment_data)
+                                    
+                                    st.success(f"✅ Inline comment saved! ID: {comment_id}")
+                                    
+                                    # Clear pending comment and refresh
+                                    del st.session_state['pending_comment']
+                                    st.rerun()
+                                
+                                elif cancel_comment:
+                                    # Cancel comment creation
+                                    del st.session_state['pending_comment']
+                                    st.rerun()
+                                
+                                elif submit_comment and not comment_text.strip():
+                                    st.error("❌ Please enter a comment before saving.")
+                        
+                        else:
+                            st.caption("📖 **How to use**: Select any text in the right panel above to automatically create an inline comment with dimension-specific feedback.")
                         
                         # Display existing comments
                         from utils import load_inline_comments
