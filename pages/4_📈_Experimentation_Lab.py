@@ -490,28 +490,114 @@ with tab2:
                         if official_file:
                             official_translation = load_chapter_content(official_file)
                     
-                    # Display content with synchronized scrolling
+                    # Enhanced comparison interface with flexible style selection
                     st.subheader(f"📖 Chapter {selected_chapter} Comparison")
                     
-                    if official_translation and "File not found" not in official_translation:
-                        # Use the new synchronized scrolling component
+                    # Get all available translation styles for this chapter
+                    available_translation_styles = ["Official Translation"]
+                    custom_translations = {}
+                    
+                    # Scan for custom translation styles
+                    custom_runs_dir = os.path.join(DATA_DIR, "custom_translations")
+                    if os.path.exists(custom_runs_dir):
+                        for run_name in os.listdir(custom_runs_dir):
+                            run_path = os.path.join(custom_runs_dir, run_name)
+                            if os.path.isdir(run_path):
+                                chapter_file = os.path.join(run_path, f"Chapter-{selected_chapter:04d}-translated.txt")
+                                if os.path.exists(chapter_file):
+                                    with open(chapter_file, 'r', encoding='utf-8') as f:
+                                        custom_translations[run_name] = f.read()
+                                    available_translation_styles.append(f"Custom: {run_name}")
+                    
+                    # Style selection interface
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        left_style = st.selectbox(
+                            "📖 Left Panel:",
+                            available_translation_styles,
+                            index=0,
+                            help="Choose translation style for left panel"
+                        )
+                    
+                    with col2:
+                        right_style = st.selectbox(
+                            "📖 Right Panel:",
+                            available_translation_styles,
+                            index=0,  # Default to Official Translation
+                            help="Choose translation style for right panel"
+                        )
+                    
+                    # Load content for selected styles
+                    def get_translation_content(style_name):
+                        if style_name == "Official Translation":
+                            if str(selected_chapter) in alignment_map:
+                                official_file = alignment_map[str(selected_chapter)].get('english_file')
+                                if official_file:
+                                    return load_chapter_content(official_file)
+                            return "Official translation not available for this chapter"
+                        else:
+                            # Extract run name from "Custom: run_name" format
+                            run_name = style_name.replace("Custom: ", "")
+                            return custom_translations.get(run_name, "Translation not found")
+                    
+                    left_content = get_translation_content(left_style)
+                    right_content = get_translation_content(right_style)
+                    
+                    # Display content with enhanced synchronized scrolling
+                    if left_content and right_content and "not available" not in left_content and "not found" not in right_content:
+                        # Calculate dynamic height based on content length
+                        total_chars = len(left_content) + len(right_content)
+                        dynamic_height = min(800, max(500, total_chars // 25))
+                        
+                        # Use enhanced synchronized scrolling with full width
                         create_synchronized_text_display(
-                            left_text=custom_translation,
-                            right_text=official_translation,
-                            left_title="🎨 Custom Translation",
-                            right_title="📚 Official Translation",
-                            height=350
+                            left_text=left_content,
+                            right_text=right_content,
+                            left_title=f"📖 {left_style}",
+                            right_title=f"📖 {right_style}",
+                            height=dynamic_height
                         )
+                        
+                        # Show comparison stats
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Left Panel Words", len(left_content.split()))
+                        with col2:
+                            st.metric("Right Panel Words", len(right_content.split()))
+                        with col3:
+                            # Calculate rough similarity (word overlap)
+                            left_words = set(left_content.lower().split())
+                            right_words = set(right_content.lower().split())
+                            overlap = len(left_words.intersection(right_words))
+                            total_unique = len(left_words.union(right_words))
+                            similarity = (overlap / total_unique * 100) if total_unique > 0 else 0
+                            st.metric("Word Overlap", f"{similarity:.1f}%")
                     else:
-                        # Fallback for when official translation is not available
-                        st.warning("Official translation not available for comparison")
-                        st.markdown("**🎨 Custom Translation**")
-                        st.text_area(
-                            "Custom Translation:", 
-                            custom_translation,
-                            height=300,
-                            disabled=True
-                        )
+                        # Fallback display for unavailable content
+                        if "not available" in left_content or "not found" in left_content:
+                            st.warning(f"⚠️ {left_style}: {left_content}")
+                        else:
+                            st.markdown(f"**📖 {left_style}**")
+                            st.text_area(
+                                f"{left_style}:", 
+                                left_content,
+                                height=400,
+                                disabled=True,
+                                key=f"left_{selected_chapter}"
+                            )
+                        
+                        if "not available" in right_content or "not found" in right_content:
+                            st.warning(f"⚠️ {right_style}: {right_content}")
+                        else:
+                            st.markdown(f"**📖 {right_style}**")
+                            st.text_area(
+                                f"{right_style}:", 
+                                right_content,
+                                height=400,
+                                disabled=True,
+                                key=f"right_{selected_chapter}"
+                            )
                     
                     # Human scoring interface
                     st.subheader("📊 Quality Assessment")
@@ -521,7 +607,8 @@ with tab2:
                     chapter_scores = existing_human_scores.get(str(selected_chapter), {})
                     
                     with st.form(f"human_eval_{eval_style['name']}_{selected_chapter}"):
-                        st.write("Rate this translation on various quality dimensions (1-100):")
+                        st.write("**Current Human Evaluation Metrics (4 Dimensions)**")
+                        st.write("Rate this translation on core quality dimensions (1-100):")
                         
                         col1, col2 = st.columns(2)
                         
@@ -530,14 +617,14 @@ with tab2:
                                 "🎯 English Sophistication",
                                 1, 100,
                                 value=chapter_scores.get('english_sophistication', 50),
-                                help="Nuanced, complex, appropriate jargon usage"
+                                help="Nuanced, complex language usage, Vocabulary - Employ varied, precise vocabulary (furious/incensed/livid instead of repeated 'angry'), 100 means using extremely niche, obscure words. Maintain distinct character voices through speech patterns, formality levels, and vocabulary choices"
                             )
                             
                             world_building = st.slider(
                                 "🌍 World Building & Imagery",
                                 1, 100,
                                 value=chapter_scores.get('world_building', 50),
-                                help="Rich descriptions of scenery, context, background"
+                                help="Rich descriptions, terminology and context, footnotes/glossary that details choices to transliterate in Pinyin, deep cultural/historical references. maintain consistency."
                             )
                         
                         with col2:
@@ -545,49 +632,14 @@ with tab2:
                                 "💔 Emotional Impact",
                                 1, 100,
                                 value=chapter_scores.get('emotional_impact', 50),
-                                help="How evocative and heart-gripping the prose is"
+                                help="How evocative the prose is, creativity - Balance epic grandeur with humor and modern colloquialisms where character-appropriate. Handle poetry/wordplay by preserving effect over literal meaning. Your task is to convey the meaning, tone, and impact of the original."
                             )
                             
                             dialogue_naturalness = st.slider(
                                 "💬 Dialogue Naturalness",
                                 1, 100,
                                 value=chapter_scores.get('dialogue_naturalness', 50),
-                                help="How natural and authentic conversations sound"
-                            )
-                        
-                        # Additional quality dimensions
-                        st.write("**Additional Quality Metrics:**")
-                        
-                        col3, col4 = st.columns(2)
-                        
-                        with col3:
-                            action_clarity = st.slider(
-                                "⚔️ Action Clarity",
-                                1, 100,
-                                value=chapter_scores.get('action_clarity', 50),
-                                help="Clarity of fight scenes and dynamic sequences"
-                            )
-                            
-                            cultural_adaptation = st.slider(
-                                "🏛️ Cultural Adaptation",
-                                1, 100,
-                                value=chapter_scores.get('cultural_adaptation', 50),
-                                help="Handling of idioms, cultivation terms, cultural references"
-                            )
-                        
-                        with col4:
-                            pacing = st.slider(
-                                "🎵 Narrative Pacing",
-                                1, 100,
-                                value=chapter_scores.get('pacing', 50),
-                                help="Maintains original flow and rhythm"
-                            )
-                            
-                            consistency = st.slider(
-                                "📏 Terminology Consistency",
-                                1, 100,
-                                value=chapter_scores.get('consistency', 50),
-                                help="Consistent use of names, terms, and style"
+                                help="Authentic conversation flow, no jarring transitions in the transitions between sentences, paragraphs, chapters. Formatting - Readability - Add sufficient line breaks between each speaker's dialogue, line breaks between scene transitions or time skips"
                             )
                         
                         # Submit button
@@ -603,10 +655,6 @@ with tab2:
                                 'world_building': world_building,
                                 'emotional_impact': emotional_impact,
                                 'dialogue_naturalness': dialogue_naturalness,
-                                'action_clarity': action_clarity,
-                                'cultural_adaptation': cultural_adaptation,
-                                'pacing': pacing,
-                                'consistency': consistency,
                                 'evaluated_at': datetime.now().isoformat(),
                                 'evaluator': 'human'
                             })

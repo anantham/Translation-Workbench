@@ -2239,7 +2239,7 @@ def preview_systematic_correction(alignment_map, offset, sample_size=10):
     return preview_data
 
 # --- UI Components ---
-def create_synchronized_text_display(left_text, right_text, left_title="Left Text", right_title="Right Text", height=400):
+def create_synchronized_text_display(left_text, right_text, left_title="Left Text", right_title="Right Text", height=400, full_width=True):
     """
     Create a synchronized scrolling display for two text blocks.
     
@@ -2249,6 +2249,7 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
         left_title (str): Title for left panel
         right_title (str): Title for right panel
         height (int): Height of display panels in pixels
+        full_width (bool): If True, optimize for full width with minimal margins
     
     Returns:
         None: Renders HTML component directly in Streamlit
@@ -2269,55 +2270,68 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
     import random
     component_id = f"sync_scroll_{random.randint(1000, 9999)}"
     
+    # Optimize styling based on full_width parameter
+    container_gap = "8px" if full_width else "20px"
+    content_padding = "12px" if full_width else "16px"
+    header_padding = "8px 12px" if full_width else "12px 16px"
+    border_radius = "4px" if full_width else "8px"
+    
     html_content = f"""
     <style>
         .sync-container-{component_id} {{
             display: flex;
-            gap: 20px;
+            gap: {container_gap};
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            width: 100%;
+            margin: 0;
         }}
         
         .sync-panel-{component_id} {{
             flex: 1;
             border: 1px solid #ddd;
-            border-radius: 8px;
+            border-radius: {border_radius};
             overflow: hidden;
             background: white;
+            min-width: 0; /* Prevents flex item from overflowing */
         }}
         
         .sync-header-{component_id} {{
             background: #f8f9fa;
-            padding: 12px 16px;
+            padding: {header_padding};
             border-bottom: 1px solid #ddd;
             font-weight: 600;
             font-size: 14px;
             color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }}
         
         .sync-content-{component_id} {{
             height: {height}px;
             overflow-y: auto;
-            padding: 16px;
+            padding: {content_padding};
             line-height: 1.6;
             font-size: 14px;
             color: #333;
             background: white;
             word-wrap: break-word;
+            overflow-wrap: break-word;
         }}
         
         /* Custom scrollbar styling */
         .sync-content-{component_id}::-webkit-scrollbar {{
-            width: 8px;
+            width: 6px;
         }}
         
         .sync-content-{component_id}::-webkit-scrollbar-track {{
             background: #f1f1f1;
-            border-radius: 4px;
+            border-radius: 3px;
         }}
         
         .sync-content-{component_id}::-webkit-scrollbar-thumb {{
             background: #c1c1c1;
-            border-radius: 4px;
+            border-radius: 3px;
         }}
         
         .sync-content-{component_id}::-webkit-scrollbar-thumb:hover {{
@@ -2328,6 +2342,17 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
         .sync-content-{component_id}.scrolling {{
             box-shadow: inset 0 0 5px rgba(0, 123, 255, 0.3);
             transition: box-shadow 0.2s ease;
+        }}
+        
+        /* Full width responsive behavior */
+        @media (max-width: 768px) {{
+            .sync-container-{component_id} {{
+                flex-direction: column;
+                gap: 4px;
+            }}
+            .sync-content-{component_id} {{
+                height: {height//2}px;
+            }}
         }}
     </style>
     
