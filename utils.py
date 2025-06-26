@@ -140,6 +140,32 @@ def load_openai_api_config():
     # 3. No configuration found
     return None, None
 
+def load_deepseek_api_config():
+    """Load DeepSeek API configuration from environment variable or config file.
+    
+    Returns:
+        tuple: (api_key, source) where source is 'environment', 'config', or None
+    """
+    # 1. Check environment variable first (highest priority)
+    api_key = os.getenv('DEEPSEEK_API_KEY')
+    if api_key:
+        return api_key, "environment variable"
+    
+    # 2. Check config file
+    config_path = "config.json"
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                api_key = config.get('deepseek_api_key')
+                if api_key:
+                    return api_key, "config file"
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not read config.json: {e}")
+    
+    # 3. No configuration found
+    return None, None
+
 def show_openai_config_status():
     """Display OpenAI configuration status for debugging."""
     api_key, source = load_openai_api_config()
@@ -148,6 +174,15 @@ def show_openai_config_status():
         return f"✅ OpenAI API Key loaded from {source} ({masked_key})"
     else:
         return "❌ OpenAI API Key not configured"
+
+def show_deepseek_config_status():
+    """Display DeepSeek configuration status for debugging."""
+    api_key, source = load_deepseek_api_config()
+    if api_key:
+        masked_key = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
+        return f"✅ DeepSeek API Key loaded from {source} ({masked_key})"
+    else:
+        return "❌ DeepSeek API Key not configured"
 
 # --- Caching System ---
 SIMILARITY_CACHE_FILE = os.path.join(CACHE_DIR, "similarity_scores_cache.json")
@@ -775,21 +810,50 @@ def get_available_openai_models(api_key):
         return [], "OpenAI SDK not available"
     
     try:
-        client = openai.OpenAI(api_key=api_key)
-        models = client.models.list()
+        # Try to detect if this is a DeepSeek API key based on common patterns
+        # DeepSeek keys often start with 'sk-' but we'll try both OpenAI and DeepSeek endpoints
         
-        # Filter to relevant models for translation
-        translation_models = []
-        for model in models.data:
-            model_id = model.id
-            # Include GPT models suitable for fine-tuning and chat
-            if any(prefix in model_id for prefix in ['gpt-4', 'gpt-3.5', 'ft:']):
-                translation_models.append(model_id)
-        
-        # Sort models: fine-tuned models first, then base models
-        translation_models.sort(key=lambda x: (not x.startswith('ft:'), x))
-        
-        return translation_models, None
+        # First try OpenAI API
+        try:
+            client = openai.OpenAI(api_key=api_key)
+            models = client.models.list()
+            
+            # Filter to relevant models for translation
+            translation_models = []
+            for model in models.data:
+                model_id = model.id
+                # Include GPT models suitable for fine-tuning and chat
+                if any(prefix in model_id for prefix in ['gpt-4', 'gpt-3.5', 'ft:']):
+                    translation_models.append(model_id)
+            
+            # Sort models: fine-tuned models first, then base models
+            translation_models.sort(key=lambda x: (not x.startswith('ft:'), x))
+            
+            return translation_models, None
+            
+        except Exception as openai_error:
+            # If OpenAI API fails, try DeepSeek API
+            try:
+                client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+                models = client.models.list()
+                
+                # Filter DeepSeek models - include all models from DeepSeek API
+                translation_models = []
+                for model in models.data:
+                    model_id = model.id
+                    # Include all DeepSeek models
+                    translation_models.append(model_id)
+                
+                # If no models found from API, fallback to known DeepSeek models
+                if not translation_models:
+                    translation_models = ["deepseek-chat", "deepseek-reasoner"]
+                
+                return translation_models, None
+                
+            except Exception as deepseek_error:
+                # Both APIs failed, return the original OpenAI error
+                return [], str(openai_error)
+    
     except Exception as e:
         return [], str(e)
 
@@ -821,21 +885,36 @@ def get_available_models_for_translation(platform=None, api_key=None):
             if not error:
                 all_models["OpenAI"] = openai_models
             else:
-                # Fallback to common OpenAI models
-                all_models["OpenAI"] = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"]
+                # Fallback to common OpenAI models (including DeepSeek)
+                all_models["OpenAI"] = [
+                    "gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo",
+                    "deepseek-chat", "deepseek-reasoner"
+                ]
         else:
-            # Default OpenAI models when no API key
-            all_models["OpenAI"] = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"]
+            # Default OpenAI models when no API key (including DeepSeek models)
+            all_models["OpenAI"] = [
+                "gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo",
+                "deepseek-chat", "deepseek-reasoner"
+            ]
     
     return all_models
 
 def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_prompt=None, history_examples=None, use_cache=True):
-    """Translate text using OpenAI API with optional history context."""
+    """Translate text using OpenAI-compatible API (OpenAI, DeepSeek) with optional history context."""
     if not OPENAI_AVAILABLE:
         return "OpenAI SDK not available", True
     
     try:
-        client = openai.OpenAI(api_key=api_key)
+        # Determine if this is a DeepSeek model and configure accordingly
+        if model_name.startswith("deepseek"):
+            # For DeepSeek models, use the provided API key with DeepSeek base URL
+            client = openai.OpenAI(
+                api_key=api_key,
+                base_url="https://api.deepseek.com"
+            )
+        else:
+            # Use OpenAI API configuration
+            client = openai.OpenAI(api_key=api_key)
         
         # Build messages
         messages = []
