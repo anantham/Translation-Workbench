@@ -619,6 +619,169 @@ This scoring system enables systematic translation research:
 - **Style Optimization**: Identify which human dimensions correlate with user satisfaction
 - **Publication Ready**: Transparent, reproducible methodology for academic papers
 
+## 🤖 Future Feature: AI-Powered Evaluation Extrapolation
+
+### 🎯 **The Scalability Challenge**
+
+**Current Limitation**: Human evaluation is the gold standard for translation quality, but manually scoring hundreds of chapters across multiple translation styles is impractical and time-consuming.
+
+**Proposed Solution**: An AI system that learns from a small set of comprehensive human evaluations (15 chapters across 10+ styles) and extrapolates quality scores for the remaining hundreds of chapters.
+
+### 🧠 **How It Will Work**
+
+#### **Phase 1: Comprehensive Human Evaluation Foundation**
+- **Human evaluator** (e.g., Aditya) evaluates **15 carefully selected chapters** across **10+ translation styles**
+- **Total data points**: 150+ evaluations (15 chapters × 10 styles) 
+- **Style variety**: Each style represents unique combinations of:
+  ```
+  Style = Prompt Template + Model + History Context + Hyperparameters
+  ```
+
+#### **Phase 2: Enhanced Evaluation Interface**
+For each chapter-style combination, human provides:
+
+**Numerical Scores (1-100):**
+- 🎯 **English Sophistication**: Vocabulary variety, character voice distinction
+- 🌍 **World Building & Imagery**: Cultural references, descriptive richness  
+- 💔 **Emotional Impact**: Evocative prose, meaning preservation
+- 💬 **Dialogue Naturalness**: Conversation flow, formatting quality
+
+**Natural Language Justifications:**
+- **Text box for detailed reasoning** behind each of the 4 scores
+- **Example**: "Scored English Sophistication 85/100 because the translation uses varied vocabulary (incensed/livid/furious instead of repeated 'angry') and maintains distinct character voices, but occasionally relies on common words where more sophisticated alternatives exist."
+
+#### **Phase 3: AI Pattern Recognition & Learning**
+**Training Data**: Numerical scores + text justifications create rich training examples
+**AI Learns**:
+- What linguistic features correlate with high/low scores
+- How human reasoning maps to quality dimensions
+- Style-specific patterns (literary vs. entertainment vs. accessibility)
+- User-specific preferences and standards
+
+#### **Phase 4: Intelligent Extrapolation**
+**AI Predicts**: Quality scores for remaining 500+ chapters across all styles
+**Based On**: 
+- Learned patterns from human justifications
+- Linguistic analysis of untested chapters
+- Style-specific quality patterns
+- Consistency with established human standards
+
+### 🎭 **Personalized Evaluation Standards**
+
+#### **User-Specific Quality Models**
+- **Privacy-Conscious**: All evaluation data tagged with user identity (not anonymous)
+- **Subjective Recognition**: Translation quality is inherently subjective
+- **Personal Standards**: Each user maintains their own quality criteria
+- **Separate Models**: AI creates individual evaluation models per user
+
+**Example Scenarios:**
+- **Aditya's Model**: Prioritizes cultural authenticity and sophisticated vocabulary
+- **Entertainment Editor's Model**: Emphasizes emotional engagement and accessibility
+- **Academic Researcher's Model**: Values literal accuracy and scholarly tone
+
+#### **Multi-User Collaboration**
+- **Shared Platform**: Multiple evaluators can use the same system
+- **Isolated Standards**: Each user's evaluations don't interfere with others
+- **Comparative Analysis**: Optional cross-user comparison for research insights
+
+### 🔬 **Technical Implementation Strategy**
+
+#### **Enhanced Data Architecture**
+```
+/data/
+├── human_evaluations/
+│   ├── aditya/                    # User-specific evaluation data
+│   │   ├── scored_chapters.json      # Numerical scores + metadata
+│   │   ├── justifications.json       # Text reasoning for each score
+│   │   └── evaluation_model.pkl      # Trained AI extrapolation model
+│   └── [other_users]/             # Additional evaluators
+├── ai_predictions/
+│   ├── aditya/                    # User-specific predictions
+│   │   ├── extrapolated_scores.json  # AI-predicted scores for all chapters
+│   │   └── confidence_metrics.json   # Prediction confidence levels
+│   └── style_optimization/
+│       └── prompt_recommendations.json # AI suggestions for style improvement
+```
+
+#### **Machine Learning Pipeline**
+1. **Feature Extraction**: Linguistic analysis of chapter content
+2. **Justification Processing**: NLP analysis of human reasoning text
+3. **Pattern Recognition**: Correlation between features and human scores
+4. **Model Training**: User-specific quality prediction models
+5. **Extrapolation**: Score prediction for unevaluated chapters
+6. **Confidence Scoring**: Reliability metrics for each prediction
+
+### 🎯 **Revolutionary Applications**
+
+#### **1. Scalable Quality Assessment**
+- **Human Effort**: 15 chapters (manageable workload)
+- **AI Coverage**: 500+ chapters (comprehensive analysis)
+- **Time Savings**: 97% reduction in manual evaluation time
+- **Quality Maintenance**: Human-level assessment standards preserved
+
+#### **2. Intelligent Style Optimization**
+**AI Feedback Loop**:
+- Identifies which prompt elements lead to higher predicted scores
+- Suggests specific improvements: "Add more cultural context to increase World Building score"
+- Enables iterative style refinement based on human preferences
+
+#### **3. Research & Publication Opportunities**
+- **Novel Methodology**: First AI system for human translation preference extrapolation
+- **Academic Contribution**: Automated evaluation that maintains human subjective standards
+- **Industry Application**: Scalable quality control for professional translation services
+
+#### **4. Personalized Translation Systems**
+- **Reader Preference Modeling**: Learn individual user quality standards
+- **Custom Translation Generation**: Optimize outputs for specific user preferences
+- **Adaptive Quality Control**: Dynamic standards based on user feedback patterns
+
+### 📊 **Expected Impact & Benefits**
+
+#### **For Individual Users (e.g., Aditya)**
+- **Comprehensive Analysis**: Quality scores for entire 772-chapter corpus
+- **Style Discovery**: Identify optimal translation approaches efficiently
+- **Time Efficiency**: Focus human effort on 15 chapters, get insights for 500+
+- **Quality Assurance**: Maintain personal standards across massive content volume
+
+#### **For Research Community**
+- **Reproducible Methodology**: Clear framework for translation quality research
+- **Scalable Evaluation**: Enable large-scale translation studies
+- **Subjective Standard Preservation**: Bridge human judgment with AI efficiency
+- **Cross-User Analysis**: Understand variation in translation quality preferences
+
+#### **For Translation Industry**
+- **Quality Control**: Automated assessment maintaining human-level standards
+- **Style Optimization**: Data-driven prompt and model improvement
+- **Personalization**: Custom translation outputs based on client preferences
+- **Efficiency**: Reduce manual evaluation costs while maintaining quality
+
+### 🔮 **Implementation Roadmap**
+
+#### **Phase 1: Enhanced Evaluation Interface**
+- Add text justification boxes to existing 4-dimension evaluation system
+- Implement user-specific evaluation data storage
+- Create evaluation session management for systematic chapter coverage
+
+#### **Phase 2: AI Training Pipeline**  
+- Develop feature extraction for chapter content analysis
+- Build NLP processing for justification text analysis
+- Create user-specific model training workflows
+
+#### **Phase 3: Extrapolation Engine**
+- Implement score prediction algorithms
+- Add confidence metrics and uncertainty quantification
+- Create batch processing for large-scale extrapolation
+
+#### **Phase 4: Optimization & Feedback**
+- Build style optimization recommendation system
+- Add prompt improvement suggestions based on predicted scores
+- Implement feedback loops for continuous model improvement
+
+**Timeline**: 6-12 months for full implementation
+**Prerequisites**: Current 4-dimension evaluation system (✅ Already implemented)
+
+This feature represents the evolution from manual translation evaluation to **AI-augmented human judgment**, preserving the irreplaceable value of human quality assessment while achieving the scale necessary for comprehensive translation research.
+
 ## 📁 Current Project Structure
 
 ### **Core Application (Multi-Page Streamlit App)**
