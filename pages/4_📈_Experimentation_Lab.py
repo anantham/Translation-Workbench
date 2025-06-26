@@ -550,13 +550,16 @@ with tab2:
                         total_chars = len(left_content) + len(right_content)
                         dynamic_height = min(800, max(500, total_chars // 25))
                         
-                        # Use enhanced synchronized scrolling with full width
+                        # Use enhanced synchronized scrolling with full width and inline commenting
                         create_synchronized_text_display(
                             left_text=left_content,
                             right_text=right_content,
                             left_title=f"📖 {left_style}",
                             right_title=f"📖 {right_style}",
-                            height=dynamic_height
+                            height=dynamic_height,
+                            enable_comments=True,
+                            chapter_id=str(selected_chapter),
+                            style_name=right_style.replace("Custom: ", "") if right_style.startswith("Custom: ") else "official"
                         )
                         
                         # Show comparison stats
@@ -573,6 +576,114 @@ with tab2:
                             total_unique = len(left_words.union(right_words))
                             similarity = (overlap / total_unique * 100) if total_unique > 0 else 0
                             st.metric("Word Overlap", f"{similarity:.1f}%")
+                        
+                        # Enhanced: Inline Comment Creation Interface
+                        st.divider()
+                        st.subheader("💬 Inline Comments")
+                        
+                        # Check for pending comment selection from JavaScript
+                        if "pending_comment_data" not in st.session_state:
+                            st.session_state.pending_comment_data = None
+                        
+                        # JavaScript bridge for comment selection (this would be populated by the frontend)
+                        st.caption("📖 **How to use**: Select any text in the right panel to add an inline comment with dimension-specific feedback.")
+                        
+                        # Comment creation form
+                        with st.expander("➕ Add New Inline Comment", expanded=False):
+                            with st.form("inline_comment_form"):
+                                st.write("**Manual Comment Creation**")
+                                
+                                # Text selection inputs
+                                selected_text_input = st.text_area(
+                                    "Selected Text",
+                                    placeholder="Copy and paste the text you want to comment on...",
+                                    help="Select and copy text from the translation above"
+                                )
+                                
+                                # Dimension selection
+                                comment_dimension = st.selectbox(
+                                    "Evaluation Dimension",
+                                    ["english_sophistication", "world_building", "emotional_impact", "dialogue_naturalness"],
+                                    format_func=lambda x: {
+                                        "english_sophistication": "🎯 English Sophistication",
+                                        "world_building": "🌍 World Building & Imagery", 
+                                        "emotional_impact": "💔 Emotional Impact",
+                                        "dialogue_naturalness": "💬 Dialogue Naturalness"
+                                    }[x]
+                                )
+                                
+                                # Comment text
+                                comment_text = st.text_area(
+                                    "Your Comment",
+                                    placeholder="Explain why this text exemplifies this quality dimension...",
+                                    help="Detailed feedback about this specific text segment"
+                                )
+                                
+                                # Evaluator info (optional)
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    evaluator_name = st.text_input("Your Name (Optional)", placeholder="e.g., Aditya Prasad")
+                                with col2:
+                                    evaluator_email = st.text_input("Email (Optional)", placeholder="e.g., aditya@example.com")
+                                
+                                # Submit button
+                                submit_comment = st.form_submit_button("💾 Save Inline Comment", type="primary")
+                                
+                                if submit_comment and selected_text_input.strip() and comment_text.strip():
+                                    from utils import add_inline_comment
+                                    
+                                    # Calculate approximate text offsets (simplified)
+                                    right_text_clean = right_content.replace('<br>', '\n').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+                                    start_offset = right_text_clean.find(selected_text_input.strip())
+                                    
+                                    if start_offset != -1:
+                                        end_offset = start_offset + len(selected_text_input.strip())
+                                        
+                                        comment_data = {
+                                            'start_offset': start_offset,
+                                            'end_offset': end_offset,
+                                            'selected_text': selected_text_input.strip(),
+                                            'dimension': comment_dimension,
+                                            'comment': comment_text.strip(),
+                                            'evaluator_name': evaluator_name.strip() if evaluator_name.strip() else 'Anonymous',
+                                            'evaluator_email': evaluator_email.strip() if evaluator_email.strip() else ''
+                                        }
+                                        
+                                        # Save the comment
+                                        style_name_clean = right_style.replace("Custom: ", "") if right_style.startswith("Custom: ") else "official"
+                                        comment_id = add_inline_comment(style_name_clean, str(selected_chapter), comment_data)
+                                        
+                                        st.success(f"✅ Inline comment saved! ID: {comment_id}")
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Selected text not found in the translation. Please copy the exact text.")
+                        
+                        # Display existing comments
+                        from utils import load_inline_comments
+                        style_name_clean = right_style.replace("Custom: ", "") if right_style.startswith("Custom: ") else "official"
+                        existing_comments = load_inline_comments(style_name_clean, str(selected_chapter))
+                        
+                        if existing_comments:
+                            with st.expander(f"📋 Existing Comments ({len(existing_comments)})", expanded=True):
+                                for i, comment in enumerate(existing_comments):
+                                    dimension_icon = {
+                                        'english_sophistication': '🎯',
+                                        'world_building': '🌍',
+                                        'emotional_impact': '💔',
+                                        'dialogue_naturalness': '💬'
+                                    }.get(comment.get('dimension', 'english_sophistication'), '📝')
+                                    
+                                    st.info(f"""
+                                    **{dimension_icon} {comment.get('dimension', '').replace('_', ' ').title()}**
+                                    
+                                    *Selected Text:* "{comment.get('selected_text', '')}"
+                                    
+                                    *Comment:* {comment.get('comment', '')}
+                                    
+                                    *By:* {comment.get('evaluator_name', 'Anonymous')} • {comment.get('timestamp', '')[:16]}
+                                    """)
+                        else:
+                            st.info("💡 No inline comments yet. Select text in the translation above to add the first comment!")
                     else:
                         # Fallback display for unavailable content
                         if "not available" in left_content or "not found" in left_content:

@@ -2238,10 +2238,88 @@ def preview_systematic_correction(alignment_map, offset, sample_size=10):
     
     return preview_data
 
+# --- Inline Comment Management ---
+def save_inline_comments(style_name, chapter_id, comments):
+    """Save inline comments for a specific chapter and style."""
+    import json
+    style_eval_dir = os.path.join(EVALUATIONS_DIR, style_name)
+    os.makedirs(style_eval_dir, exist_ok=True)
+    
+    comments_file = os.path.join(style_eval_dir, f'inline_comments_ch{chapter_id}.json')
+    with open(comments_file, 'w', encoding='utf-8') as f:
+        json.dump(comments, f, indent=2, ensure_ascii=False)
+
+def load_inline_comments(style_name, chapter_id):
+    """Load inline comments for a specific chapter and style."""
+    import json
+    comments_file = os.path.join(EVALUATIONS_DIR, style_name, f'inline_comments_ch{chapter_id}.json')
+    if os.path.exists(comments_file):
+        try:
+            with open(comments_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return []
+
+def add_inline_comment(style_name, chapter_id, comment_data):
+    """Add a new inline comment to existing comments."""
+    from datetime import datetime
+    
+    # Load existing comments
+    comments = load_inline_comments(style_name, chapter_id)
+    
+    # Add new comment with metadata
+    new_comment = {
+        'id': f"comment_{len(comments) + 1}_{int(datetime.now().timestamp())}",
+        'timestamp': datetime.now().isoformat(),
+        **comment_data
+    }
+    
+    comments.append(new_comment)
+    save_inline_comments(style_name, chapter_id, comments)
+    return new_comment['id']
+
+def apply_comment_highlighting(text, comments):
+    """Apply HTML highlighting to text based on inline comments."""
+    if not comments:
+        return text
+    
+    # Sort comments by start position (descending) to avoid offset issues
+    sorted_comments = sorted(comments, key=lambda c: c['start_offset'], reverse=True)
+    
+    # Dimension color mapping
+    dimension_colors = {
+        'english_sophistication': '#fff3cd',  # Light yellow
+        'world_building': '#cff4fc',          # Light blue
+        'emotional_impact': '#f8d7da',        # Light red
+        'dialogue_naturalness': '#d1e7dd'     # Light green
+    }
+    
+    highlighted_text = text
+    for comment in sorted_comments:
+        start = comment['start_offset']
+        end = comment['end_offset']
+        dimension = comment.get('dimension', 'english_sophistication')
+        color = dimension_colors.get(dimension, '#f0f0f0')
+        
+        # Create highlighted span with tooltip
+        original_segment = highlighted_text[start:end]
+        highlighted_segment = f'''<span class="inline-comment" 
+            style="background-color: {color}; cursor: pointer; border-radius: 3px; padding: 1px 2px;" 
+            data-comment-id="{comment['id']}" 
+            data-dimension="{dimension}"
+            title="{comment.get('comment', '')[:100]}...">
+            {original_segment}
+        </span>'''
+        
+        highlighted_text = highlighted_text[:start] + highlighted_segment + highlighted_text[end:]
+    
+    return highlighted_text
+
 # --- UI Components ---
-def create_synchronized_text_display(left_text, right_text, left_title="Left Text", right_title="Right Text", height=400, full_width=True):
+def create_synchronized_text_display(left_text, right_text, left_title="Left Text", right_title="Right Text", height=400, full_width=True, enable_comments=False, chapter_id=None, style_name=None):
     """
-    Create a synchronized scrolling display for two text blocks.
+    Create a synchronized scrolling display for two text blocks with optional inline commenting.
     
     Args:
         left_text (str): Text content for left panel
@@ -2250,11 +2328,14 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
         right_title (str): Title for right panel
         height (int): Height of display panels in pixels
         full_width (bool): If True, optimize for full width with minimal margins
+        enable_comments (bool): If True, enable text selection and inline commenting
+        chapter_id (str): Chapter identifier for comment storage
+        style_name (str): Translation style name for comment storage
     
     Returns:
         None: Renders HTML component directly in Streamlit
     """
-    # Escape HTML special characters and preserve line breaks
+    # Process text with optional comment highlighting
     def escape_html(text):
         return (text.replace('&', '&amp;')
                    .replace('<', '&lt;')
@@ -2263,8 +2344,25 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
                    .replace("'", '&#x27;')
                    .replace('\n', '<br>'))
     
-    left_escaped = escape_html(left_text)
-    right_escaped = escape_html(right_text)
+    # Apply comment highlighting if enabled
+    if enable_comments and chapter_id and style_name:
+        # Load existing comments for this chapter and style
+        right_comments = load_inline_comments(style_name, chapter_id)
+        
+        # Apply highlighting to right panel (custom translation)
+        if right_comments:
+            # Apply highlighting first on raw text, then escape HTML with preserved spans
+            highlighted_right = apply_comment_highlighting(right_text, right_comments)
+            # Custom HTML escaping that preserves our comment spans
+            right_escaped = highlighted_right.replace('\n', '<br>')
+        else:
+            right_escaped = escape_html(right_text)
+        
+        # Left panel remains unmodified (for comparison)
+        left_escaped = escape_html(left_text)
+    else:
+        left_escaped = escape_html(left_text)
+        right_escaped = escape_html(right_text)
     
     # Generate unique IDs for this component instance
     import random
@@ -2405,6 +2503,111 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
             leftPanel.addEventListener('scroll', () => syncScroll(leftPanel, rightPanel));
             rightPanel.addEventListener('scroll', () => syncScroll(rightPanel, leftPanel));
         }}
+        
+        // Enhanced: Text selection and commenting functionality
+        {'// Commenting enabled for this component' if enable_comments else '// Commenting disabled'}
+        {f'''
+        // Text selection handling for commenting
+        let selectedText = '';
+        let selectionRange = null;
+        
+        function handleTextSelection() {{
+            const selection = window.getSelection();
+            if (selection.toString().length > 0) {{
+                selectedText = selection.toString().trim();
+                
+                // Only enable commenting on right panel (custom translation)
+                const range = selection.getRangeAt(0);
+                const container = range.commonAncestorContainer;
+                
+                // Check if selection is within right panel
+                if (rightPanel.contains(container) || rightPanel === container) {{
+                    // Calculate text offset for persistence
+                    const textContent = rightPanel.textContent || rightPanel.innerText;
+                    const beforeSelection = textContent.substring(0, textContent.indexOf(selectedText));
+                    
+                    selectionRange = {{
+                        startOffset: beforeSelection.length,
+                        endOffset: beforeSelection.length + selectedText.length,
+                        text: selectedText
+                    }};
+                    
+                    // Show comment button near selection
+                    showCommentButton(selection);
+                }}
+            }} else {{
+                hideCommentButton();
+            }}
+        }}
+        
+        function showCommentButton(selection) {{
+            // Remove existing comment button
+            hideCommentButton();
+            
+            // Get selection position
+            const range = selection.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            
+            // Create comment button
+            const button = document.createElement('button');
+            button.id = 'comment-btn-{component_id}';
+            button.innerHTML = '💬 Add Comment';
+            button.style.cssText = `
+                position: fixed;
+                top: ${{rect.bottom + 5}}px;
+                left: ${{rect.left}}px;
+                background: #007bff;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
+                cursor: pointer;
+                z-index: 1000;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+                font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            `;
+            
+            button.onclick = function() {{
+                // Store selection in browser storage for Streamlit pickup
+                sessionStorage.setItem('pending_comment_selection', JSON.stringify({{
+                    text: selectedText,
+                    startOffset: selectionRange.startOffset,
+                    endOffset: selectionRange.endOffset,
+                    chapterId: '{chapter_id}',
+                    styleName: '{style_name}',
+                    componentId: '{component_id}'
+                }}));
+                
+                // Trigger page refresh to show comment form
+                location.reload();
+                
+                hideCommentButton();
+            }};
+            
+            document.body.appendChild(button);
+        }}
+        
+        function hideCommentButton() {{
+            const existingButton = document.getElementById('comment-btn-{component_id}');
+            if (existingButton) {{
+                existingButton.remove();
+            }}
+        }}
+        
+        // Add text selection listeners to right panel only
+        if (rightPanel) {{
+            rightPanel.addEventListener('mouseup', handleTextSelection);
+            rightPanel.addEventListener('touchend', handleTextSelection);
+        }}
+        
+        // Hide comment button when clicking elsewhere
+        document.addEventListener('click', function(e) {{
+            if (!e.target.closest('#comment-btn-{component_id}') && !rightPanel.contains(e.target)) {{
+                hideCommentButton();
+            }}
+        }});
+        ''' if enable_comments else ''}
     }})();
     </script>
     """
