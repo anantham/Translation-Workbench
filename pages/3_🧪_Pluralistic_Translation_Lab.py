@@ -613,25 +613,22 @@ with st.sidebar.expander("📁 Output Settings", expanded=True):
     if 'run_name' not in st.session_state:
         st.session_state.run_name = enhanced_default
     
-    # Update session state if model changed
-    if 'last_model_abbrev' not in st.session_state or st.session_state.last_model_abbrev != model_abbrev:
-        # Model changed, remove old model abbreviation and add new one
+    # Only update session state if model actually changed (prevent unnecessary reruns)
+    current_model_abbrev = st.session_state.get('last_model_abbrev', None)
+    if current_model_abbrev != model_abbrev:
+        # Model changed - update run name to include new model abbreviation
         current_name = st.session_state.run_name
         
         # Remove the old model abbreviation if it exists
-        if 'last_model_abbrev' in st.session_state:
-            old_abbrev = st.session_state.last_model_abbrev
-            if current_name.endswith(f"_{old_abbrev}"):
-                # Remove the old model abbreviation completely
-                base_without_model = current_name[:-len(f"_{old_abbrev}")]
-                st.session_state.run_name = f"{base_without_model}_{model_abbrev}"
-            else:
-                # Fallback: rebuild from base
-                st.session_state.run_name = enhanced_default
-        else:
-            # First time setting model, use enhanced default
-            st.session_state.run_name = enhanced_default
+        if current_model_abbrev is not None and current_name.endswith(f"_{current_model_abbrev}"):
+            # Remove the old model abbreviation and add new one
+            base_without_model = current_name[:-len(f"_{current_model_abbrev}")]
+            st.session_state.run_name = f"{base_without_model}_{model_abbrev}"
+        elif not current_name.endswith(f"_{model_abbrev}"):
+            # Add model abbreviation if not already present
+            st.session_state.run_name = f"{current_name}_{model_abbrev}" if not current_name.endswith(model_abbrev) else current_name
         
+        # Update the model abbreviation tracker
         st.session_state.last_model_abbrev = model_abbrev
     
     # Run name input with reset option
@@ -760,6 +757,14 @@ if start_button_disabled:
 # --- Execution Logic ---
 if st.session_state.get("run_job", False):
     st.header("⚙️ Running Translation Job...")
+    
+    # CRITICAL: Clear job state immediately to prevent auto-restart on widget changes
+    st.session_state.run_job = False
+    
+    # Safety check: Ensure job parameters exist
+    if "job_params" not in st.session_state:
+        st.error("❌ Job parameters not found. Please reconfigure settings and try again.")
+        st.stop()
     
     # Get job parameters
     params = st.session_state.job_params
@@ -969,10 +974,9 @@ if st.session_state.get("run_job", False):
         mime="text/plain"
     )
     
-    # Clear the run state
-    if st.button("🔄 Start New Translation Job"):
-        st.session_state.run_job = False
-        st.rerun()
+    # Job completion status
+    st.success("✅ Translation job completed successfully!")
+    st.info("💡 You can now start a new translation job using the sidebar settings above.")
 
 # --- EPUB Creation Section ---
 st.divider()
