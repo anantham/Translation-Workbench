@@ -610,6 +610,26 @@ with tab2:
                         st.write("**Current Human Evaluation Metrics (4 Dimensions)**")
                         st.write("Rate this translation on core quality dimensions (1-100):")
                         
+                        # Enhanced: User Identity Section (Optional for backward compatibility)
+                        with st.expander("👤 Evaluator Information (Optional)", expanded=False):
+                            col_id1, col_id2 = st.columns(2)
+                            with col_id1:
+                                evaluator_name = st.text_input(
+                                    "Your Name",
+                                    value=chapter_scores.get('evaluator_name', ''),
+                                    placeholder="e.g., Aditya Prasad",
+                                    help="Optional: Your name for tracking evaluation history"
+                                )
+                            with col_id2:
+                                evaluator_email = st.text_input(
+                                    "Email (Optional)",
+                                    value=chapter_scores.get('evaluator_email', ''),
+                                    placeholder="e.g., aditya@example.com",
+                                    help="Optional: For contact and evaluation attribution"
+                                )
+                        
+                        st.divider()
+                        
                         col1, col2 = st.columns(2)
                         
                         with col1:
@@ -642,6 +662,54 @@ with tab2:
                                 help="Authentic conversation flow, no jarring transitions in the transitions between sentences, paragraphs, chapters. Formatting - Readability - Add sufficient line breaks between each speaker's dialogue, line breaks between scene transitions or time skips"
                             )
                         
+                        # Enhanced: Text Justifications Section (Optional for backward compatibility)
+                        st.divider()
+                        with st.expander("📝 Detailed Justifications (Optional - For Future AI Features)", expanded=False):
+                            st.caption("💡 **Future Feature Preview**: These justifications will help train AI to understand your quality standards and extrapolate scores to hundreds of chapters automatically.")
+                            
+                            # Get existing justifications if they exist
+                            existing_justifications = chapter_scores.get('justifications', {})
+                            
+                            justification_english = st.text_area(
+                                "🎯 English Sophistication Justification",
+                                value=existing_justifications.get('english_sophistication', ''),
+                                placeholder="Explain your reasoning for the English Sophistication score. What specific vocabulary, syntax, or stylistic elements influenced your rating?",
+                                help="Detailed explanation of why you gave this score",
+                                height=80
+                            )
+                            
+                            justification_world = st.text_area(
+                                "🌍 World Building & Imagery Justification",
+                                value=existing_justifications.get('world_building', ''),
+                                placeholder="Describe how well the translation handles cultural context, descriptive passages, and world-building elements.",
+                                help="Explanation of world-building and imagery quality",
+                                height=80
+                            )
+                            
+                            justification_emotion = st.text_area(
+                                "💔 Emotional Impact Justification",
+                                value=existing_justifications.get('emotional_impact', ''),
+                                placeholder="Assess the emotional resonance and impact of the translation. How well does it convey the original's emotional intent?",
+                                help="Explanation of emotional impact assessment",
+                                height=80
+                            )
+                            
+                            justification_dialogue = st.text_area(
+                                "💬 Dialogue Naturalness Justification",
+                                value=existing_justifications.get('dialogue_naturalness', ''),
+                                placeholder="Evaluate conversation flow, character voice consistency, and natural speech patterns.",
+                                help="Explanation of dialogue quality assessment",
+                                height=80
+                            )
+                            
+                            overall_notes = st.text_area(
+                                "📋 Overall Translation Notes",
+                                value=chapter_scores.get('overall_notes', ''),
+                                placeholder="General observations, comparative notes, or suggestions for improvement.",
+                                help="General comments about this translation",
+                                height=100
+                            )
+                        
                         # Submit button
                         submitted = st.form_submit_button("💾 Save Evaluation", type="primary")
                         
@@ -650,19 +718,93 @@ with tab2:
                             if str(selected_chapter) not in existing_human_scores:
                                 existing_human_scores[str(selected_chapter)] = {}
                             
-                            existing_human_scores[str(selected_chapter)].update({
+                            # Core evaluation data (always saved)
+                            evaluation_data = {
                                 'english_sophistication': english_sophistication,
                                 'world_building': world_building,
                                 'emotional_impact': emotional_impact,
                                 'dialogue_naturalness': dialogue_naturalness,
                                 'evaluated_at': datetime.now().isoformat(),
-                                'evaluator': 'human'
-                            })
+                                'evaluator': 'human'  # Keep for backward compatibility
+                            }
+                            
+                            # Enhanced data (only save if provided - backward compatible)
+                            if evaluator_name.strip():
+                                evaluation_data['evaluator_name'] = evaluator_name.strip()
+                            if evaluator_email.strip():
+                                evaluation_data['evaluator_email'] = evaluator_email.strip()
+                            
+                            # Text justifications (only save non-empty ones)
+                            justifications = {}
+                            if justification_english.strip():
+                                justifications['english_sophistication'] = justification_english.strip()
+                            if justification_world.strip():
+                                justifications['world_building'] = justification_world.strip()
+                            if justification_emotion.strip():
+                                justifications['emotional_impact'] = justification_emotion.strip()
+                            if justification_dialogue.strip():
+                                justifications['dialogue_naturalness'] = justification_dialogue.strip()
+                            
+                            if justifications:  # Only add if at least one justification provided
+                                evaluation_data['justifications'] = justifications
+                            
+                            if overall_notes.strip():
+                                evaluation_data['overall_notes'] = overall_notes.strip()
+                            
+                            # Add evaluation version for future tracking
+                            if any([evaluator_name.strip(), evaluator_email.strip(), justifications, overall_notes.strip()]):
+                                evaluation_data['evaluation_version'] = '2.0'  # Enhanced evaluation
+                            else:
+                                evaluation_data['evaluation_version'] = '1.0'  # Legacy evaluation
+                            
+                            existing_human_scores[str(selected_chapter)].update(evaluation_data)
                             
                             # Save to file
                             save_human_scores(eval_style['name'], existing_human_scores)
                             st.success(f"✅ Evaluation saved for Chapter {selected_chapter}!")
                             st.rerun()
+                    
+                    # Enhanced: Display existing evaluation details if available
+                    if chapter_scores and any(key in chapter_scores for key in ['evaluator_name', 'justifications', 'overall_notes']):
+                        st.divider()
+                        with st.expander("📊 Current Evaluation Details", expanded=False):
+                            # Show evaluator information
+                            if chapter_scores.get('evaluator_name'):
+                                eval_name = chapter_scores.get('evaluator_name')
+                                eval_email = chapter_scores.get('evaluator_email', '')
+                                eval_date = chapter_scores.get('evaluated_at', '')
+                                eval_version = chapter_scores.get('evaluation_version', '1.0')
+                                
+                                st.caption(f"**Evaluator:** {eval_name}")
+                                if eval_email:
+                                    st.caption(f"**Email:** {eval_email}")
+                                if eval_date:
+                                    from datetime import datetime
+                                    try:
+                                        date_obj = datetime.fromisoformat(eval_date.replace('Z', '+00:00'))
+                                        st.caption(f"**Evaluated:** {date_obj.strftime('%Y-%m-%d %H:%M')}")
+                                    except:
+                                        st.caption(f"**Evaluated:** {eval_date}")
+                                st.caption(f"**Version:** {eval_version}")
+                            
+                            # Show justifications if available
+                            if chapter_scores.get('justifications'):
+                                justifications = chapter_scores['justifications']
+                                st.write("**Detailed Justifications:**")
+                                
+                                if justifications.get('english_sophistication'):
+                                    st.info(f"🎯 **English Sophistication**: {justifications['english_sophistication']}")
+                                if justifications.get('world_building'):
+                                    st.info(f"🌍 **World Building**: {justifications['world_building']}")
+                                if justifications.get('emotional_impact'):
+                                    st.info(f"💔 **Emotional Impact**: {justifications['emotional_impact']}")
+                                if justifications.get('dialogue_naturalness'):
+                                    st.info(f"💬 **Dialogue Naturalness**: {justifications['dialogue_naturalness']}")
+                            
+                            # Show overall notes if available
+                            if chapter_scores.get('overall_notes'):
+                                st.write("**Overall Notes:**")
+                                st.info(f"📝 {chapter_scores['overall_notes']}")
     
     with col2:
         st.subheader("📋 Evaluation Progress")
@@ -691,6 +833,26 @@ with tab2:
                 st.caption(f"🌍 World: {avg_world:.1f}")
                 st.caption(f"💔 Emotion: {avg_emotion:.1f}")
                 st.caption(f"💬 Dialogue: {avg_dialogue:.1f}")
+                
+                # Enhanced: Show evaluator information if available
+                evaluators = set()
+                enhanced_evaluations = 0
+                with_justifications = 0
+                
+                for score in all_scores:
+                    if score.get('evaluator_name'):
+                        evaluators.add(score.get('evaluator_name'))
+                    if score.get('evaluation_version') == '2.0':
+                        enhanced_evaluations += 1
+                    if score.get('justifications'):
+                        with_justifications += 1
+                
+                if evaluators:
+                    st.caption(f"👥 **Evaluators:** {', '.join(sorted(evaluators))}")
+                if enhanced_evaluations > 0:
+                    st.caption(f"📝 **Enhanced Evaluations:** {enhanced_evaluations}/{len(all_scores)} with detailed data")
+                if with_justifications > 0:
+                    st.caption(f"💭 **With Justifications:** {with_justifications}/{len(all_scores)} chapters")
     
     st.divider()
     
