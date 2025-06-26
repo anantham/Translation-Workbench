@@ -36,7 +36,7 @@ def get_model_abbreviation(platform, model_name):
         model_name: Full model name
     
     Returns:
-        str: Short abbreviation like "gem15p", "oai_gpt4o", "oai_BlJU60q"
+        str: Short abbreviation like "gem15p", "oai_gpt4o", "oai_BlJU60q", "deepseek_chat"
     """
     if platform == "Gemini":
         if "gemini-1.5-pro" in model_name:
@@ -73,6 +73,10 @@ def get_model_abbreviation(platform, model_name):
             return "oai_gpt4"
         elif "gpt-3.5" in model_name:
             return "oai_gpt35"
+        elif "deepseek-chat" in model_name:
+            return "deepseek_chat"
+        elif "deepseek-reasoner" in model_name:
+            return "deepseek_reason"
         else:
             # Generic OpenAI abbreviation
             return "oai"
@@ -407,11 +411,12 @@ with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
                 openai_models, error = get_available_openai_models(api_key)
                 if error:
                     st.warning(f"Could not fetch models: {error}")
-                    available_models = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"]
+                    available_models = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo", "deepseek-chat", "deepseek-reasoner"]
                 else:
-                    available_models = openai_models
+                    # Add DeepSeek models to the API-fetched models
+                    available_models = openai_models + ["deepseek-chat", "deepseek-reasoner"]
         else:
-            available_models = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo"]
+            available_models = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo", "deepseek-chat", "deepseek-reasoner"]
         default_model = "gpt-4o-mini"
     
     # Model dropdown
@@ -857,9 +862,12 @@ if st.session_state.get("run_job", False):
 
                 # 4. Process Result
                 if error:
+                    # When error=True, the actual error message is in the 'translation' variable
+                    error_message = translation
+                    
                     # Check for quota exceeded error specifically
-                    if "429" in str(error) and "quota" in str(error).lower():
-                        log_messages.append(f"  └─ ❌ **QUOTA EXCEEDED:** {error}")
+                    if "429" in str(error_message) and "quota" in str(error_message).lower():
+                        log_messages.append(f"  └─ ❌ **QUOTA EXCEEDED:** {error_message}")
                         log_messages.append("  └─ 🛑 **STOPPING TRANSLATION JOB**")
                         
                         # Update live log immediately
@@ -897,7 +905,7 @@ if st.session_state.get("run_job", False):
                         # Stop processing further chapters
                         break
                     else:
-                        log_messages.append(f"  └─ ❌ **ERROR:** {error}")
+                        log_messages.append(f"  └─ ❌ **ERROR:** {error_message}")
                         failed_translations += 1
                 else:
                     # Save translation
