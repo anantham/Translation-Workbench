@@ -907,9 +907,13 @@ def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_pr
     try:
         # Determine if this is a DeepSeek model and configure accordingly
         if model_name.startswith("deepseek"):
-            # For DeepSeek models, use the provided API key with DeepSeek base URL
+            # For DeepSeek models, load DeepSeek API key from environment/config
+            deepseek_key, deepseek_source = load_deepseek_api_config()
+            if not deepseek_key:
+                return "DeepSeek API key not found. Please set DEEPSEEK_API_KEY environment variable or add deepseek_api_key to config.json", True
+            
             client = openai.OpenAI(
-                api_key=api_key,
+                api_key=deepseek_key,
                 base_url="https://api.deepseek.com"
             )
         else:
