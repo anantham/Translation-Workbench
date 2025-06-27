@@ -1743,7 +1743,16 @@ def calculate_composite_score(bert_scores, human_scores, chapter_count):
         # Human scores (50% weight total, divided among dimensions)
         if chapter_num in human_scores:
             human_data = human_scores[chapter_num]
+            # New evaluation dimensions (v2.0)
             human_dimensions = [
+                'vocabulary_complexity',
+                'cultural_context', 
+                'prose_style',
+                'creative_fidelity'
+            ]
+            
+            # Legacy dimensions for backwards compatibility (v1.0)
+            legacy_dimensions = [
                 'english_sophistication',
                 'world_building', 
                 'emotional_impact',
@@ -1753,7 +1762,13 @@ def calculate_composite_score(bert_scores, human_scores, chapter_count):
             human_avg = 0
             valid_dimensions = 0
             
-            for dim in human_dimensions:
+            # Try new dimensions first, fall back to legacy if not found
+            dimensions_to_check = human_dimensions
+            if not any(dim in human_data for dim in human_dimensions):
+                # Use legacy dimensions if no new dimensions found
+                dimensions_to_check = legacy_dimensions
+            
+            for dim in dimensions_to_check:
                 if dim in human_data:
                     human_avg += human_data[dim] / 100  # Convert to 0-1 scale
                     valid_dimensions += 1
@@ -2242,12 +2257,39 @@ def preview_systematic_correction(alignment_map, offset, sample_size=10):
 def save_inline_comments(style_name, chapter_id, comments):
     """Save inline comments for a specific chapter and style."""
     import json
-    style_eval_dir = os.path.join(EVALUATIONS_DIR, style_name)
-    os.makedirs(style_eval_dir, exist_ok=True)
     
-    comments_file = os.path.join(style_eval_dir, f'inline_comments_ch{chapter_id}.json')
-    with open(comments_file, 'w', encoding='utf-8') as f:
-        json.dump(comments, f, indent=2, ensure_ascii=False)
+    print("🔍 DEBUG: save_inline_comments function called")
+    print("🔍 DEBUG: style_name:", style_name)
+    print("🔍 DEBUG: chapter_id:", chapter_id)
+    print("🔍 DEBUG: comments to save:", len(comments), "comments")
+    
+    try:
+        style_eval_dir = os.path.join(EVALUATIONS_DIR, style_name)
+        print("🔍 DEBUG: style_eval_dir:", style_eval_dir)
+        print("🔍 DEBUG: EVALUATIONS_DIR:", EVALUATIONS_DIR)
+        
+        os.makedirs(style_eval_dir, exist_ok=True)
+        print("🔍 DEBUG: Directory created/confirmed")
+        print("🔍 DEBUG: Directory exists:", os.path.exists(style_eval_dir))
+        
+        comments_file = os.path.join(style_eval_dir, f'inline_comments_ch{chapter_id}.json')
+        print("🔍 DEBUG: comments_file path:", comments_file)
+        
+        with open(comments_file, 'w', encoding='utf-8') as f:
+            json.dump(comments, f, indent=2, ensure_ascii=False)
+        
+        print("🔍 DEBUG: File written successfully")
+        print("🔍 DEBUG: File exists after write:", os.path.exists(comments_file))
+        
+        if os.path.exists(comments_file):
+            file_size = os.path.getsize(comments_file)
+            print("🔍 DEBUG: File size:", file_size, "bytes")
+            
+    except Exception as e:
+        print(f"❌ DEBUG: Exception in save_inline_comments: {str(e)}")
+        print("🔍 DEBUG: Exception type:", type(e).__name__)
+        import traceback
+        print("🔍 DEBUG: Full traceback:", traceback.format_exc())
 
 def load_inline_comments(style_name, chapter_id):
     """Load inline comments for a specific chapter and style."""
@@ -2265,19 +2307,42 @@ def add_inline_comment(style_name, chapter_id, comment_data):
     """Add a new inline comment to existing comments."""
     from datetime import datetime
     
-    # Load existing comments
-    comments = load_inline_comments(style_name, chapter_id)
+    print("🔍 DEBUG: add_inline_comment function called")
+    print("🔍 DEBUG: style_name:", style_name)
+    print("🔍 DEBUG: chapter_id:", chapter_id)
+    print("🔍 DEBUG: comment_data:", comment_data)
     
-    # Add new comment with metadata
-    new_comment = {
-        'id': f"comment_{len(comments) + 1}_{int(datetime.now().timestamp())}",
-        'timestamp': datetime.now().isoformat(),
-        **comment_data
-    }
-    
-    comments.append(new_comment)
-    save_inline_comments(style_name, chapter_id, comments)
-    return new_comment['id']
+    try:
+        # Load existing comments
+        print("🔍 DEBUG: Loading existing comments")
+        comments = load_inline_comments(style_name, chapter_id)
+        print("🔍 DEBUG: Existing comments loaded:", len(comments), "comments")
+        
+        # Add new comment with metadata
+        print("🔍 DEBUG: Creating new comment")
+        new_comment = {
+            'id': f"comment_{len(comments) + 1}_{int(datetime.now().timestamp())}",
+            'timestamp': datetime.now().isoformat(),
+            **comment_data
+        }
+        print("🔍 DEBUG: New comment created:", new_comment)
+        
+        comments.append(new_comment)
+        print("🔍 DEBUG: Comment appended to list, total comments:", len(comments))
+        
+        print("🔍 DEBUG: Calling save_inline_comments")
+        save_inline_comments(style_name, chapter_id, comments)
+        print("🔍 DEBUG: save_inline_comments completed")
+        
+        print("🔍 DEBUG: Returning comment ID:", new_comment['id'])
+        return new_comment['id']
+        
+    except Exception as e:
+        print(f"❌ DEBUG: Exception in add_inline_comment: {str(e)}")
+        print("🔍 DEBUG: Exception type:", type(e).__name__)
+        import traceback
+        print("🔍 DEBUG: Full traceback:", traceback.format_exc())
+        return None
 
 def apply_comment_highlighting(text, comments):
     """Apply HTML highlighting to text based on inline comments."""
@@ -2287,8 +2352,14 @@ def apply_comment_highlighting(text, comments):
     # Sort comments by start position (descending) to avoid offset issues
     sorted_comments = sorted(comments, key=lambda c: c['start_offset'], reverse=True)
     
-    # Dimension color mapping
+    # Dimension color mapping (new v2.0 dimensions + legacy support)
     dimension_colors = {
+        # New dimensions (v2.0)
+        'vocabulary_complexity': '#fff3cd',   # Light yellow - 🧠
+        'cultural_context': '#cff4fc',        # Light blue - 🌏
+        'prose_style': '#f8d7da',             # Light red - ✍️
+        'creative_fidelity': '#d1e7dd',       # Light green - 🎨
+        # Legacy dimensions (v1.0) - same colors for backwards compatibility
         'english_sophistication': '#fff3cd',  # Light yellow
         'world_building': '#cff4fc',          # Light blue
         'emotional_impact': '#f8d7da',        # Light red
@@ -2299,7 +2370,7 @@ def apply_comment_highlighting(text, comments):
     for comment in sorted_comments:
         start = comment['start_offset']
         end = comment['end_offset']
-        dimension = comment.get('dimension', 'english_sophistication')
+        dimension = comment.get('dimension', 'vocabulary_complexity')
         color = dimension_colors.get(dimension, '#f0f0f0')
         
         # Create highlighted span with tooltip
@@ -2345,15 +2416,16 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
                    .replace("'", '&#x27;')
                    .replace('\n', '<br>'))
     
-    # Apply comment highlighting if enabled
+    # Apply comment highlighting if enabled and load existing comments
+    existing_comments = []
     if enable_comments and chapter_id and style_name:
         # Load existing comments for this chapter and style
-        right_comments = load_inline_comments(style_name, chapter_id)
+        existing_comments = load_inline_comments(style_name, chapter_id)
         
         # Apply highlighting to right panel (custom translation)
-        if right_comments:
+        if existing_comments:
             # Apply highlighting first on raw text, then escape HTML with preserved spans
-            highlighted_right = apply_comment_highlighting(right_text, right_comments)
+            highlighted_right = apply_comment_highlighting(right_text, existing_comments)
             # Custom HTML escaping that preserves our comment spans
             right_escaped = highlighted_right.replace('\n', '<br>')
         else:
@@ -2375,7 +2447,71 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
     header_padding = "8px 12px" if full_width else "12px 16px"
     border_radius = "4px" if full_width else "8px"
     
+    # Generate existing comments HTML
+    def generate_existing_comments_html(comments):
+        if not comments:
+            return ""
+        
+        comments_html = '<div style="margin-bottom: 12px; border-bottom: 1px solid #e0e0e0; padding-bottom: 8px;">'
+        comments_html += f'<div style="font-size: 12px; font-weight: 600; color: #666; margin-bottom: 8px;">Existing Comments ({len(comments)})</div>'
+        
+        # Dimension color and icon mapping
+        dimension_config = {
+            'vocabulary_complexity': {'icon': '🧠', 'color': '#e3f2fd', 'name': 'Vocabulary'},
+            'cultural_context': {'icon': '🌏', 'color': '#e8f5e8', 'name': 'Cultural'},
+            'prose_style': {'icon': '✍️', 'color': '#fff3e0', 'name': 'Prose'},
+            'creative_fidelity': {'icon': '🎨', 'color': '#fce4ec', 'name': 'Creative'},
+            # Legacy support
+            'english_sophistication': {'icon': '🎯', 'color': '#e3f2fd', 'name': 'English'},
+            'world_building': {'icon': '🌍', 'color': '#e8f5e8', 'name': 'World'},
+            'emotional_impact': {'icon': '💔', 'color': '#ffebee', 'name': 'Emotion'},
+            'dialogue_naturalness': {'icon': '💬', 'color': '#f3e5f5', 'name': 'Dialogue'}
+        }
+        
+        for comment in comments[-3:]:  # Show latest 3 comments
+            dim = comment.get('dimension', 'vocabulary_complexity')
+            config = dimension_config.get(dim, dimension_config['vocabulary_complexity'])
+            
+            comments_html += f'''
+            <div style="background: {config['color']}; padding: 6px; border-radius: 3px; margin-bottom: 6px; font-size: 11px;">
+                <div style="font-weight: 600; margin-bottom: 2px;">{config['icon']} {config['name']}</div>
+                <div style="font-style: italic; margin-bottom: 3px;">"{comment.get('selected_text', '')[:30]}..."</div>
+                <div style="color: #555;">{comment.get('comment', '')[:50]}...</div>
+            </div>
+            '''
+        
+        if len(comments) > 3:
+            comments_html += f'<div style="font-size: 10px; color: #888; text-align: center;">...and {len(comments) - 3} more comments</div>'
+        
+        comments_html += '</div>'
+        return comments_html
+    
+    existing_comments_html = generate_existing_comments_html(existing_comments)
+    
     html_content = f"""
+    <script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@1.0.0/dist/streamlit-component-lib.js"></script>
+    <script>
+        // Initialize Streamlit component communication
+        window.addEventListener('message', function(event) {{
+            if (event.data && event.data.type === 'streamlit:componentReady') {{
+                console.log('🔍 DEBUG: Streamlit component ready');
+            }}
+        }});
+        
+        // Fallback if Streamlit object is not available
+        if (typeof Streamlit === 'undefined') {{
+            console.log('🔍 DEBUG: Streamlit not available, creating mock object');
+            window.Streamlit = {{
+                setComponentValue: function(value) {{
+                    console.log('🔍 DEBUG: Mock setComponentValue called with:', value);
+                    parent.postMessage({{
+                        type: 'streamlit:setComponentValue',
+                        value: value
+                    }}, '*');
+                }}
+            }};
+        }}
+    </script>
     <style>
         .sync-container-{component_id} {{
             display: flex;
@@ -2386,12 +2522,28 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
         }}
         
         .sync-panel-{component_id} {{
-            flex: 1;
             border: 1px solid #ddd;
             border-radius: {border_radius};
             overflow: hidden;
             background: white;
             min-width: 0; /* Prevents flex item from overflowing */
+        }}
+        
+        .sync-panel-left-{component_id} {{
+            flex: 0 0 30%; /* Left panel: 30% width */
+        }}
+        
+        .sync-panel-right-{component_id} {{
+            flex: 0 0 45%; /* Right panel: 45% width */
+        }}
+        
+        .comment-sidebar-{component_id} {{
+            flex: 0 0 25%; /* Comment sidebar: 25% width */
+            border: 1px solid #e0e0e0;
+            border-radius: {border_radius};
+            background: #f8f9fa;
+            overflow-y: auto;
+            max-height: {height}px;
         }}
         
         .sync-header-{component_id} {{
@@ -2444,29 +2596,83 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
         }}
         
         /* Full width responsive behavior */
+        @media (max-width: 1024px) {{
+            .sync-panel-left-{component_id} {{
+                flex: 0 0 35%; /* Slightly larger on medium screens */
+            }}
+            .sync-panel-right-{component_id} {{
+                flex: 0 0 40%;
+            }}
+            .comment-sidebar-{component_id} {{
+                flex: 0 0 25%;
+            }}
+        }}
+        
         @media (max-width: 768px) {{
             .sync-container-{component_id} {{
                 flex-direction: column;
                 gap: 4px;
             }}
+            .sync-panel-left-{component_id}, .sync-panel-right-{component_id} {{
+                flex: 1 1 auto;
+            }}
             .sync-content-{component_id} {{
-                height: {height//2}px;
+                height: {height//3}px; /* Smaller on mobile since we have 3 sections */
+            }}
+            .comment-sidebar-{component_id} {{
+                flex: 1 1 auto;
+                max-height: 300px;
             }}
         }}
     </style>
     
     <div class="sync-container-{component_id}">
-        <div class="sync-panel-{component_id}">
+        <div class="sync-panel-{component_id} sync-panel-left-{component_id}">
             <div class="sync-header-{component_id}">{left_title}</div>
             <div class="sync-content-{component_id}" id="left-{component_id}">
                 {left_escaped}
             </div>
         </div>
         
-        <div class="sync-panel-{component_id}">
+        <div class="sync-panel-{component_id} sync-panel-right-{component_id}">
             <div class="sync-header-{component_id}">{right_title}</div>
             <div class="sync-content-{component_id}" id="right-{component_id}">
                 {right_escaped}
+            </div>
+        </div>
+        
+        <div class="comment-sidebar-{component_id}" id="comment-sidebar-{component_id}">
+            <div class="sync-header-{component_id}">💬 Quick Comments</div>
+            <div style="padding: 12px;">
+                <!-- Existing Comments Section -->
+                <div id="existing-comments-{component_id}">
+                    {existing_comments_html}
+                </div>
+                
+                <!-- Comment Form (Hidden by default) -->
+                <div id="comment-form-{component_id}" style="display: none; border-top: 1px solid #e0e0e0; padding-top: 8px;">
+                    <div style="font-size: 12px; font-weight: 600; color: #666; margin-bottom: 8px;">✏️ New Comment</div>
+                    <div id="selected-text-{component_id}" style="background: #e3f2fd; padding: 8px; border-radius: 4px; margin-bottom: 12px; font-size: 13px; font-style: italic;"></div>
+                    
+                    <select id="dimension-{component_id}" style="width: 100%; padding: 6px; margin-bottom: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;">
+                        <option value="vocabulary_complexity">🧠 Vocabulary Complexity</option>
+                        <option value="cultural_context">🌏 Cultural Context</option>
+                        <option value="prose_style">✍️ Prose Style</option>
+                        <option value="creative_fidelity">🎨 Creative Fidelity</option>
+                    </select>
+                    
+                    <textarea id="comment-text-{component_id}" placeholder="Explain why this text exemplifies this quality..." style="width: 100%; height: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical; font-size: 13px; font-family: inherit;" rows="4"></textarea>
+                    
+                    <div style="display: flex; gap: 6px; margin-top: 8px;">
+                        <button id="save-comment-{component_id}" style="flex: 1; background: #007bff; color: white; border: none; padding: 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">💾 Save</button>
+                        <button id="cancel-comment-{component_id}" style="flex: 1; background: #6c757d; color: white; border: none; padding: 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">❌ Cancel</button>
+                    </div>
+                </div>
+                
+                <!-- Placeholder for when no comments exist and no selection made -->
+                <div id="comment-placeholder-{component_id}" style="color: #666; font-size: 13px; text-align: center; padding: 20px; {'display: none;' if existing_comments else ''}">
+                    Select text in the right panel to add a comment
+                </div>
             </div>
         </div>
     </div>
@@ -2513,9 +2719,14 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
         let selectionRange = null;
         
         function handleTextSelection() {{
+            console.log('🔍 DEBUG: Text selection event triggered');
             const selection = window.getSelection();
+            console.log('🔍 DEBUG: Selection object:', selection);
+            console.log('🔍 DEBUG: Selected text length:', selection.toString().length);
+            
             if (selection.toString().length > 0) {{
                 selectedText = selection.toString().trim();
+                console.log('🔍 DEBUG: Selected text:', selectedText);
                 
                 // Only enable commenting on right panel (custom translation)
                 const range = selection.getRangeAt(0);
@@ -2533,69 +2744,109 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
                         text: selectedText
                     }};
                     
-                    // Show comment button near selection
-                    showCommentButton(selection);
+                    // Show comment form in sidebar
+                    showSidebarCommentForm(selectedText);
                 }}
             }} else {{
-                hideCommentButton();
+                hideSidebarCommentForm();
             }}
         }}
         
-        function showCommentButton(selection) {{
-            // Remove existing comment button
-            hideCommentButton();
+        function showSidebarCommentForm(selectedText) {{
+            // Show the comment form in the sidebar
+            const placeholder = document.getElementById('comment-placeholder-{component_id}');
+            const commentForm = document.getElementById('comment-form-{component_id}');
             
-            // Get selection position
-            const range = selection.getRangeAt(0);
-            const rect = range.getBoundingClientRect();
+            if (placeholder) placeholder.style.display = 'none';
+            if (commentForm) commentForm.style.display = 'block';
             
-            // Create comment button
-            const button = document.createElement('button');
-            button.id = 'comment-btn-{component_id}';
-            button.innerHTML = '💬 Add Comment';
-            button.style.cssText = `
-                position: fixed;
-                top: ${{rect.bottom + 5}}px;
-                left: ${{rect.left}}px;
-                background: #007bff;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 12px;
-                font-size: 12px;
-                cursor: pointer;
-                z-index: 1000;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-                font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            `;
+            // Populate selected text
+            const selectedTextDiv = document.getElementById('selected-text-{component_id}');
+            if (selectedTextDiv) selectedTextDiv.textContent = '"' + selectedText + '"';
             
-            button.onclick = function() {{
-                // Send selection data back to Streamlit
-                window.parent.postMessage({{
-                    type: 'streamlit:setComponentValue',
-                    data: {{
-                        type: 'text_selected',
-                        text: selectedText,
-                        start_char: selectionRange.startOffset,
-                        end_char: selectionRange.endOffset,
-                        chapter_id: '{chapter_id}',
-                        style_name: '{style_name}',
-                        timestamp: new Date().toISOString()
-                    }}
-                }}, '*');
+            // Clear previous form data
+            const commentTextArea = document.getElementById('comment-text-{component_id}');
+            const dimensionSelect = document.getElementById('dimension-{component_id}');
+            if (commentTextArea) commentTextArea.value = '';
+            if (dimensionSelect) dimensionSelect.selectedIndex = 0;
+        }}
+        
+        function hideSidebarCommentForm() {{
+            // Hide the comment form 
+            const commentForm = document.getElementById('comment-form-{component_id}');
+            const placeholder = document.getElementById('comment-placeholder-{component_id}');
+            const existingComments = document.getElementById('existing-comments-{component_id}');
+            
+            if (commentForm) commentForm.style.display = 'none';
+            
+            // Only show placeholder if there are no existing comments
+            if (placeholder && (!existingComments || existingComments.innerHTML.trim() === '')) {{
+                placeholder.style.display = 'block';
+            }}
+        }}
+        
+        // Sidebar form button handlers
+        document.getElementById('save-comment-{component_id}').onclick = function() {{
+            console.log('🔍 DEBUG: Save button clicked');
+            const commentText = document.getElementById('comment-text-{component_id}').value.trim();
+            console.log('🔍 DEBUG: Comment text:', commentText);
+            console.log('🔍 DEBUG: Selection range:', selectionRange);
+            console.log('🔍 DEBUG: Streamlit object available:', typeof Streamlit !== 'undefined');
+            
+            if (commentText && selectionRange) {{
+                // Send comment data back to Streamlit
+                const eventData = {{
+                    type: 'comment_saved',
+                    text: selectionRange.text,
+                    comment: commentText,
+                    dimension: document.getElementById('dimension-{component_id}').value,
+                    start_char: selectionRange.startOffset,
+                    end_char: selectionRange.endOffset,
+                    chapter_id: '{chapter_id}',
+                    style_name: '{style_name}',
+                    timestamp: new Date().toISOString()
+                }};
+                console.log('🔍 DEBUG: Event data prepared:', eventData);
+                console.log('🔍 DEBUG: Calling Streamlit.setComponentValue');
                 
-                hideCommentButton();
-            }};
-            
-            document.body.appendChild(button);
-        }}
-        
-        function hideCommentButton() {{
-            const existingButton = document.getElementById('comment-btn-{component_id}');
-            if (existingButton) {{
-                existingButton.remove();
+                try {{
+                    Streamlit.setComponentValue(JSON.stringify(eventData));
+                    console.log('🔍 DEBUG: setComponentValue called successfully');
+                    
+                    // Create temporary visual feedback
+                    const existingComments = document.getElementById('existing-comments-{component_id}');
+                    if (existingComments) {{
+                        const tempComment = document.createElement('div');
+                        tempComment.style.cssText = 'background: #d4edda; padding: 6px; border-radius: 3px; margin-bottom: 6px; font-size: 11px; border: 1px solid #c3e6cb;';
+                        tempComment.innerHTML = `
+                            <div style="font-weight: 600; margin-bottom: 2px;">💾 Comment Saved</div>
+                            <div style="font-style: italic; margin-bottom: 3px;">"${{selectedText.substring(0, 30)}}..."</div>
+                            <div style="color: #555;">${{commentText.substring(0, 50)}}...</div>
+                        `;
+                        existingComments.appendChild(tempComment);
+                        
+                        // Remove temp comment after 3 seconds
+                        setTimeout(() => {{
+                            if (tempComment.parentNode) {{
+                                tempComment.parentNode.removeChild(tempComment);
+                            }}
+                        }}, 3000);
+                    }}
+                }} catch (error) {{
+                    console.error('❌ DEBUG: Error calling setComponentValue:', error);
+                }}
+                
+                hideSidebarCommentForm();
+            }} else {{
+                console.log('❌ DEBUG: Missing comment text or selection range');
+                console.log('🔍 DEBUG: commentText:', commentText);
+                console.log('🔍 DEBUG: selectionRange:', selectionRange);
             }}
-        }}
+        }};
+        
+        document.getElementById('cancel-comment-{component_id}').onclick = function() {{
+            hideSidebarCommentForm();
+        }};
         
         // Add text selection listeners to right panel only
         if (rightPanel) {{
@@ -2603,10 +2854,11 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
             rightPanel.addEventListener('touchend', handleTextSelection);
         }}
         
-        // Hide comment button when clicking elsewhere
+        // Hide comment form when clicking elsewhere (except sidebar)
         document.addEventListener('click', function(e) {{
-            if (!e.target.closest('#comment-btn-{component_id}') && !rightPanel.contains(e.target)) {{
-                hideCommentButton();
+            const sidebar = document.getElementById('comment-sidebar-{component_id}');
+            if (!sidebar.contains(e.target) && !rightPanel.contains(e.target)) {{
+                hideSidebarCommentForm();
             }}
         }});
         ''' if enable_comments else ''}
@@ -2618,7 +2870,7 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
     try:
         import streamlit.components.v1 as components
         # Return the component value to capture selection events
-        selection_event = components.html(html_content, height=height + 80, key=key)
+        selection_event = components.html(html_content, height=height + 80)
         return selection_event
     except ImportError:
         # Fallback to markdown if components not available
