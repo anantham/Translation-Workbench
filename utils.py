@@ -66,6 +66,107 @@ try:
 except ImportError:
     print("❌ OpenAI SDK not available (pip install openai)")
 
+# --- Cost Calculation System ---
+def load_pricing_config():
+    """Load current API pricing configuration."""
+    pricing_file = os.path.join(DATA_DIR, "pricing_config.json")
+    try:
+        with open(pricing_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        # Fallback pricing if config file missing
+        return {
+            "openai_models": {
+                "gpt-4o": {"input_per_1m": 5.00, "output_per_1m": 20.00},
+                "gpt-4o-mini": {"input_per_1m": 0.60, "output_per_1m": 2.40}
+            },
+            "gemini_models": {
+                "gemini-1.5-pro": {"input_per_1m": 0.00125, "output_per_1m": 0.005}
+            }
+        }
+
+def calculate_openai_cost(model_name, usage_data):
+    """Calculate precise OpenAI API cost based on current pricing."""
+    pricing_config = load_pricing_config()
+    
+    # Handle fine-tuned models (ft:gpt-4o-mini:org:name:id format)
+    base_model = model_name
+    is_fine_tuned = model_name.startswith("ft:")
+    if is_fine_tuned:
+        # Extract base model from fine-tuned name
+        parts = model_name.split(":")
+        if len(parts) >= 2:
+            base_model = parts[1]  # e.g., "gpt-4o-mini"
+    
+    # Normalize model name for pricing lookup
+    model_key = base_model.replace("-latest", "").replace("chatgpt-", "gpt-")
+    
+    # Look up pricing
+    pricing_source = "fine_tuned_models" if is_fine_tuned else "openai_models"
+    if pricing_source in pricing_config and model_key in pricing_config[pricing_source]:
+        rates = pricing_config[pricing_source][model_key]
+        
+        input_cost = (usage_data.prompt_tokens / 1_000_000) * rates["input_per_1m"]
+        output_cost = (usage_data.completion_tokens / 1_000_000) * rates["output_per_1m"]
+        total_cost = input_cost + output_cost
+        
+        return {
+            "total_cost": round(total_cost, 6),
+            "input_cost": round(input_cost, 6),
+            "output_cost": round(output_cost, 6),
+            "input_rate": rates["input_per_1m"],
+            "output_rate": rates["output_per_1m"],
+            "is_fine_tuned": is_fine_tuned,
+            "base_model": base_model
+        }
+    
+    # Fallback for unknown models
+    return {
+        "total_cost": 0.0,
+        "input_cost": 0.0,
+        "output_cost": 0.0,
+        "input_rate": 0.0,
+        "output_rate": 0.0,
+        "is_fine_tuned": is_fine_tuned,
+        "base_model": base_model,
+        "error": f"Unknown model pricing: {model_key}"
+    }
+
+def calculate_gemini_cost(model_name, usage_metadata):
+    """Calculate Gemini API cost based on current pricing."""
+    pricing_config = load_pricing_config()
+    
+    if not usage_metadata:
+        return {"total_cost": 0.0, "input_cost": 0.0, "output_cost": 0.0}
+    
+    # Look up Gemini pricing
+    model_key = model_name.replace("models/", "")
+    if "gemini_models" in pricing_config and model_key in pricing_config["gemini_models"]:
+        rates = pricing_config["gemini_models"][model_key]
+        
+        input_tokens = usage_metadata.prompt_token_count
+        output_tokens = usage_metadata.candidates_token_count
+        
+        input_cost = (input_tokens / 1_000_000) * rates["input_per_1m"]
+        output_cost = (output_tokens / 1_000_000) * rates["output_per_1m"]
+        total_cost = input_cost + output_cost
+        
+        return {
+            "total_cost": round(total_cost, 6),
+            "input_cost": round(input_cost, 6),
+            "output_cost": round(output_cost, 6),
+            "input_rate": rates["input_per_1m"],
+            "output_rate": rates["output_per_1m"]
+        }
+    
+    # Fallback for unknown Gemini models
+    return {
+        "total_cost": 0.0,
+        "input_cost": 0.0,
+        "output_cost": 0.0,
+        "error": f"Unknown Gemini model pricing: {model_key}"
+    }
+
 # --- API Configuration System ---
 def load_api_config():
     """Load API configuration from environment variable or config file.
@@ -901,8 +1002,27 @@ def get_available_models_for_translation(platform=None, api_key=None):
 
 def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_prompt=None, history_examples=None, use_cache=True):
     """Translate text using OpenAI-compatible API (OpenAI, DeepSeek) with optional history context."""
+    start_time = time.time()
+    timestamp = datetime.now().isoformat()
+    
     if not OPENAI_AVAILABLE:
-        return "OpenAI SDK not available", True
+        return {
+            'translation': '',
+            'success': False,
+            'error': "OpenAI SDK not available",
+            'usage_metrics': {
+                'total_tokens': 0,
+                'prompt_tokens': 0,
+                'completion_tokens': 0,
+                'estimated_cost': 0.0,
+                'input_cost': 0.0,
+                'output_cost': 0.0,
+                'request_time': time.time() - start_time,
+                'timestamp': timestamp,
+                'model': model_name,
+                'platform': 'OpenAI'
+            }
+        }
     
     try:
         # Determine if this is a DeepSeek model and configure accordingly
@@ -910,7 +1030,23 @@ def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_pr
             # For DeepSeek models, load DeepSeek API key from environment/config
             deepseek_key, deepseek_source = load_deepseek_api_config()
             if not deepseek_key:
-                return "DeepSeek API key not found. Please set DEEPSEEK_API_KEY environment variable or add deepseek_api_key to config.json", True
+                return {
+                    'translation': '',
+                    'success': False,
+                    'error': "DeepSeek API key not found. Please set DEEPSEEK_API_KEY environment variable or add deepseek_api_key to config.json",
+                    'usage_metrics': {
+                        'total_tokens': 0,
+                        'prompt_tokens': 0,
+                        'completion_tokens': 0,
+                        'estimated_cost': 0.0,
+                        'input_cost': 0.0,
+                        'output_cost': 0.0,
+                        'request_time': time.time() - start_time,
+                        'timestamp': timestamp,
+                        'model': model_name,
+                        'platform': 'OpenAI'
+                    }
+                }
             
             client = openai.OpenAI(
                 api_key=deepseek_key,
@@ -944,26 +1080,137 @@ def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_pr
             max_tokens=4000
         )
         
+        request_time = time.time() - start_time
+        
+        # Calculate usage metrics
+        usage_metrics = {
+            'total_tokens': 0,
+            'prompt_tokens': 0,
+            'completion_tokens': 0,
+            'estimated_cost': 0.0,
+            'input_cost': 0.0,
+            'output_cost': 0.0,
+            'request_time': request_time,
+            'timestamp': timestamp,
+            'model': model_name,
+            'platform': 'OpenAI'
+        }
+        
+        # Extract usage data if available
+        if hasattr(response, 'usage') and response.usage:
+            usage_data = response.usage
+            prompt_tokens = getattr(usage_data, 'prompt_tokens', 0)
+            completion_tokens = getattr(usage_data, 'completion_tokens', 0)
+            total_tokens = getattr(usage_data, 'total_tokens', prompt_tokens + completion_tokens)
+            
+            # Calculate costs
+            cost_info = calculate_openai_cost(model_name, usage_data)
+            
+            usage_metrics.update({
+                'total_tokens': total_tokens,
+                'prompt_tokens': prompt_tokens,
+                'completion_tokens': completion_tokens,
+                'estimated_cost': cost_info.get('total_cost', 0.0),
+                'input_cost': cost_info.get('input_cost', 0.0),
+                'output_cost': cost_info.get('output_cost', 0.0)
+            })
+        
         translation = response.choices[0].message.content
-        return translation, False
+        return {
+            'translation': translation,
+            'success': True,
+            'error': None,
+            'usage_metrics': usage_metrics
+        }
         
     except Exception as e:
-        return f"OpenAI API Request Failed: {e}", True
+        return {
+            'translation': '',
+            'success': False,
+            'error': f"OpenAI API Request Failed: {e}",
+            'usage_metrics': {
+                'total_tokens': 0,
+                'prompt_tokens': 0,
+                'completion_tokens': 0,
+                'estimated_cost': 0.0,
+                'input_cost': 0.0,
+                'output_cost': 0.0,
+                'request_time': time.time() - start_time,
+                'timestamp': timestamp,
+                'model': model_name,
+                'platform': 'OpenAI'
+            }
+        }
 
 def generate_translation_unified(api_key, model_name, system_prompt, history, current_raw_text, platform="Gemini"):
-    """Unified translation function supporting both Gemini and OpenAI."""
+    """Unified translation function supporting both Gemini and OpenAI.
+    
+    Returns:
+        dict: {
+            'translation': str,
+            'success': bool,
+            'error': str or None,
+            'usage_metrics': {
+                'total_tokens': int,
+                'prompt_tokens': int,
+                'completion_tokens': int,
+                'estimated_cost': float,
+                'input_cost': float,
+                'output_cost': float,
+                'request_time': float,
+                'timestamp': str,
+                'model': str,
+                'platform': str
+            }
+        }
+    """
     if platform == "Gemini":
         return translate_with_gemini_history(api_key, model_name, system_prompt, history, current_raw_text)
     elif platform == "OpenAI":
         return translate_with_openai(current_raw_text, api_key, model_name, system_prompt, history)
     else:
-        return f"Unsupported platform: {platform}", True
+        return {
+            'translation': '',
+            'success': False,
+            'error': f"Unsupported platform: {platform}",
+            'usage_metrics': {
+                'total_tokens': 0,
+                'prompt_tokens': 0,
+                'completion_tokens': 0,
+                'estimated_cost': 0.0,
+                'input_cost': 0.0,
+                'output_cost': 0.0,
+                'request_time': 0.0,
+                'timestamp': datetime.now().isoformat(),
+                'model': model_name,
+                'platform': platform
+            }
+        }
 
 def translate_with_gemini_history(api_key, model_name, system_prompt, history, current_raw_text):
     """Translate using Gemini with history context (original implementation)."""
+    start_time = time.time()
+    timestamp = datetime.now().isoformat()
+    
     try:
         if not GOOGLE_AI_AVAILABLE:
-            return "Google AI SDK not available", True
+            return {
+                'translation': '',
+                'success': False,
+                'error': "Google AI SDK not available",
+                'usage_metrics': {
+                    'total_tokens': 0,
+                    'prompt_tokens': 0,
+                    'completion_tokens': 0,
+                    'estimated_cost': 0.0,
+                    'input_cost': 0.0,
+                    'output_cost': 0.0,
+                    'request_time': time.time() - start_time,
+                    'timestamp': timestamp,
+                    'model': model_name,
+                    'platform': 'Gemini'
+                }
+            }
             
         # Configure API
         import google.generativeai as genai
@@ -993,14 +1240,74 @@ def translate_with_gemini_history(api_key, model_name, system_prompt, history, c
         
         # Generate translation
         response = model.generate_content(full_prompt)
+        request_time = time.time() - start_time
+        
+        # Calculate usage metrics
+        usage_metrics = {
+            'total_tokens': 0,
+            'prompt_tokens': 0,
+            'completion_tokens': 0,
+            'estimated_cost': 0.0,
+            'input_cost': 0.0,
+            'output_cost': 0.0,
+            'request_time': request_time,
+            'timestamp': timestamp,
+            'model': model_name,
+            'platform': 'Gemini'
+        }
+        
+        # Extract usage metadata if available
+        if hasattr(response, 'usage_metadata') and response.usage_metadata:
+            usage_metadata = response.usage_metadata
+            prompt_tokens = getattr(usage_metadata, 'prompt_token_count', 0)
+            completion_tokens = getattr(usage_metadata, 'candidates_token_count', 0)
+            total_tokens = prompt_tokens + completion_tokens
+            
+            # Calculate costs
+            cost_info = calculate_gemini_cost(model_name, usage_metadata)
+            
+            usage_metrics.update({
+                'total_tokens': total_tokens,
+                'prompt_tokens': prompt_tokens,
+                'completion_tokens': completion_tokens,
+                'estimated_cost': cost_info.get('total_cost', 0.0),
+                'input_cost': cost_info.get('input_cost', 0.0),
+                'output_cost': cost_info.get('output_cost', 0.0)
+            })
         
         if response.text:
-            return response.text, False
+            return {
+                'translation': response.text,
+                'success': True,
+                'error': None,
+                'usage_metrics': usage_metrics
+            }
         else:
-            return "No translation generated", True
+            return {
+                'translation': '',
+                'success': False,
+                'error': "No translation generated",
+                'usage_metrics': usage_metrics
+            }
             
     except Exception as e:
-        return f"Gemini API Request Failed: {e}", True
+        return {
+            'translation': '',
+            'success': False,
+            'error': f"Gemini API Request Failed: {e}",
+            'usage_metrics': {
+                'total_tokens': 0,
+                'prompt_tokens': 0,
+                'completion_tokens': 0,
+                'estimated_cost': 0.0,
+                'input_cost': 0.0,
+                'output_cost': 0.0,
+                'request_time': time.time() - start_time,
+                'timestamp': timestamp,
+                'model': model_name,
+                'platform': 'Gemini'
+            }
+        }
 
 # --- Model Management ---
 def save_model_metadata(job_info, hyperparams, dataset_info):
