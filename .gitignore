@@ -54,6 +54,7 @@ data/cache/
 data/temp/
 data/backups/
 data/custom_translations/
+data/evaluations/
 
 # Configuration files with sensitive data
 config.json

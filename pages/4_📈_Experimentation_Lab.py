@@ -460,8 +460,7 @@ with tab2:
                                 
                                 if comment_id:
                                     st.success(f"💬 Comment saved! \"{event_data['text'][:50]}{'...' if len(event_data['text']) > 50 else ''}\"")
-                                    print("🔍 DEBUG: About to call st.rerun()")
-                                    st.rerun()  # Refresh to show highlighting
+                                    print("🔍 DEBUG: Comment saved successfully, allowing temporary feedback to complete")
                                 else:
                                     print("❌ DEBUG: add_inline_comment returned falsy value")
                                     st.error("Failed to save comment")

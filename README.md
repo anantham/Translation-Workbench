@@ -96,7 +96,7 @@ graph LR
 - **Output**: Perfect `alignment_map.json`
 - **Philosophy**: "Garbage in, garbage out" - perfect data is the foundation
 
-#### **🤖 Page 2: Fine-tuning Workbench (The Factory)**  
+#### **🤖 Page 2: Fine-tuning Workbench (The Factory)**
 **Purpose**: Train specialized models for translation
 - **Input**: Perfect alignment map + hyperparameter configs
 - **Tools**: JSONL export, dual-platform training (Gemini/OpenAI), job monitoring
@@ -131,7 +131,7 @@ Each page depends on the previous page's output:
 - Can't generate styles without models  
 - Can't evaluate without generated styles
 
-#### **3. Resumable Workflow**  
+#### **3. Resumable Workflow**
 Users can leave and return to any stage:
 - Data curation is done once
 - Model training runs in background
@@ -203,7 +203,7 @@ All pages share common functionality through a centralized utilities module:
 - Advanced features activate with additional dependencies
 - Graceful degradation when APIs are unavailable
 
-#### **2. Platform Agnostic**  
+#### **2. Platform Agnostic**
 - Same UI supports both Gemini and OpenAI
 - Unified API abstracts platform differences
 - Easy to add new platforms (Claude, etc.)
@@ -229,7 +229,7 @@ python -m streamlit run pages/1_📖_Data_Review_Alignment.py
 # → Fix alignment issues, create perfect alignment_map.json
 ```
 
-#### **Phase 2: ML Engineer (Model Development)**  
+#### **Phase 2: ML Engineer (Model Development)**
 ```bash
 # 2. Model training (background process)
 python -m streamlit run pages/2_🤖_Fine-tuning_Workbench.py
@@ -260,7 +260,7 @@ python -m streamlit run pages/4_📈_Experimentation_Lab.py
 - **ML Researcher**: Compares fine-tuning vs in-context learning
 - **PhD Student**: Runs systematic experiments and publishes results
 
-#### **Scenario B: Publishing Company**  
+#### **Scenario B: Publishing Company**
 - **Editor**: Reviews and corrects alignment issues
 - **Translator**: Creates and refines prompt templates
 - **Technical Lead**: Manages model training and deployment
@@ -762,7 +762,7 @@ For each chapter-style combination, human provides:
 - Implement user-specific evaluation data storage
 - Create evaluation session management for systematic chapter coverage
 
-#### **Phase 2: AI Training Pipeline**  
+#### **Phase 2: AI Training Pipeline**
 - Develop feature extraction for chapter content analysis
 - Build NLP processing for justification text analysis
 - Create user-specific model training workflows
@@ -797,7 +797,7 @@ This feature represents the evolution from manual translation evaluation to **AI
     └── 4_📈_Experimentation_Lab.py        # 📈 The Judging Panel
 ```
 
-### **Data Preparation Scripts (One-time Setup)**  
+### **Data Preparation Scripts (One-time Setup)**
 ```
 ├── 🕷️ scripts/scripts/robust_scraper.py      # Resilient chapter scraper
 ├── 📖 scripts/utils/process_epub.py  # EPUB to text converter  
@@ -874,7 +874,7 @@ python scripts/build_and_report.py
 - `sentence-transformers` - BERT similarity scoring
 - `torch` - Neural network backend
 
-#### **Optional Enhancements**  
+#### **Optional Enhancements**
 - `ebooklib` - EPUB creation functionality
 - `jieba` - Chinese text segmentation
 - `plotly` - Advanced visualizations
@@ -984,6 +984,15 @@ Edit these files for customization:
 - `requirements.txt` - Add/remove dependencies
 - `alignment_map.json` - Manual alignment adjustments
 - `.gitignore` - Exclude additional files
+
+
+
+## Future Features
+
+1) make sure EPUB that is exported has info on how much time it took, cost from API calls, prompt used, model info, 
+2) link to project github, contact me for feature request, feedback
+3) 
+
 
 ## 📊 Performance Benchmarks
 

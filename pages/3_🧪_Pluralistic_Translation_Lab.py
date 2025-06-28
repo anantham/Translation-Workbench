@@ -24,7 +24,9 @@ from utils import (
     get_all_available_prompts,
     save_custom_prompt,
     delete_custom_prompt,
-    load_custom_prompts
+    load_custom_prompts,
+    calculate_openai_cost,
+    calculate_gemini_cost
 )
 
 # --- Helper Functions ---
@@ -283,18 +285,203 @@ def get_smart_fallback_examples(alignment_map, current_chapter_num, count, selec
     
     return examples, sources_used
 
+def update_job_metadata_with_usage(metadata_file_path, usage_metrics, chapter_success=True):
+    """Update job metadata file with API usage metrics from a single translation."""
+    try:
+        # Load existing metadata
+        with open(metadata_file_path, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        # Update API usage totals
+        api_usage = metadata.setdefault('api_usage', {})
+        api_usage['total_tokens_used'] = api_usage.get('total_tokens_used', 0) + usage_metrics.get('total_tokens', 0)
+        api_usage['input_tokens'] = api_usage.get('input_tokens', 0) + usage_metrics.get('prompt_tokens', 0)
+        api_usage['output_tokens'] = api_usage.get('output_tokens', 0) + usage_metrics.get('completion_tokens', 0)
+        api_usage['api_calls_made'] = api_usage.get('api_calls_made', 0) + 1
+        
+        # Update cost tracking
+        estimated_cost = usage_metrics.get('estimated_cost', 0.0)
+        api_usage['estimated_cost_usd'] = api_usage.get('estimated_cost_usd', 0.0) + estimated_cost
+        
+        cost_breakdown = api_usage.setdefault('cost_breakdown', {})
+        cost_breakdown['input_cost'] = cost_breakdown.get('input_cost', 0.0) + usage_metrics.get('input_cost', 0.0)
+        cost_breakdown['output_cost'] = cost_breakdown.get('output_cost', 0.0) + usage_metrics.get('output_cost', 0.0)
+        
+        # Update performance metrics
+        performance = metadata.setdefault('performance_metrics', {})
+        if chapter_success:
+            performance['chapters_completed'] = performance.get('chapters_completed', 0) + 1
+        else:
+            performance['chapters_failed'] = performance.get('chapters_failed', 0) + 1
+        
+        # Calculate averages
+        total_chapters_processed = performance.get('chapters_completed', 0) + performance.get('chapters_failed', 0)
+        if total_chapters_processed > 0:
+            api_usage['avg_tokens_per_chapter'] = api_usage['total_tokens_used'] // total_chapters_processed
+        
+        # Save updated metadata
+        with open(metadata_file_path, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2, ensure_ascii=False)
+            
+        return True
+        
+    except Exception as e:
+        print(f"Warning: Could not update job metadata: {e}")
+        return False
+
+def load_and_format_metadata_template(job_metadata, translation_dir):
+    """Load the metadata template and substitute actual values."""
+    template_path = os.path.join(os.path.dirname(translation_dir), "..", "..", "epub_metadata_template.md")
+    
+    # Load template
+    try:
+        with open(template_path, 'r', encoding='utf-8') as f:
+            template = f.read()
+    except FileNotFoundError:
+        # Fallback template if file missing
+        template = """
+# Translation Information
+
+## Performance Analytics
+- **Total Time**: {total_time}
+- **API Cost**: ${estimated_cost_usd}
+- **Processing Speed**: {chapters_per_minute} chapters/minute
+
+## AI Configuration
+- **Model**: {model_name}
+- **Translation Strategy**: Professional Xianxia Translation
+
+## Project Information
+- **Framework**: Pluralistic Translation Workbench
+- **Generated**: {generation_date}
+"""
+    
+    # Calculate derived values from job metadata
+    performance = job_metadata.get("performance_metrics", {})
+    api_usage = job_metadata.get("api_usage", {})
+    
+    # Format timestamps and durations
+    start_time = performance.get("start_timestamp", "Unknown")
+    end_time = performance.get("end_timestamp", "Unknown")
+    total_time = performance.get("total_time_elapsed", "Unknown")
+    
+    # Calculate processing speed
+    chapters_completed = performance.get("chapters_completed", 0)
+    if total_time and total_time != "Unknown" and chapters_completed > 0:
+        # Parse duration in seconds (format: "XXXXs")
+        if isinstance(total_time, str) and total_time.endswith('s'):
+            total_seconds = float(total_time.rstrip('s'))
+            chapters_per_minute = round((chapters_completed / total_seconds) * 60, 2)
+        else:
+            chapters_per_minute = "Unknown"
+    else:
+        chapters_per_minute = "Unknown"
+    
+    # Substitute template variables
+    substitutions = {
+        'total_time': total_time,
+        'estimated_cost_usd': f"{api_usage.get('estimated_cost_usd', 0.0):.4f}",
+        'total_tokens': f"{api_usage.get('total_tokens_used', 0):,}",
+        'chapters_per_minute': chapters_per_minute,
+        'avg_time_per_chapter': performance.get('avg_time_per_chapter', 'Unknown'),
+        'api_calls_made': api_usage.get('api_calls_made', 0),
+        'model_name': job_metadata.get('model_name', 'Unknown'),
+        'api_provider': job_metadata.get('ai_configuration', {}).get('api_provider', 'Unknown'),
+        'model_version': job_metadata.get('ai_configuration', {}).get('model_version', 'Unknown'),
+        'translation_style': 'Professional Xianxia Translation',
+        'system_prompt_preview': job_metadata.get('system_prompt', '')[:100],
+        'example_count': job_metadata.get('history_count', 0),
+        'example_strategy': job_metadata.get('ai_configuration', {}).get('example_strategy', 'Unknown'),
+        'temperature': job_metadata.get('ai_configuration', {}).get('temperature', 0.7),
+        'max_tokens': job_metadata.get('ai_configuration', {}).get('max_tokens', 4096),
+        'novel_title': job_metadata.get('project_info', {}).get('novel_title', '极道天魔 (Way of the Devil)'),
+        'original_author': job_metadata.get('project_info', {}).get('original_author', '王雨 (Wang Yu)'),
+        'chapter_range': f"{min(job_metadata.get('chapters_requested', []))}-{max(job_metadata.get('chapters_requested', []))}" if job_metadata.get('chapters_requested') else 'Unknown',
+        'total_chapters': job_metadata.get('total_chapters', 0),
+        'source_language': job_metadata.get('project_info', {}).get('source_language', 'Chinese (Simplified)'),
+        'target_language': job_metadata.get('project_info', {}).get('target_language', 'English'),
+        'word_count_chinese': 'Unknown',  # TODO: Calculate from source files
+        'word_count_english': 'Unknown',  # TODO: Calculate from translation files
+        'expansion_ratio': 'Unknown',     # TODO: Calculate ratio
+        'github_url': 'https://github.com/anthropics/translation-workbench',
+        'project_version': job_metadata.get('project_info', {}).get('framework_version', 'v2.1.0'),
+        'license': 'MIT License',
+        'maintainer_name': 'Translation Workbench',
+        'maintainer_email': 'contact@example.com',
+        'feature_requests_url': 'https://github.com/anthropics/translation-workbench/issues',
+        'documentation_url': 'https://docs.example.com/translation-workbench',
+        'consistency_score': 'Pending evaluation',
+        'bleu_score_avg': 'Pending evaluation',
+        'semantic_similarity_avg': 'Pending evaluation',
+        'human_eval_sample': 'Pending evaluation',
+        'terminology_standardization': 'High',
+        'input_tokens': f"{api_usage.get('input_tokens', 0):,}",
+        'output_tokens': f"{api_usage.get('output_tokens', 0):,}",
+        'input_cost': f"{api_usage.get('cost_breakdown', {}).get('input_cost', 0.0):.4f}",
+        'output_cost': f"{api_usage.get('cost_breakdown', {}).get('output_cost', 0.0):.4f}",
+        'cost_per_1k_tokens': f"{api_usage.get('cost_breakdown', {}).get('rate_per_1k_tokens', 0.0):.4f}",
+        'avg_cost_per_chapter': f"{api_usage.get('estimated_cost_usd', 0.0) / max(job_metadata.get('total_chapters', 1), 1):.4f}",
+        'start_timestamp': start_time,
+        'end_timestamp': end_time,
+        'api_delay': job_metadata.get('api_delay', 1.0),
+        'system_prompt_hash': job_metadata.get('ai_configuration', {}).get('system_prompt_hash', 'Unknown'),
+        'framework_version': job_metadata.get('project_info', {}).get('framework_version', 'v2.1.0'),
+        'framework_name': job_metadata.get('project_info', {}).get('framework_name', 'Pluralistic Translation Workbench'),
+        'generation_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'github_discussions_url': 'https://github.com/anthropics/translation-workbench/discussions',
+        'license_url': 'https://github.com/anthropics/translation-workbench/blob/main/LICENSE'
+    }
+    
+    # Substitute all variables in template
+    formatted_template = template
+    for key, value in substitutions.items():
+        formatted_template = formatted_template.replace(f'{{{key}}}', str(value))
+    
+    return formatted_template
+
 def create_epub_from_translations(translation_dir, output_path, book_title, author="Unknown", translator="AI Translation"):
     """Create an EPUB file from translated text files."""
     try:
         # Create EPUB book
         book = epub.EpubBook()
         
-        # Set metadata
+        # Set basic metadata
         book.set_identifier('way-of-devil-translation')
         book.set_title(book_title)
         book.set_language('en')
         book.add_author(author)
         book.add_metadata('DC', 'contributor', translator)
+        
+        # Add enhanced metadata from job_metadata.json if available
+        try:
+            job_metadata_path = os.path.join(translation_dir, "job_metadata.json")
+            if os.path.exists(job_metadata_path):
+                with open(job_metadata_path, 'r', encoding='utf-8') as f:
+                    job_metadata = json.load(f)
+                
+                # Add translation-specific metadata
+                book.add_metadata('DC', 'description', f'AI-translated version using {job_metadata.get("model_name", "AI model")}')
+                book.add_metadata('DC', 'subject', 'Xianxia')
+                book.add_metadata('DC', 'subject', 'AI Translation')
+                book.add_metadata('DC', 'subject', 'Chinese Web Novel')
+                
+                # Custom metadata for translation details
+                api_usage = job_metadata.get('api_usage', {})
+                performance = job_metadata.get('performance_metrics', {})
+                
+                book.add_metadata(None, 'meta', '', {'name': 'translation:model', 'content': job_metadata.get('model_name', 'Unknown')})
+                book.add_metadata(None, 'meta', '', {'name': 'translation:cost', 'content': f"${api_usage.get('estimated_cost_usd', 0.0):.4f}"})
+                book.add_metadata(None, 'meta', '', {'name': 'translation:tokens', 'content': str(api_usage.get('total_tokens_used', 0))})
+                book.add_metadata(None, 'meta', '', {'name': 'translation:chapters', 'content': str(job_metadata.get('total_chapters', 0))})
+                book.add_metadata(None, 'meta', '', {'name': 'translation:time', 'content': performance.get('total_time_elapsed', 'Unknown')})
+                book.add_metadata(None, 'meta', '', {'name': 'translation:framework', 'content': 'Pluralistic Translation Workbench'})
+                book.add_metadata(None, 'meta', '', {'name': 'translation:version', 'content': job_metadata.get('project_info', {}).get('framework_version', 'v2.1.0')})
+                
+                # Add timestamp
+                book.add_metadata('DC', 'date', job_metadata.get('timestamp', datetime.now().isoformat())[:10])
+                
+        except Exception as metadata_error:
+            print(f"Warning: Could not add enhanced metadata: {metadata_error}")
         
         # Add CSS style
         style = '''
@@ -355,8 +542,60 @@ def create_epub_from_translations(translation_dir, output_path, book_title, auth
             chapters.append(chapter)
             spine.append(chapter)
         
-        # Create table of contents
-        book.toc = [(epub.Section('Chapters'), chapters)]
+        # Add translation metadata appendix
+        try:
+            job_metadata_path = os.path.join(translation_dir, "job_metadata.json")
+            if os.path.exists(job_metadata_path):
+                with open(job_metadata_path, 'r', encoding='utf-8') as f:
+                    job_metadata = json.load(f)
+                
+                # Load and format metadata template
+                metadata_content = load_and_format_metadata_template(job_metadata, translation_dir)
+                
+                # Convert markdown to HTML (simple conversion)
+                import re
+                html_metadata = metadata_content
+                # Convert markdown headers
+                html_metadata = re.sub(r'^### (.+)$', r'<h3>\1</h3>', html_metadata, flags=re.MULTILINE)
+                html_metadata = re.sub(r'^## (.+)$', r'<h2>\1</h2>', html_metadata, flags=re.MULTILINE)
+                html_metadata = re.sub(r'^# (.+)$', r'<h1>\1</h1>', html_metadata, flags=re.MULTILINE)
+                # Convert markdown bold
+                html_metadata = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html_metadata)
+                # Convert markdown links
+                html_metadata = re.sub(r'\[(.+?)\]\((.+?)\)', r'<a href="\2">\1</a>', html_metadata)
+                # Convert line breaks to HTML
+                html_metadata = html_metadata.replace('\n', '<br>\n')
+                
+                # Create appendix chapter
+                appendix_html = f'''
+                <div style="font-family: Times, serif; line-height: 1.6; margin: 2em;">
+                    {html_metadata}
+                </div>
+                '''
+                
+                appendix_chapter = epub.EpubHtml(
+                    title="About This Translation",
+                    file_name="appendix_translation_info.xhtml",
+                    content=appendix_html
+                )
+                appendix_chapter.add_item(nav_css)
+                
+                book.add_item(appendix_chapter)
+                chapters.append(appendix_chapter)
+                spine.append(appendix_chapter)
+                
+        except Exception as appendix_error:
+            print(f"Warning: Could not add metadata appendix: {appendix_error}")
+        
+        # Create table of contents (updated to include appendix)
+        toc_chapters = chapters[:-1] if chapters and chapters[-1].title == "About This Translation" else chapters
+        appendix_chapters = [chapters[-1]] if chapters and chapters[-1].title == "About This Translation" else []
+        
+        toc_sections = [(epub.Section('Chapters'), toc_chapters)]
+        if appendix_chapters:
+            toc_sections.append((epub.Section('Appendix'), appendix_chapters))
+        
+        book.toc = toc_sections
         
         # Add navigation
         book.add_item(epub.EpubNcx())
@@ -772,15 +1011,63 @@ if st.session_state.get("run_job", False):
     # Create output directory
     os.makedirs(params["output_dir"], exist_ok=True)
     
-    # Save job metadata
+    # Save comprehensive job metadata
+    job_start_time = datetime.now()
     metadata = {
-        "timestamp": datetime.now().isoformat(),
+        # Basic job info
+        "timestamp": job_start_time.isoformat(),
         "model_name": params["model_name"],
         "system_prompt": params["system_prompt"],
         "history_count": params["history_count"],
         "api_delay": params["api_delay"],
         "chapters_requested": params["chapters_to_translate"],
-        "total_chapters": len(params["chapters_to_translate"])
+        "total_chapters": len(params["chapters_to_translate"]),
+        
+        # Performance tracking (initialized)
+        "performance_metrics": {
+            "start_timestamp": job_start_time.isoformat(),
+            "end_timestamp": None,
+            "total_time_elapsed": None,
+            "avg_time_per_chapter": None,
+            "processing_speed": None,
+            "chapters_completed": 0,
+            "chapters_failed": 0
+        },
+        
+        # API usage tracking (initialized)
+        "api_usage": {
+            "total_tokens_used": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "estimated_cost_usd": 0.0,
+            "api_calls_made": 0,
+            "avg_tokens_per_chapter": 0,
+            "cost_breakdown": {
+                "input_cost": 0.0,
+                "output_cost": 0.0,
+                "rate_per_1k_tokens": 0.0
+            }
+        },
+        
+        # Job configuration
+        "ai_configuration": {
+            "api_provider": "OpenAI" if "gpt" in params["model_name"] or "ft:" in params["model_name"] else "Google",
+            "model_version": params["model_name"],
+            "temperature": getattr(params, 'temperature', 0.7),
+            "max_tokens": getattr(params, 'max_tokens', 4096),
+            "system_prompt_hash": str(hash(params["system_prompt"]))[:16],
+            "example_strategy": "rolling_context_window"
+        },
+        
+        # Project info
+        "project_info": {
+            "framework_name": "Pluralistic Translation Workbench",
+            "framework_version": "v2.1.0",
+            "novel_title": "极道天魔 (Way of the Devil)",
+            "original_author": "王雨 (Wang Yu)",
+            "source_language": "Chinese (Simplified)",
+            "target_language": "English"
+        }
     }
     
     with open(os.path.join(params["output_dir"], "job_metadata.json"), "w", encoding="utf-8") as f:
@@ -856,7 +1143,7 @@ if st.session_state.get("run_job", False):
 
                 # 3. Call API
                 log_messages.append(f"  └─ Calling {params['platform']} {params['model_name']} API...")
-                translation, error = generate_translation_unified(
+                result = generate_translation_unified(
                     params["api_key"], 
                     params["model_name"], 
                     params["system_prompt"], 
@@ -866,9 +1153,9 @@ if st.session_state.get("run_job", False):
                 )
 
                 # 4. Process Result
-                if error:
-                    # When error=True, the actual error message is in the 'translation' variable
-                    error_message = translation
+                if not result['success']:
+                    # Handle API errors
+                    error_message = result['error']
                     
                     # Check for quota exceeded error specifically
                     if "429" in str(error_message) and "quota" in str(error_message).lower():
@@ -913,13 +1200,24 @@ if st.session_state.get("run_job", False):
                         log_messages.append(f"  └─ ❌ **ERROR:** {error_message}")
                         failed_translations += 1
                 else:
+                    # Extract successful translation
+                    translation = result['translation']
+                    usage_metrics = result.get('usage_metrics', {})
+                    
                     # Save translation
                     with open(output_path, "w", encoding="utf-8") as f:
                         f.write(translation)
                     
-                    # Get some stats
+                    # Update job metadata with usage metrics
+                    metadata_file_path = os.path.join(params["output_dir"], "job_metadata.json")
+                    update_job_metadata_with_usage(metadata_file_path, usage_metrics, chapter_success=True)
+                    
+                    # Get some stats and log success with cost info
                     stats = get_text_stats(translation, 'english')
-                    log_messages.append(f"  └─ ✅ **Success!** Saved ({stats['word_count']} words)")
+                    cost_info = f"${usage_metrics.get('estimated_cost', 0.0):.4f}" if usage_metrics.get('estimated_cost') else "Unknown"
+                    tokens_info = f"{usage_metrics.get('total_tokens', 0):,} tokens" if usage_metrics.get('total_tokens') else "Unknown tokens"
+                    
+                    log_messages.append(f"  └─ ✅ **Success!** Saved ({stats['word_count']} words, {cost_info}, {tokens_info})")
                     successful_translations += 1
                     
             except Exception as e:
@@ -940,17 +1238,85 @@ if st.session_state.get("run_job", False):
             time.sleep(params["api_delay"])
 
     # --- Job Complete ---
+    # Update final job metadata with completion time and performance metrics
+    try:
+        job_end_time = datetime.now()
+        metadata_file_path = os.path.join(params["output_dir"], "job_metadata.json")
+        
+        with open(metadata_file_path, 'r', encoding='utf-8') as f:
+            final_metadata = json.load(f)
+        
+        # Calculate final performance metrics
+        start_time_str = final_metadata.get('performance_metrics', {}).get('start_timestamp', job_start_time.isoformat())
+        start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00')) if 'Z' in start_time_str else datetime.fromisoformat(start_time_str)
+        total_duration = job_end_time - start_time
+        total_seconds = total_duration.total_seconds()
+        
+        # Update performance metrics
+        performance = final_metadata.setdefault('performance_metrics', {})
+        performance['end_timestamp'] = job_end_time.isoformat()
+        performance['total_time_elapsed'] = f"{total_seconds:.1f}s"
+        
+        if successful_translations > 0:
+            performance['avg_time_per_chapter'] = f"{total_seconds / successful_translations:.1f}s"
+            performance['processing_speed'] = f"{successful_translations / (total_seconds / 60):.2f} chapters/minute"
+        
+        # Save final metadata
+        with open(metadata_file_path, 'w', encoding='utf-8') as f:
+            json.dump(final_metadata, f, indent=2, ensure_ascii=False)
+            
+    except Exception as e:
+        print(f"Warning: Could not update final job metadata: {e}")
+    
     status_placeholder.success("🎉 **Translation Job Complete!**")
     
     st.header("📊 Job Summary")
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("✅ Successful", successful_translations)
-    with col2:
-        st.metric("❌ Failed", failed_translations)
-    with col3:
-        st.metric("📁 Total Files", successful_translations)
+    # Display summary metrics including cost information
+    try:
+        metadata_file_path = os.path.join(params["output_dir"], "job_metadata.json")
+        with open(metadata_file_path, 'r', encoding='utf-8') as f:
+            summary_metadata = json.load(f)
+        
+        api_usage = summary_metadata.get('api_usage', {})
+        performance = summary_metadata.get('performance_metrics', {})
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("✅ Successful", successful_translations)
+        with col2:
+            st.metric("❌ Failed", failed_translations)
+        with col3:
+            total_cost = api_usage.get('estimated_cost_usd', 0.0)
+            st.metric("💰 Total Cost", f"${total_cost:.4f}")
+        with col4:
+            total_time = performance.get('total_time_elapsed', 'Unknown')
+            st.metric("⏱️ Total Time", total_time)
+        
+        # Additional metrics row
+        col5, col6, col7, col8 = st.columns(4)
+        with col5:
+            total_tokens = api_usage.get('total_tokens_used', 0)
+            st.metric("🔢 Total Tokens", f"{total_tokens:,}")
+        with col6:
+            api_calls = api_usage.get('api_calls_made', 0)
+            st.metric("📞 API Calls", api_calls)
+        with col7:
+            avg_cost = total_cost / max(successful_translations, 1)
+            st.metric("💸 Cost/Chapter", f"${avg_cost:.4f}")
+        with col8:
+            avg_time = performance.get('avg_time_per_chapter', 'Unknown')
+            st.metric("⏰ Time/Chapter", avg_time)
+            
+    except Exception as e:
+        # Fallback to simple metrics if metadata unavailable
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("✅ Successful", successful_translations)
+        with col2:
+            st.metric("❌ Failed", failed_translations)
+        with col3:
+            st.metric("📁 Total Files", successful_translations)
     
     if successful_translations > 0:
         st.success(f"🎉 **Success!** Your new translation bundle is saved in:\n`{params['output_dir']}`")
