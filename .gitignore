@@ -46,21 +46,11 @@ Thumbs.db
 *.html
 
 # Large data files (keep structure but not content)
-novel_content_dxmwx_complete/*.txt
-english_chapters/*.txt
 *.epub
 
-# Raw scraped novel data
-novel_raws/
-novels_english/
-
-# Organized data directories - cache/temp/backup files
-data/cache/
-data/temp/
-data/backups/
-data/custom_translations/
-data/evaluations/
-data/exports/
+# Ignore all generated data, cache, and backups
+data/
+*.tar.gz
 
 # Configuration files with sensitive data
 config.json
