@@ -7,7 +7,9 @@ import streamlit as st
 import os
 import time
 from utils.config import load_api_config, show_config_status
+from utils.logging import logger
 from utils.web_scraping import validate_scraping_url, streamlit_scraper
+from utils.alignment_builder import streamlit_build_alignment_map, detect_novel_structure
 
 # Page configuration
 st.set_page_config(
@@ -114,6 +116,69 @@ with col2:
             st.info("🎨 **Custom Translation Runs**: None yet")
     else:
         st.info("🎨 **Custom Translation Runs**: None yet")
+    
+    # Build Alignment Map section
+    st.subheader("🔨 Build Alignment Map")
+    
+    # Check for alignment map and detect structure
+    alignment_map_exists = os.path.exists("alignment_map.json")
+    structure_info = detect_novel_structure("way_of_the_devil")
+    
+    if alignment_map_exists:
+        st.success("✅ **Alignment Map**: Found")
+        st.caption(f"📁 Location: alignment_map.json")
+    else:
+        st.warning("❌ **Alignment Map**: Not found")
+        st.caption("Click the button below to build alignment map from available chapters")
+    
+    # Show detected structure
+    if structure_info["structure_type"]:
+        st.info(f"📂 **Structure**: {structure_info['structure_type']}")
+        if structure_info["english_dir"] and os.path.exists(structure_info["english_dir"]):
+            english_count = len([f for f in os.listdir(structure_info["english_dir"]) if f.endswith('.txt')])
+            st.caption(f"🇺🇸 English chapters: {english_count} found")
+        if structure_info["chinese_dir"] and os.path.exists(structure_info["chinese_dir"]):
+            chinese_count = len([f for f in os.listdir(structure_info["chinese_dir"]) if f.endswith('.txt')])
+            st.caption(f"🇨🇳 Chinese chapters: {chinese_count} found")
+    else:
+        st.error("❌ **No chapter directories found**")
+        st.caption("Please ensure English and/or Chinese chapters are available")
+    
+    # Build button and progress handling
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        build_disabled = not structure_info["structure_type"]
+        if st.button("🔨 Build Alignment Map", disabled=build_disabled, help="Build alignment map from available chapters"):
+            if not build_disabled:
+                st.session_state.build_alignment_active = True
+                st.session_state.build_force_rebuild = False
+                st.rerun()
+    
+    with col2:
+        if st.button("🔄 Force Rebuild", disabled=build_disabled, help="Force complete rebuild ignoring existing alignment"):
+            if not build_disabled:
+                st.session_state.build_alignment_active = True
+                st.session_state.build_force_rebuild = True
+                st.rerun()
+    
+    # Handle build process
+    if st.session_state.get('build_alignment_active', False):
+        with st.spinner("Building alignment map..."):
+            success, message, build_stats = streamlit_build_alignment_map(
+                novel_name="way_of_the_devil",
+                force_rebuild=st.session_state.get('build_force_rebuild', False)
+            )
+            
+            if success:
+                st.success(message)
+                st.session_state.build_alignment_active = False
+                st.rerun()
+            else:
+                st.error(f"❌ Build failed: {message}")
+                if build_stats.get("error"):
+                    st.error(build_stats["error"])
+                st.session_state.build_alignment_active = False
 
 # Quick start workflow
 st.markdown("---")
@@ -237,7 +302,7 @@ else:
                     if title:
                         sanitized_title = title.split(' ')[0].strip().replace(':', '_').replace(' ', '_').lower()
                         site_name = validation.get('site_type', 'unknown').lower()
-                        output_directory_name = f"novel_raws/novel_{sanitized_title}_{site_name}"
+                        output_directory_name = f"data/novels/{sanitized_title}_{site_name}/raw_chapters"
 
                 except Exception as e:
                     st.warning(f"Could not pre-fill directory name: {e}")
@@ -321,6 +386,7 @@ else:
             status_text.info(message)
         
         try:
+            logger.debug(f"[DASHBOARD] PRE-CALL check: status_callback is {status_callback}")
             scraping_results = streamlit_scraper(
                 start_url=novel_url,
                 output_dir=output_directory,
@@ -342,23 +408,27 @@ else:
 
     with scraping_col2:
         st.subheader("📊 Scraping Status")
-    
-        raws_dir = "novel_raws"
-        if not os.path.exists(raws_dir):
-            os.makedirs(raws_dir)
 
-        existing_novels = [d for d in os.listdir(raws_dir) if os.path.isdir(os.path.join(raws_dir, d))]
-        
+        novels_dir = "data/novels"
+        if not os.path.exists(novels_dir):
+            os.makedirs(novels_dir)
+
+        existing_novels = [d for d in os.listdir(novels_dir) if os.path.isdir(os.path.join(novels_dir, d))]
+
         if existing_novels:
             st.metric("📚 Existing Scraped Novels", len(existing_novels))
-            
+
             with st.expander("📖 View Scraped Novels"):
                 for novel_dir in sorted(existing_novels):
-                    num_files = len([f for f in os.listdir(os.path.join(raws_dir, novel_dir)) if f.endswith('.txt')])
-                    st.text(f"- {novel_dir} ({num_files} chapters)")
+                    raw_chapters_path = os.path.join(novels_dir, novel_dir, "raw_chapters")
+                    if os.path.exists(raw_chapters_path):
+                        num_files = len([f for f in os.listdir(raw_chapters_path) if f.endswith('.txt')])
+                        st.text(f"- {novel_dir} ({num_files} chapters)")
+                    else:
+                        st.text(f"- {novel_dir} (no raw chapters found)")
         else:
             st.info("📭 No novels scraped yet.")
-            st.caption(f"Scraped data will be saved in the `{raws_dir}` directory.")
+            st.caption(f"Scraped data will be saved in the `{novels_dir}` directory.")
         
         if st.session_state.get('scraping_results'):
             # ... (results display logic)
