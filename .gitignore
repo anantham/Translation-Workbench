@@ -52,6 +52,7 @@ english_chapters/*.txt
 
 # Raw scraped novel data
 novel_raws/
+novels_english/
 
 # Organized data directories - cache/temp/backup files
 data/cache/
@@ -68,6 +69,7 @@ config.json
 # Development and tooling
 .specstory/
 pages/archive/
+scripts/archive/
 
 # Log files
 *.log
