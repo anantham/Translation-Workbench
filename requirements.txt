@@ -19,6 +19,7 @@ nltk
 
 # Chinese text processing
 jieba
+cn2an
 
 # For styling and linting
 black

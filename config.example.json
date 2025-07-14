@@ -5,12 +5,23 @@
   "api_delay": 1.0,
   "max_tokens": 8192,
   "temperature": 0.7,
+  "epub_metadata": {
+    "project_version": "v2.1.0",
+    "license": "MIT License",
+    "maintainer_email": "contact@example.com",
+    "framework_name": "Pluralistic Translation Workbench",
+    "novel_title": "极道天魔 (Way of the Devil)",
+    "original_author": "王雨 (Wang Yu)",
+    "source_language": "Chinese (Simplified)",
+    "target_language": "English"
+  },
   "comments": {
     "gemini_api_key": "Get your API key from https://aistudio.google.com/app/apikey",
     "default_model": "Model to use for translation generation",
     "default_history_count": "Default number of context chapters for few-shot learning",
     "api_delay": "Delay between API calls in seconds to avoid rate limiting",
     "max_tokens": "Maximum tokens for translation output",
-    "temperature": "Creativity/randomness level (0.0-1.0)"
+    "temperature": "Creativity/randomness level (0.0-1.0)",
+    "epub_metadata": "Configuration for EPUB generation metadata and project information"
   }
 }
