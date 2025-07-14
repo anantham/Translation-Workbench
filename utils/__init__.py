@@ -92,6 +92,8 @@ from .evaluation import (
     calculate_composite_score,
     load_bert_scores_from_reports,
     get_chunking_statistics,
+    SEMANTIC_AVAILABLE,
+    SEMANTIC_ERROR_MESSAGE,
 )
 
 # AI source and model management (COMPLETED)
@@ -236,7 +238,7 @@ __all__ = [
     'load_semantic_model', 'calculate_similarity', 'calculate_syntactic_similarity_fallback',
     'calculate_bleu_score', 'evaluate_translation_quality', 'get_available_translation_styles',
     'calculate_bert_scores_for_style', 'calculate_composite_score', 'load_bert_scores_from_reports',
-    'get_chunking_statistics',
+    'get_chunking_statistics', 'SEMANTIC_AVAILABLE', 'SEMANTIC_ERROR_MESSAGE',
     
     # AI source and model management (COMPLETED)
     'get_available_ai_sources', 'get_ai_translation_content', 'get_static_gemini_models',
