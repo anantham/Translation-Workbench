@@ -64,6 +64,7 @@ config.json
 
 # Development and tooling
 .specstory/
+pages/archive/
 
 # Log files
 *.log
