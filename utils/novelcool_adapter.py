@@ -15,6 +15,19 @@ class NovelcoolAdapter(ScraperAdapter):
         title_tag = soup.find('h2', class_='chapter-title')
         return title_tag.text.strip() if title_tag else None
 
+    def extract_chapter_number(self, soup):
+        """
+        Extracts the chapter number from the title for novelcool.
+        Example title: 'Chapter 10: Title'
+        """
+        import re
+        title = self.extract_title(soup)
+        if title:
+            match = re.search(r'Chapter\s+(\d+)', title, re.IGNORECASE)
+            if match:
+                return int(match.group(1)), f"{int(match.group(1)):04d}"
+        return None, None
+
     def extract_content(self, soup):
         content_div = soup.find('div', class_='chapter-reading-section')
         if content_div:

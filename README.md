@@ -11,6 +11,16 @@ A comprehensive framework to scrape, align, and prepare parallel text datasets f
 - **Corrects** alignment issues with surgical precision (preserve good alignments)
 - **Exports** clean, aligned datasets ready for ML model training
 
+### Supported Websites
+
+This framework currently provides robust support for the following web novel sites:
+
+- **dxmwx.org**
+- **kanunu8.com** / **kanunu.net**
+- **novelcool.com**
+
+The adapter-based architecture makes it easy to extend support to new websites.
+
 ## 📊 Core Workflow
 
 The project follows a clear, sequential pipeline designed to produce high-quality aligned datasets:
