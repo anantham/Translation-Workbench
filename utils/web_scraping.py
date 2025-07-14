@@ -22,63 +22,82 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
                       scrape_direction="Forwards (oldest to newest)"):
     adapter = get_adapter(start_url)
     if not adapter:
-        # Error handling as before
+        status_callback("❌ Invalid URL or unsupported website.")
         return
 
     os.makedirs(output_dir, exist_ok=True)
-
-    # --- Resume Logic ---
     manifest_path = os.path.join(output_dir, 'manifest.json')
+    
+    # --- Robust Resume Logic ---
     successful_chapters = []
     failed_chapters = []
     current_url = start_url
 
+    # 1. Get ground truth from file system
+    import re
+    disk_files = {f for f in os.listdir(output_dir) if f.endswith('.txt')}
+    disk_chapter_nums = set()
+    for f in disk_files:
+        match = re.match(r'([0-9_]+)_', f)
+        if match:
+            disk_chapter_nums.add(match.group(1))
+
+    # 2. Load manifest and reconcile
     if os.path.exists(manifest_path):
-        status_callback("Manifest found. Attempting to resume...")
-        logger.info(f"Manifest found at {manifest_path}. "
-                    "Loading previous session.")
+        status_callback("Manifest found. Verifying against file system...")
+        logger.info(f"Manifest found at {manifest_path}. Reconciling with disk.")
         with open(manifest_path, 'r', encoding='utf-8') as f:
             manifest = json.load(f)
-            successful_chapters = manifest.get('successful_chapters', [])
-            failed_chapters = manifest.get('failed_chapters', [])
+            
+        manifest_chapters = manifest.get('successful_chapters', [])
+        failed_chapters = manifest.get('failed_chapters', [])
+        
+        # Keep only manifest entries that have a corresponding file
+        verified_chapters = [
+            ch for ch in manifest_chapters 
+            if ch.get('filename_num') in disk_chapter_nums
+        ]
 
-        if successful_chapters:
-            last_chapter = successful_chapters[-1]
-            last_url = last_chapter['url']
-            status_callback(f"Resuming from chapter {last_chapter['number']}: "
-                            f"{last_chapter['title']}")
+        if len(verified_chapters) != len(manifest_chapters):
+            logger.warning(f"Manifest-disk mismatch. "
+                         f"Found {len(verified_chapters)} files for "
+                         f"{len(manifest_chapters)} manifest entries. "
+                         f"Using verified list.")
+            status_callback(f"⚠️ Found {len(verified_chapters)} chapters on disk, "
+                            f"which differs from manifest. Corrected state.")
 
-            try:
-                # Fetch the last successful page to find the next link
-                response = requests.get(last_url, timeout=20)
-                response.raise_for_status()
-                response.encoding = adapter.get_encoding()
-                soup = BeautifulSoup(response.text, 'html.parser')
-                next_link = adapter.get_next_link(soup, scrape_direction)
+        successful_chapters = sorted(verified_chapters, key=lambda x: x['number'])
 
-                if next_link:
-                    current_url = next_link
-                    logger.info(f"Resuming scrape from URL: {current_url}")
-                else:
-                    status_callback("Scraping is already complete.")
-                    logger.info("No next link found. Scraping is already complete.")
-                    return  # Exit if there's nothing more to scrape
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Failed to fetch next link from {last_url}: {e}")
-                # Fallback to starting from the beginning if fetching the next link fails
-                current_url = start_url
-                successful_chapters = []
-                failed_chapters = []
+    # 3. Determine starting point from verified data
+    if successful_chapters:
+        last_chapter = successful_chapters[-1]
+        last_url = last_chapter['url']
+        status_callback(f"Resuming from verified Chapter {last_chapter['number']}: "
+                        f"{last_chapter['title']}")
+        try:
+            response = requests.get(last_url, timeout=20)
+            response.raise_for_status()
+            response.encoding = adapter.get_encoding()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            next_link = adapter.get_next_link(soup, scrape_direction)
+
+            if next_link:
+                current_url = next_link
+                logger.info(f"Resuming scrape from URL: {current_url}")
+            else:
+                status_callback("✅ Scraping is already complete.")
+                return
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to fetch next link from {last_url}: {e}")
+            status_callback(f"❌ Could not fetch next chapter page. Please check connection.")
+            return
 
     # --- Main Scraping Loop ---
     chapters_scraped_this_session = 0
     total_time = 0
     errors = []
-
-    # The number of chapters to scrape is the total max minus what we already have
     chapters_to_scrape = max_chapters - len(successful_chapters)
 
-    # --- Manifest Saving Helper ---
     def _save_manifest():
         manifest_data = {
             'scrape_update_time': datetime.now().isoformat(),
@@ -95,10 +114,10 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
     try:
         while current_url and chapters_scraped_this_session < chapters_to_scrape:
             if st.session_state.get('stop_requested', False):
-                status_callback("Stop requested. Finishing current chapter "
-                                "and saving manifest...")
+                status_callback("🛑 Stop requested. Saving manifest...")
                 logger.info("Stop requested by user. Breaking scraping loop.")
                 break
+            
             start_time = time.time()
             status_callback(f"Scraping: {current_url}")
 
@@ -112,49 +131,52 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
                 content = adapter.extract_content(soup)
 
                 if title and content:
-                    # --- Chapter Number Validation Logic ---
                     chapter_number, filename_num = adapter.extract_chapter_number(soup)
                     
-                    # Determine the final chapter number to use
-                    if chapter_number is not None:
-                        # Validate against expected number if not the first chapter
-                        if successful_chapters:
-                            expected_chapter_number = successful_chapters[-1]['number'] + 1
-                            if chapter_number != expected_chapter_number:
-                                warning_msg = (f"Chapter number mismatch. "
-                                               f"Expected: {expected_chapter_number}, "
-                                               f"Got: {chapter_number} from title. "
-                                               f"Using title's number.")
-                                logger.warning(warning_msg)
-                                status_callback(f"⚠️ {warning_msg}")
-                    else:
-                        # Fallback to simple increment if number not in title
-                        chapter_number = (successful_chapters[-1]['number'] + 1 
-                                          if successful_chapters else 1)
+                    if chapter_number is None:
+                        chapter_number = (successful_chapters[-1]['number'] + 1 if successful_chapters else 1)
                         filename_num = f"{chapter_number:04d}"
                         logger.warning(f"Could not extract chapter number from title: '{title}'. "
                                        f"Falling back to incremental number: {chapter_number}.")
-
-                    # --- End Validation Logic ---
+                    
+                    # --- New Validation Logic ---
+                    if successful_chapters:
+                        expected_chapter_number = successful_chapters[-1]['number'] + 1
+                        if chapter_number != expected_chapter_number:
+                            warning_msg = (f"Chapter number mismatch. "
+                                           f"Expected: {expected_chapter_number}, "
+                                           f"Got: {chapter_number} from title. Using title's number.")
+                            logger.warning(warning_msg)
+                            status_callback(f"⚠️ {warning_msg}")
 
                     filename = sanitize_filename(f"{filename_num}_{title}.txt")
+                    
+                    # Check if this file already exists to prevent re-downloading
+                    if os.path.exists(os.path.join(output_dir, filename)):
+                         logger.info(f"Chapter {filename_num} already exists on disk. Skipping.")
+                         current_url = adapter.get_next_link(soup, scrape_direction)
+                         continue # Skip to next iteration
+
                     filepath = os.path.join(output_dir, filename)
                     with open(filepath, 'w', encoding='utf-8') as f:
                         f.write(content)
 
-                    chapter_data = {'number': chapter_number, 'title': title, 'url': current_url}
+                    chapter_data = {
+                        'number': chapter_number, 
+                        'filename_num': filename_num, 
+                        'title': title, 
+                        'url': current_url
+                    }
                     successful_chapters.append(chapter_data)
                     chapters_scraped_this_session += 1
                     
-                    # --- Live Manifest Save ---
                     _save_manifest()
                     
-                    logger.info(f"Successfully scraped Chapter {chapter_number}: "
-                                f"{title} from {current_url}")
+                    logger.info(f"Successfully scraped Chapter {filename_num}: {title}")
                     progress_callback(len(successful_chapters), max_chapters)
                 else:
-                    error_message = ("Could not extract title or content from "
-                                     f"{current_url}")
+                    # Handle error
+                    error_message = f"Could not extract title or content from {current_url}"
                     errors.append(error_message)
                     failed_chapters.append({'url': current_url, 'error': error_message})
                     logger.error(error_message)
@@ -172,7 +194,6 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
             total_time += (end_time - start_time)
             time.sleep(delay_seconds)
     finally:
-        # --- Final Manifest Save ---
         _save_manifest()
         status_callback("Scraping complete.")
 

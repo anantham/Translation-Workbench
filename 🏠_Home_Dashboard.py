@@ -5,7 +5,9 @@ Main entry point for the multi-page Streamlit application
 
 import streamlit as st
 import os
-from utils import load_api_config, show_config_status
+import time
+from utils.config import load_api_config, show_config_status
+from utils.web_scraping import validate_scraping_url, streamlit_scraper
 
 # Page configuration
 st.set_page_config(
@@ -176,25 +178,36 @@ with scraping_col1:
         help="Enter the URL of a chapter from the novel you want to scrape"
     )
     
+    # Dynamic output directory
+    output_directory_name = "novel_raws/new_novel"
+    validation = {'valid': False}
     if novel_url:
-        # Validate URL
         validation = validate_scraping_url(novel_url)
-        
-        # Show validation results
         if validation['valid']:
-            st.success(f"✅ Valid URL detected: {validation['site_type']}")
+            st.success(f"✅ Supported site: {validation['site_type']}")
+            try:
+                import requests
+                from bs4 import BeautifulSoup
+                from utils.adapter_factory import get_adapter
+                
+                adapter = get_adapter(novel_url)
+                response = requests.get(novel_url, timeout=10)
+                response.encoding = adapter.get_encoding()
+                soup = BeautifulSoup(response.text, 'html.parser')
+                title = adapter.extract_title(soup)
+                
+                if title:
+                    # Sanitize title for directory name
+                    sanitized_title = title.split(' ')[0].strip()                        .replace(':', '_').replace(' ', '_').lower()
+                    site_name = validation.get('site_type', 'unknown').lower()
+                    # All novels are now stored in the novel_raws directory
+                    output_directory_name = f"novel_raws/novel_{sanitized_title}_{site_name}"
+
+            except Exception as e:
+                st.warning(f"Could not pre-fill directory name: {e}")
         else:
-            st.warning("⚠️ URL validation issues detected")
-        
-        # Show recommendations and warnings
-        if validation['recommendations']:
-            for rec in validation['recommendations']:
-                st.info(rec)
-        
-        if validation['warnings']:
-            for warn in validation['warnings']:
-                st.warning(warn)
-    
+            st.error("Unsupported website.")
+
     # Scraping configuration
     st.subheader("⚙️ Scraping Configuration")
     
@@ -204,14 +217,14 @@ with scraping_col1:
         max_chapters = st.number_input(
             "Max Chapters to Scrape:",
             min_value=1,
-            max_value=1500,
+            max_value=3000,
             value=50,
             help="Maximum number of chapters to scrape in this session (772+ needed to match English chapters)"
         )
         
         output_directory = st.text_input(
             "Output Directory:",
-            value="novel_content_scraped",
+            value=output_directory_name,
             help="Directory name where chapters will be saved"
         )
     
@@ -228,119 +241,116 @@ with scraping_col1:
         scrape_direction = st.selectbox(
             "Scraping Direction:",
             ["Backwards (newest to oldest)", "Forwards (oldest to newest)"],
-            index=0,
+            index=1,
             help="Direction to follow chapter navigation links"
         )
     
-    # Start scraping button
-    if novel_url and validation['valid']:
-        if st.button("🚀 Start Scraping", type="primary"):
-            # Initialize scraping session state
-            if 'scraping_active' not in st.session_state:
-                st.session_state.scraping_active = False
+    # Button logic
+    col_start, col_stop, _ = st.columns([1, 1, 5])
+    
+    with col_start:
+        start_button_disabled = st.session_state.get('scraping_active', False)
+        if st.button("🚀 Start Scraping", type="primary", disabled=start_button_disabled):
+            st.session_state.scraping_active = True
+            st.session_state.stop_requested = False
+            st.session_state.scraping_results = None
+            st.rerun() # Rerun to show the stop button and disable the start button
+
+    with col_stop:
+        if st.session_state.get('scraping_active', False):
+            if st.button("🛑 Stop Scraping"):
+                st.session_state.stop_requested = True
+                st.warning("Stop request received. Finishing current chapter...")
+
+    # Main scraping execution block
+    if st.session_state.get('scraping_active', False):
+        # Create containers for real-time updates
+        progress_container = st.container()
+        status_container = st.container()
+        results_container = st.container()
+        
+        with progress_container:
+            progress_bar = st.progress(0)
+            progress_text = st.empty()
+        
+        with status_container:
+            status_text = st.empty()
+            status_text.info("🌐 Initializing scraper...")
+        
+        # Define callback functions for real-time updates
+        def progress_callback(current, total):
+            progress = current / total if total > 0 else 0
+            progress_bar.progress(progress)
+            progress_text.text(f"Progress: {current}/{total} chapters ({progress:.1%})")
+        
+        def status_callback(message):
+            status_text.info(message)
+        
+        # Start scraping
+        try:
+            scraping_results = streamlit_scraper(
+                start_url=novel_url,
+                output_dir=output_directory,
+                max_chapters=max_chapters,
+                delay_seconds=delay_seconds,
+                progress_callback=progress_callback,
+                status_callback=status_callback,
+                scrape_direction=scrape_direction
+            )
             
-            if not st.session_state.scraping_active:
-                st.session_state.scraping_active = True
-                st.session_state.scraping_results = None
-                
-                # Create containers for real-time updates
-                progress_container = st.container()
-                status_container = st.container()
-                results_container = st.container()
-                
-                with progress_container:
-                    progress_bar = st.progress(0)
-                    progress_text = st.empty()
-                
-                with status_container:
-                    status_text = st.empty()
-                    status_text.info("🌐 Initializing scraper...")
-                
-                # Define callback functions for real-time updates
-                def progress_callback(current, total):
-                    progress = current / total if total > 0 else 0
-                    progress_bar.progress(progress)
-                    progress_text.text(f"Progress: {current}/{total} chapters ({progress:.1%})")
-                
-                def status_callback(message):
-                    status_text.info(message)
-                
-                # Start scraping
-                try:
-                    scraping_results = streamlit_scraper(
-                        start_url=novel_url,
-                        output_dir=output_directory,
-                        max_chapters=max_chapters,
-                        delay_seconds=delay_seconds,
-                        progress_callback=progress_callback,
-                        status_callback=status_callback
-                    )
-                    
-                    st.session_state.scraping_results = scraping_results
-                    st.session_state.scraping_active = False
-                    
-                    # Show final results
-                    with results_container:
-                        if scraping_results['success']:
-                            st.success(f"🎉 Scraping completed successfully!")
-                            st.metric("Chapters Scraped", scraping_results['chapters_scraped'])
-                            st.metric("Total Time", f"{scraping_results['total_time']:.1f}s")
-                            
-                            if scraping_results['errors']:
-                                with st.expander("⚠️ Errors Encountered"):
-                                    for error in scraping_results['errors']:
-                                        st.error(error)
-                        else:
-                            st.error("❌ Scraping failed")
-                            for error in scraping_results['errors']:
-                                st.error(error)
-                                
-                except Exception as e:
-                    st.session_state.scraping_active = False
-                    st.error(f"💥 Scraping failed with error: {str(e)}")
-            else:
-                st.warning("🔄 Scraping already in progress...")
+            st.session_state.scraping_results = scraping_results
+            
+        except Exception as e:
+            st.error(f"💥 Scraping failed with a critical error: {str(e)}")
+            st.session_state.scraping_results = {
+                'success': False, 'errors': [str(e)], 'chapters_scraped': 0, 'total_time': 0
+            }
+        finally:
+            # Always turn off scraping active state and rerun
+            st.session_state.scraping_active = False
+            st.rerun()
 
 with scraping_col2:
     st.subheader("📊 Scraping Status")
     
-    # Show existing scraped data
-    if os.path.exists("novel_content_scraped"):
-        scraped_files = [f for f in os.listdir("novel_content_scraped") if f.endswith('.txt')]
-        if scraped_files:
-            st.metric("📚 Existing Chapters", len(scraped_files))
-            
-            # Show sample filenames
-            with st.expander("📋 Sample Files"):
-                for filename in sorted(scraped_files)[:5]:
-                    st.text(filename)
-                if len(scraped_files) > 5:
-                    st.caption(f"...and {len(scraped_files) - 5} more files")
-        else:
-            st.info("📭 No chapters scraped yet")
+    # Show existing scraped data from the central directory
+    raws_dir = "novel_raws"
+    if not os.path.exists(raws_dir):
+        os.makedirs(raws_dir)
+
+    existing_novels = [d for d in os.listdir(raws_dir) if os.path.isdir(os.path.join(raws_dir, d))]
+    
+    if existing_novels:
+        st.metric("📚 Existing Scraped Novels", len(existing_novels))
+        
+        with st.expander("📖 View Scraped Novels"):
+            for novel_dir in sorted(existing_novels):
+                num_files = len([f for f in os.listdir(os.path.join(raws_dir, novel_dir)) if f.endswith('.txt')])
+                st.text(f"- {novel_dir} ({num_files} chapters)")
     else:
-        st.info("📁 Output directory will be created when scraping starts")
+        st.info("📭 No novels scraped yet.")
+        st.caption(f"Scraped data will be saved in the `{raws_dir}` directory.")
     
     # Show scraping results if available
-    if hasattr(st.session_state, 'scraping_results') and st.session_state.scraping_results:
+    if st.session_state.get('scraping_results'):
         results = st.session_state.scraping_results
         
         st.subheader("📈 Last Scraping Results")
         
-        if results['success']:
+        if results.get('success', False):
             st.success("✅ Success")
-            st.metric("Chapters", results['chapters_scraped'])
-            st.metric("Time", f"{results['total_time']:.1f}s")
+            st.metric("Chapters", results.get('chapters_scraped', 0))
+            st.metric("Time", f"{results.get('total_time', 0):.1f}s")
             
-            if results['chapters']:
+            if results.get('chapters'):
                 with st.expander("📖 Scraped Chapters"):
                     for chapter in results['chapters'][:5]:
                         st.text(f"Ch.{chapter['number']}: {chapter['title'][:30]}...")
                     if len(results['chapters']) > 5:
                         st.caption(f"...and {len(results['chapters']) - 5} more")
         else:
-            st.error("❌ Last scraping failed")
-            if results['errors']:
+            st.error("❌ Last scraping failed or was stopped.")
+            if results.get('errors'):
                 for error in results['errors'][:3]:
                     st.error(error)
     

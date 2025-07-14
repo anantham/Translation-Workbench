@@ -29,6 +29,67 @@ st.set_page_config(
 st.title("📈 Translation Style Analytics")
 st.caption("**Performance Visualization Dashboard** | Analyze translation quality trends across chapters and compare style effectiveness")
 
+# ==============================================================================
+#                    INLINE COMMENT EVENT BUS PROCESSOR
+# ==============================================================================
+# Process any pending comment events from session state before rendering the rest of the page
+
+if 'last_comment_event' in st.session_state and st.session_state.last_comment_event is not None:
+    print("🎉 EVENT BUS: Detected comment event in session state")
+    event_data_str = st.session_state.last_comment_event
+    
+    # Clear the event immediately to prevent reprocessing
+    st.session_state.last_comment_event = None
+    print("🎉 EVENT BUS: Cleared event from session state")
+    
+    try:
+        event_data = json.loads(event_data_str)
+        print(f"🎉 EVENT BUS: Parsed event data: {event_data.get('type')}")
+        
+        if event_data.get('type') == 'comment_saved':
+            print("🎉 EVENT BUS: Processing comment_saved event")
+            
+            # Extract and clean style name
+            raw_style_name = event_data.get('style_name', 'unknown')
+            processed_style_name = raw_style_name.replace("Custom: ", "") if raw_style_name.startswith("Custom: ") else "official"
+            print(f"🎉 EVENT BUS: Style '{raw_style_name}' -> '{processed_style_name}'")
+            
+            # Prepare comment data
+            comment_data = {
+                'start_offset': event_data['start_char'],
+                'end_offset': event_data['end_char'],
+                'selected_text': event_data['text'],
+                'dimension': event_data['dimension'],
+                'comment': event_data['comment'],
+                'evaluator_name': 'User',
+                'timestamp': event_data['timestamp']
+            }
+            
+            print(f"🎉 EVENT BUS: Saving comment for chapter {event_data['chapter_id']}")
+            
+            # Save the comment
+            from utils import add_inline_comment
+            comment_id = add_inline_comment(
+                processed_style_name,
+                event_data['chapter_id'],
+                comment_data
+            )
+            
+            if comment_id:
+                st.toast(f"💬 Comment saved for Ch. {event_data['chapter_id']}!", icon="✅")
+                print(f"🎉 EVENT BUS: SUCCESS - Comment saved with ID {comment_id}")
+            else:
+                st.toast("❌ Failed to save comment", icon="🔥")
+                print("🎉 EVENT BUS: FAILURE - add_inline_comment returned None")
+                
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"🎉 EVENT BUS: ERROR - Could not process event: {e}")
+        print(f"🎉 EVENT BUS: Raw event data: {event_data_str}")
+
+# ==============================================================================
+#                         END EVENT BUS PROCESSOR
+# ==============================================================================
+
 # Load alignment map early to get available chapters
 alignment_map = load_alignment_map()
 max_available_chapters = get_max_available_chapters(alignment_map) if alignment_map else 0
@@ -413,80 +474,54 @@ with tab2:
         )
         
         # Handle automatic inline commenting
-        print("🔍 DEBUG: selection_event received:", selection_event)
-        print("🔍 DEBUG: selection_event type:", type(selection_event))
+        print("="*80)
+        print("🔍 EVENT RECEIVED: Inline comment event processing started")
+        print(f"🔍 EVENT TYPE: {type(selection_event)}")
+        print(f"🔍 EVENT DATA: {str(selection_event)[:200]}...")
+        print(f"🔍 CURRENT CHAPTER: {selected_chapter}")
+        print(f"🔍 RIGHT STYLE (raw): '{right_style}'")
         
-        if selection_event:
+        # Check for session state comment data as alternative
+        import hashlib
+        component_id = f"sync_scroll_{hashlib.md5(f'text_display_{selected_chapter}_{right_style}'.encode()).hexdigest()[:8]}"
+        session_key = f'comment_data_{component_id}'
+        print(f"🔍 CHECKING SESSION STATE: key='{session_key}'")
+        
+        if session_key in st.session_state:
+            print(f"🔍 SESSION STATE FOUND: {st.session_state[session_key]}")
             try:
-                # Handle string-based event data (JSON from JavaScript)
-                if isinstance(selection_event, str):
-                    print("🔍 DEBUG: Processing string-based event data")
-                    try:
-                        print("🔍 DEBUG: Attempting to parse JSON from string")
-                        event_data = json.loads(selection_event)
-                        print("🔍 DEBUG: Successfully parsed JSON:", event_data)
-                        print("🔍 DEBUG: Event type:", event_data.get('type'))
-                        
-                        if event_data.get('type') == 'comment_saved':
-                            print("🔍 DEBUG: Processing comment_saved event")
-                            
-                            # Save the comment directly using the event data
-                            from utils import add_inline_comment
-                            
-                            comment_data = {
-                                'start_char': event_data['start_char'],
-                                'end_char': event_data['end_char'],
-                                'selected_text': event_data['text'],
-                                'dimension': event_data['dimension'],
-                                'comment': event_data['comment'],
-                                'evaluator_name': 'User',  # Could be made configurable
-                                'evaluator_email': '',
-                                'timestamp': event_data['timestamp']
-                            }
-                            
-                            print("🔍 DEBUG: Comment data prepared:", comment_data)
-                            print("🔍 DEBUG: Style name:", event_data['style_name'])
-                            print("🔍 DEBUG: Chapter ID:", event_data['chapter_id'])
-                            
-                            # Save the comment
-                            print("🔍 DEBUG: Calling add_inline_comment function")
-                            try:
-                                comment_id = add_inline_comment(
-                                    event_data['style_name'], 
-                                    event_data['chapter_id'], 
-                                    comment_data
-                                )
-                                print("🔍 DEBUG: add_inline_comment returned ID:", comment_id)
-                                
-                                if comment_id:
-                                    st.success(f"💬 Comment saved! \"{event_data['text'][:50]}{'...' if len(event_data['text']) > 50 else ''}\"")
-                                    print("🔍 DEBUG: Comment saved successfully, allowing temporary feedback to complete")
-                                else:
-                                    print("❌ DEBUG: add_inline_comment returned falsy value")
-                                    st.error("Failed to save comment")
-                            except Exception as e:
-                                print(f"❌ DEBUG: Exception in add_inline_comment: {str(e)}")
-                                print("🔍 DEBUG: Exception type:", type(e).__name__)
-                                import traceback
-                                print("🔍 DEBUG: Full traceback:", traceback.format_exc())
-                                st.error("Failed to save comment due to exception")
-                                
-                    except json.JSONDecodeError as e:
-                        print("❌ DEBUG: JSON decode error:", str(e))
-                        print("🔍 DEBUG: Raw string content:", repr(selection_event))
-                
-                # Check if selection_event is a dict-like object with text selection data
-                elif isinstance(selection_event, dict) and selection_event.get('type') == 'text_selected':
-                    print("🔍 DEBUG: Processing dict-based text_selected event")
-                    st.session_state['pending_comment'] = selection_event
-                    st.rerun()
-                else:
-                    print("🔍 DEBUG: selection_event not string or dict with text_selected")
-                    
-            except (AttributeError, TypeError) as e:
-                print("❌ DEBUG: AttributeError/TypeError in event handling:", str(e))
-                import traceback
-                print("🔍 DEBUG: Exception traceback:", traceback.format_exc())
+                session_data = json.loads(st.session_state[session_key])
+                print(f"🔍 SESSION DATA PARSED: {session_data}")
+                selection_event = st.session_state[session_key]  # Use session state data
+                # Clear the session state to prevent reprocessing
+                del st.session_state[session_key]
+                print("🔍 SESSION STATE: Cleared after processing")
+            except Exception as e:
+                print(f"❌ SESSION STATE ERROR: {e}")
+        else:
+            print("🔍 SESSION STATE: No data found")
+        
+        # NEW SIMPLIFIED APPROACH - Check what we actually get from the component
+        print(f"🔍 COMPONENT RETURN TYPE: {type(selection_event)}")
+        print(f"🔍 COMPONENT RETURN VALUE: {str(selection_event)[:100]}...")
+        
+        # Check if we EVER get string data from the component
+        if isinstance(selection_event, str) and selection_event.strip():
+            print("🔍 STRING DATA RECEIVED!")
+            print(f"🔍 STRING CONTENT: {selection_event}")
+        elif selection_event is None:
+            print("🔍 NONE: Component returned None")
+        else:
+            print("🔍 OTHER TYPE: Component returned non-string, non-None value")
+            print(f"🔍 IS DELTAGENERATOR: {type(selection_event).__name__ == 'DeltaGenerator'}")
+            
+        # NEW APPROACH: Use session state as event bus
+        if selection_event and isinstance(selection_event, str):
+            print("🔍 STORING EVENT: Moving event to session state for safe processing")
+            st.session_state['last_comment_event'] = selection_event
+            st.rerun()
+        else:
+            print("🔍 NO STRING EVENT: Component did not return string data")
         
         # Show comparison stats
         col1, col2, col3 = st.columns(3)
@@ -511,6 +546,12 @@ with tab2:
         # Display existing comments
         from utils import load_inline_comments
         style_name_clean = right_style.replace("Custom: ", "") if right_style.startswith("Custom: ") else "official"
+        
+        print(f"🔍 DISPLAY COMMENTS: Loading comments for display")
+        print(f"   ├─ Original style: '{right_style}'")
+        print(f"   ├─ Cleaned style: '{style_name_clean}'")
+        print(f"   └─ Chapter: {selected_chapter}")
+        
         existing_comments = load_inline_comments(style_name_clean, str(selected_chapter))
         
         if existing_comments:

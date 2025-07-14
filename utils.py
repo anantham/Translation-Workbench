@@ -14,6 +14,9 @@ from datetime import datetime
 from collections import Counter
 import streamlit as st
 from difflib import SequenceMatcher
+from bs4 import BeautifulSoup
+
+from utils.logging import logger
 
 # --- Organized Data Structure ---
 DATA_DIR = "data"
@@ -205,6 +208,134 @@ def get_config_value(key, default=None):
         except (json.JSONDecodeError, IOError):
             pass
     return default
+
+def load_epub_metadata_config():
+    """Load EPUB metadata configuration from config.json with fallback defaults."""
+    metadata = get_config_value('epub_metadata', {})
+    
+    # Fallback defaults for missing values
+    defaults = {
+        "project_version": "v2.1.0",
+        "license": "MIT License", 
+        "maintainer_email": "contact@example.com",
+        "framework_name": "Pluralistic Translation Workbench",
+        "novel_title": "极道天魔 (Way of the Devil)",
+        "original_author": "王雨 (Wang Yu)",
+        "source_language": "Chinese (Simplified)",
+        "target_language": "English",
+        "github_url": "https://github.com/anthropics/translation-workbench",
+        "feature_requests_url": "https://github.com/anthropics/translation-workbench/issues",
+        "documentation_url": "https://docs.example.com/translation-workbench",
+        "github_discussions_url": "https://github.com/anthropics/translation-workbench/discussions",
+        "license_url": "https://github.com/anthropics/translation-workbench/blob/main/LICENSE",
+        "translation_philosophy": "This translation was generated using an AI-powered framework designed for consistent, high-quality xianxia/wuxia novel translation. The goal is to allow you the reader to have full control over the translation style, meaning every novel can be translated into many pluralistic versions."
+    }
+    
+    # Merge with defaults for any missing keys
+    for key, default_value in defaults.items():
+        if key not in metadata:
+            metadata[key] = default_value
+    
+    return metadata
+
+def calculate_word_counts(translation_dir):
+    """Calculate word counts for Chinese source and English translation files."""
+    import glob
+    import os
+    
+    # Initialize counters
+    chinese_char_count = 0
+    english_word_count = 0
+    
+    # Find Chinese files (assuming they're in a parallel directory structure)
+    chinese_dir = os.path.join(os.path.dirname(translation_dir), "..", "novel_content_dxmwx")
+    if os.path.exists(chinese_dir):
+        chinese_files = glob.glob(os.path.join(chinese_dir, "*.txt"))
+        for file_path in chinese_files:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    # Count Chinese characters (excluding whitespace and punctuation)
+                    chinese_chars = len([char for char in content if '\u4e00' <= char <= '\u9fff'])
+                    chinese_char_count += chinese_chars
+            except Exception as e:
+                print(f"Warning: Could not read Chinese file {file_path}: {e}")
+    
+    # Count English words in translation directory
+    if os.path.exists(translation_dir):
+        english_files = glob.glob(os.path.join(translation_dir, "*.txt"))
+        for file_path in english_files:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    # Split by whitespace and count words
+                    words = content.split()
+                    english_word_count += len(words)
+            except Exception as e:
+                print(f"Warning: Could not read English file {file_path}: {e}")
+    
+    # Calculate expansion ratio
+    expansion_ratio = "Unknown"
+    if chinese_char_count > 0 and english_word_count > 0:
+        ratio = english_word_count / chinese_char_count
+        expansion_ratio = f"{ratio:.2f}"
+    
+    return {
+        'chinese_characters': chinese_char_count,
+        'english_words': english_word_count, 
+        'expansion_ratio': expansion_ratio
+    }
+
+def calculate_average_quality_metrics(translation_dir):
+    """Calculate average quality metrics from existing evaluation data."""
+    # Look for evaluation files in the translation directory
+    evaluation_files = []
+    if os.path.exists(translation_dir):
+        for file in os.listdir(translation_dir):
+            if file.endswith('_evaluation.json'):
+                evaluation_files.append(os.path.join(translation_dir, file))
+    
+    if not evaluation_files:
+        return {
+            'avg_bleu_score': 'No evaluations available',
+            'avg_semantic_similarity': 'No evaluations available',
+            'consistency_score': 'No evaluations available'
+        }
+    
+    # Collect all scores
+    bleu_scores = []
+    semantic_scores = []
+    
+    for eval_file in evaluation_files:
+        try:
+            with open(eval_file, 'r', encoding='utf-8') as f:
+                eval_data = json.load(f)
+                if 'bleu_score' in eval_data and eval_data['bleu_score'] is not None:
+                    bleu_scores.append(eval_data['bleu_score'])
+                if 'semantic_similarity' in eval_data and eval_data['semantic_similarity'] is not None:
+                    semantic_scores.append(eval_data['semantic_similarity'])
+        except Exception as e:
+            print(f"Warning: Could not read evaluation file {eval_file}: {e}")
+    
+    # Calculate averages
+    avg_bleu = sum(bleu_scores) / len(bleu_scores) if bleu_scores else None
+    avg_semantic = sum(semantic_scores) / len(semantic_scores) if semantic_scores else None
+    
+    # Calculate consistency score (based on standard deviation of semantic scores)
+    consistency = "High"
+    if len(semantic_scores) > 1:
+        import statistics
+        std_dev = statistics.stdev(semantic_scores)
+        if std_dev > 0.15:
+            consistency = "Medium"
+        elif std_dev > 0.25:
+            consistency = "Low"
+    
+    return {
+        'avg_bleu_score': f"{avg_bleu:.3f}" if avg_bleu is not None else 'No data available',
+        'avg_semantic_similarity': f"{avg_semantic:.3f}" if avg_semantic is not None else 'No data available', 
+        'consistency_score': f"{consistency} (σ={statistics.stdev(semantic_scores):.3f})" if len(semantic_scores) > 1 else consistency
+    }
 
 def show_config_status():
     """Display configuration status for debugging."""
@@ -2565,49 +2696,118 @@ def save_inline_comments(style_name, chapter_id, comments):
     """Save inline comments for a specific chapter and style."""
     import json
     
-    print("🔍 DEBUG: save_inline_comments function called")
-    print("🔍 DEBUG: style_name:", style_name)
-    print("🔍 DEBUG: chapter_id:", chapter_id)
-    print("🔍 DEBUG: comments to save:", len(comments), "comments")
+    print("="*60)
+    print("🔍 SAVE START: save_inline_comments function called")
+    print(f"🔍 SAVE PARAMS: style_name='{style_name}', chapter_id='{chapter_id}'")
+    print(f"🔍 SAVE DATA: {len(comments)} comments to save")
+    print(f"🔍 EVALUATIONS_DIR: {EVALUATIONS_DIR}")
+    
+    # Log each comment being saved
+    for i, comment in enumerate(comments):
+        print(f"🔍 COMMENT {i+1}: '{comment.get('selected_text', '')[:50]}...'")
+        print(f"   ├─ dimension: {comment.get('dimension', 'unknown')}")
+        print(f"   ├─ start_char: {comment.get('start_char', 'unknown')}")
+        print(f"   └─ comment: '{comment.get('comment', '')[:30]}...'")
     
     try:
         style_eval_dir = os.path.join(EVALUATIONS_DIR, style_name)
-        print("🔍 DEBUG: style_eval_dir:", style_eval_dir)
-        print("🔍 DEBUG: EVALUATIONS_DIR:", EVALUATIONS_DIR)
+        print(f"🔍 TARGET DIR: {style_eval_dir}")
+        
+        # Check directory before creation
+        dir_exists_before = os.path.exists(style_eval_dir)
+        print(f"🔍 DIR EXISTS (before): {dir_exists_before}")
         
         os.makedirs(style_eval_dir, exist_ok=True)
-        print("🔍 DEBUG: Directory created/confirmed")
-        print("🔍 DEBUG: Directory exists:", os.path.exists(style_eval_dir))
+        
+        # Check directory after creation
+        dir_exists_after = os.path.exists(style_eval_dir)
+        print(f"🔍 DIR EXISTS (after): {dir_exists_after}")
+        
+        if not dir_exists_after:
+            print("❌ CRITICAL: Directory creation failed!")
+            return False
         
         comments_file = os.path.join(style_eval_dir, f'inline_comments_ch{chapter_id}.json')
-        print("🔍 DEBUG: comments_file path:", comments_file)
+        print(f"🔍 TARGET FILE: {comments_file}")
         
+        # Check if file exists before writing
+        file_exists_before = os.path.exists(comments_file)
+        print(f"🔍 FILE EXISTS (before): {file_exists_before}")
+        
+        if file_exists_before:
+            old_size = os.path.getsize(comments_file)
+            print(f"🔍 OLD FILE SIZE: {old_size} bytes")
+        
+        # Write the file
+        print("🔍 WRITING: Starting file write operation...")
         with open(comments_file, 'w', encoding='utf-8') as f:
             json.dump(comments, f, indent=2, ensure_ascii=False)
+        print("🔍 WRITE COMPLETE: File write operation finished")
         
-        print("🔍 DEBUG: File written successfully")
-        print("🔍 DEBUG: File exists after write:", os.path.exists(comments_file))
+        # Immediate verification
+        file_exists_after = os.path.exists(comments_file)
+        print(f"🔍 FILE EXISTS (after): {file_exists_after}")
         
-        if os.path.exists(comments_file):
+        if file_exists_after:
             file_size = os.path.getsize(comments_file)
-            print("🔍 DEBUG: File size:", file_size, "bytes")
+            print(f"🔍 NEW FILE SIZE: {file_size} bytes")
+            
+            # Read back to verify content
+            try:
+                with open(comments_file, 'r', encoding='utf-8') as f:
+                    verification = json.load(f)
+                print(f"🔍 VERIFICATION: Successfully read back {len(verification)} comments")
+                print("✅ SAVE SUCCESS: File written and verified successfully")
+                print("="*60)
+                return True
+            except Exception as verify_error:
+                print(f"❌ VERIFICATION FAILED: Could not read back saved file: {verify_error}")
+                print("="*60)
+                return False
+        else:
+            print("❌ CRITICAL: File does not exist after write operation!")
+            print("="*60)
+            return False
             
     except Exception as e:
-        print(f"❌ DEBUG: Exception in save_inline_comments: {str(e)}")
-        print("🔍 DEBUG: Exception type:", type(e).__name__)
+        print(f"❌ SAVE ERROR: Exception in save_inline_comments: {str(e)}")
+        print(f"🔍 ERROR TYPE: {type(e).__name__}")
         import traceback
-        print("🔍 DEBUG: Full traceback:", traceback.format_exc())
+        print(f"🔍 TRACEBACK:\n{traceback.format_exc()}")
+        print("="*60)
+        return False
 
 def load_inline_comments(style_name, chapter_id):
     """Load inline comments for a specific chapter and style."""
     import json
-    comments_file = os.path.join(EVALUATIONS_DIR, style_name, f'inline_comments_ch{chapter_id}.json')
+    
+    print(f"🔍 LOAD START: style_name='{style_name}', chapter_id='{chapter_id}'")
+    print(f"🔍 EVALUATIONS_DIR: {EVALUATIONS_DIR}")
+    
+    style_dir = os.path.join(EVALUATIONS_DIR, style_name)
+    comments_file = os.path.join(style_dir, f'inline_comments_ch{chapter_id}.json')
+    
+    print(f"🔍 STYLE DIR: {style_dir} (exists: {os.path.exists(style_dir)})")
+    print(f"🔍 COMMENTS FILE: {comments_file} (exists: {os.path.exists(comments_file)})")
+    
     if os.path.exists(comments_file):
         try:
+            file_size = os.path.getsize(comments_file)
+            print(f"🔍 FILE SIZE: {file_size} bytes")
+            
             with open(comments_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
+                comments = json.load(f)
+            
+            print(f"🔍 LOADED: {len(comments)} comments successfully")
+            for i, comment in enumerate(comments):
+                print(f"🔍 COMMENT {i+1}: '{comment.get('selected_text', '')[:30]}...' [{comment.get('dimension', 'unknown')}]")
+            
+            return comments
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"❌ LOAD ERROR: {str(e)}")
+    else:
+        print("🔍 NO FILE: No comments file found, returning empty list")
+    
     return []
 
 def add_inline_comment(style_name, chapter_id, comment_data):
@@ -2744,9 +2944,11 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
         left_escaped = escape_html(left_text)
         right_escaped = escape_html(right_text)
     
-    # Generate unique IDs for this component instance
+    # Generate stable, unique IDs for this component instance
     import random
-    component_id = f"sync_scroll_{random.randint(1000, 9999)}"
+    import hashlib
+    # Use provided key to create stable component ID, fallback to random for backwards compatibility
+    component_id = f"sync_scroll_{hashlib.md5(key.encode()).hexdigest()[:8]}" if key else f"sync_scroll_{random.randint(1000, 9999)}"
     
     # Optimize styling based on full_width parameter
     container_gap = "8px" if full_width else "20px"
@@ -2805,18 +3007,20 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
             }}
         }});
         
-        // Fallback if Streamlit object is not available
+        // Check Streamlit availability and add debugging
         if (typeof Streamlit === 'undefined') {{
-            console.log('🔍 DEBUG: Streamlit not available, creating mock object');
+            console.log('🔍 JS DEBUG: Streamlit object not available, creating mock');
             window.Streamlit = {{
                 setComponentValue: function(value) {{
-                    console.log('🔍 DEBUG: Mock setComponentValue called with:', value);
+                    console.log('🔍 JS DEBUG: Mock setComponentValue called with:', value);
                     parent.postMessage({{
                         type: 'streamlit:setComponentValue',
                         value: value
                     }}, '*');
                 }}
             }};
+        }} else {{
+            console.log('🔍 JS DEBUG: Streamlit object available');
         }}
     </script>
     <style>
@@ -3113,12 +3317,28 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
                     style_name: '{style_name}',
                     timestamp: new Date().toISOString()
                 }};
-                console.log('🔍 DEBUG: Event data prepared:', eventData);
-                console.log('🔍 DEBUG: Calling Streamlit.setComponentValue');
+                console.log('🔍 JS DEBUG: Event data prepared:', eventData);
+                console.log('🔍 JS DEBUG: JSON stringified data:', JSON.stringify(eventData));
+                console.log('🔍 JS DEBUG: Calling Streamlit.setComponentValue');
+                console.log('🔍 JS DEBUG: Streamlit object type:', typeof Streamlit);
                 
                 try {{
-                    Streamlit.setComponentValue(JSON.stringify(eventData));
-                    console.log('🔍 DEBUG: setComponentValue called successfully');
+                    // Primary method: setComponentValue
+                    const result = Streamlit.setComponentValue(JSON.stringify(eventData));
+                    console.log('🔍 JS DEBUG: setComponentValue result:', result);
+                    console.log('🔍 JS DEBUG: setComponentValue called successfully');
+                    
+                    // Alternative method: Store in a hidden div that Python can detect
+                    let hiddenDiv = document.getElementById('comment-bridge-{component_id}');
+                    if (!hiddenDiv) {{
+                        hiddenDiv = document.createElement('div');
+                        hiddenDiv.id = 'comment-bridge-{component_id}';
+                        hiddenDiv.style.display = 'none';
+                        document.body.appendChild(hiddenDiv);
+                    }}
+                    hiddenDiv.textContent = JSON.stringify(eventData);
+                    hiddenDiv.setAttribute('data-timestamp', Date.now());
+                    console.log('🔍 JS DEBUG: Comment data stored in hidden div');
                     
                     // Create temporary visual feedback
                     const existingComments = document.getElementById('existing-comments-{component_id}');
@@ -3140,7 +3360,9 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
                         }}, 3000);
                     }}
                 }} catch (error) {{
-                    console.error('❌ DEBUG: Error calling setComponentValue:', error);
+                    console.error('❌ JS DEBUG: Error calling setComponentValue:', error);
+                    console.error('🔍 JS DEBUG: Error details:', error.message);
+                    console.error('🔍 JS DEBUG: Error stack:', error.stack);
                 }}
                 
                 hideSidebarCommentForm();
@@ -3177,6 +3399,7 @@ def create_synchronized_text_display(left_text, right_text, left_title="Left Tex
     try:
         import streamlit.components.v1 as components
         # Return the component value to capture selection events
+        # HTML components don't support key parameter directly, but we use internal component_id for stability
         selection_event = components.html(html_content, height=height + 80)
         return selection_event
     except ImportError:

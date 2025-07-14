@@ -2,12 +2,12 @@
 
 ## 📊 Performance Analytics
 - **Total Time**: {total_time}
-- **API Cost**: ${estimated_cost_usd} ({total_tokens:,} tokens)
+- **API Cost**: ${estimated_cost_usd} ({total_tokens} tokens)
 - **Processing Speed**: {chapters_per_minute} chapters/minute
 - **Average Time per Chapter**: {avg_time_per_chapter}
 - **API Calls Made**: {api_calls_made}
 
-## 🤖 AI Configuration  
+## 🤖 AI Configuration
 - **Model**: {model_name} ({api_provider})
 - **Model Version**: {model_version}
 - **Translation Strategy**: {translation_style}
@@ -21,8 +21,8 @@
 - **Novel**: {novel_title} by {original_author}
 - **Chapters**: {chapter_range} ({total_chapters} chapters)
 - **Languages**: {source_language} → {target_language}
-- **Word Count (Chinese)**: {word_count_chinese:,} characters
-- **Word Count (English)**: {word_count_english:,} words
+- **Word Count (Chinese)**: {word_count_chinese} characters
+- **Word Count (English)**: {word_count_english} words
 - **Expansion Ratio**: {expansion_ratio}x
 
 ## 🔗 Project Information
@@ -42,8 +42,8 @@
 - **Terminology Standardization**: {terminology_standardization}
 
 ## 💰 Cost Breakdown
-- **Input Tokens**: {input_tokens:,} tokens (${input_cost})
-- **Output Tokens**: {output_tokens:,} tokens (${output_cost})
+- **Input Tokens**: {input_tokens} tokens (${input_cost})
+- **Output Tokens**: {output_tokens} tokens (${output_cost})
 - **Rate**: ${cost_per_1k_tokens}/1K tokens
 - **Average Cost per Chapter**: ${avg_cost_per_chapter}
 
@@ -55,7 +55,10 @@
 - **Framework Version**: {framework_version}
 
 ## 🎯 Translation Philosophy
-This translation was generated using an AI-powered framework designed for consistent, high-quality xianxia/wuxia novel translation. Key principles:
+
+{translation_philosophy}
+
+Key principles:
 
 - **Cultural Preservation**: Maintains important Chinese cultural concepts and terminology
 - **Readability**: Optimized for Western fantasy readers while preserving authenticity

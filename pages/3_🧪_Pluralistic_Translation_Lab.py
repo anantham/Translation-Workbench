@@ -18,6 +18,9 @@ from utils import (
     load_api_config,
     load_openai_api_config,
     get_config_value,
+    load_epub_metadata_config,
+    calculate_word_counts,
+    calculate_average_quality_metrics,
     get_static_gemini_models,
     get_available_openai_models,
     generate_translation_unified,
@@ -377,6 +380,15 @@ def load_and_format_metadata_template(job_metadata, translation_dir):
     else:
         chapters_per_minute = "Unknown"
     
+    # Load EPUB metadata configuration
+    epub_config = load_epub_metadata_config()
+    
+    # Calculate word counts
+    word_counts = calculate_word_counts(translation_dir)
+    
+    # Calculate quality metrics
+    quality_metrics = calculate_average_quality_metrics(translation_dir)
+    
     # Substitute template variables
     substitutions = {
         'total_time': total_time,
@@ -394,25 +406,25 @@ def load_and_format_metadata_template(job_metadata, translation_dir):
         'example_strategy': job_metadata.get('ai_configuration', {}).get('example_strategy', 'Unknown'),
         'temperature': job_metadata.get('ai_configuration', {}).get('temperature', 0.7),
         'max_tokens': job_metadata.get('ai_configuration', {}).get('max_tokens', 4096),
-        'novel_title': job_metadata.get('project_info', {}).get('novel_title', '极道天魔 (Way of the Devil)'),
-        'original_author': job_metadata.get('project_info', {}).get('original_author', '王雨 (Wang Yu)'),
+        'novel_title': epub_config.get('novel_title', '极道天魔 (Way of the Devil)'),
+        'original_author': epub_config.get('original_author', '王雨 (Wang Yu)'),
         'chapter_range': f"{min(job_metadata.get('chapters_requested', []))}-{max(job_metadata.get('chapters_requested', []))}" if job_metadata.get('chapters_requested') else 'Unknown',
         'total_chapters': job_metadata.get('total_chapters', 0),
-        'source_language': job_metadata.get('project_info', {}).get('source_language', 'Chinese (Simplified)'),
-        'target_language': job_metadata.get('project_info', {}).get('target_language', 'English'),
-        'word_count_chinese': 'Unknown',  # TODO: Calculate from source files
-        'word_count_english': 'Unknown',  # TODO: Calculate from translation files
-        'expansion_ratio': 'Unknown',     # TODO: Calculate ratio
-        'github_url': 'https://github.com/anthropics/translation-workbench',
-        'project_version': job_metadata.get('project_info', {}).get('framework_version', 'v2.1.0'),
-        'license': 'MIT License',
+        'source_language': epub_config.get('source_language', 'Chinese (Simplified)'),
+        'target_language': epub_config.get('target_language', 'English'),
+        'word_count_chinese': f"{word_counts['chinese_characters']:,}" if word_counts['chinese_characters'] > 0 else 'Unknown',
+        'word_count_english': f"{word_counts['english_words']:,}" if word_counts['english_words'] > 0 else 'Unknown',
+        'expansion_ratio': f"{word_counts['expansion_ratio']}x" if word_counts['expansion_ratio'] != 'Unknown' else 'Unknown',
+        'github_url': epub_config.get('github_url', 'https://github.com/anthropics/translation-workbench'),
+        'project_version': epub_config.get('project_version', 'v2.1.0'),
+        'license': epub_config.get('license', 'MIT License'),
         'maintainer_name': 'Translation Workbench',
-        'maintainer_email': 'contact@example.com',
-        'feature_requests_url': 'https://github.com/anthropics/translation-workbench/issues',
-        'documentation_url': 'https://docs.example.com/translation-workbench',
-        'consistency_score': 'Pending evaluation',
-        'bleu_score_avg': 'Pending evaluation',
-        'semantic_similarity_avg': 'Pending evaluation',
+        'maintainer_email': epub_config.get('maintainer_email', 'contact@example.com'),
+        'feature_requests_url': epub_config.get('feature_requests_url', 'https://github.com/anthropics/translation-workbench/issues'),
+        'documentation_url': epub_config.get('documentation_url', 'https://docs.example.com/translation-workbench'),
+        'consistency_score': quality_metrics['consistency_score'],
+        'bleu_score_avg': quality_metrics['avg_bleu_score'],
+        'semantic_similarity_avg': quality_metrics['avg_semantic_similarity'],
         'human_eval_sample': 'Pending evaluation',
         'terminology_standardization': 'High',
         'input_tokens': f"{api_usage.get('input_tokens', 0):,}",
@@ -425,11 +437,12 @@ def load_and_format_metadata_template(job_metadata, translation_dir):
         'end_timestamp': end_time,
         'api_delay': job_metadata.get('api_delay', 1.0),
         'system_prompt_hash': job_metadata.get('ai_configuration', {}).get('system_prompt_hash', 'Unknown'),
-        'framework_version': job_metadata.get('project_info', {}).get('framework_version', 'v2.1.0'),
-        'framework_name': job_metadata.get('project_info', {}).get('framework_name', 'Pluralistic Translation Workbench'),
+        'framework_version': epub_config.get('project_version', 'v2.1.0'),
+        'framework_name': epub_config.get('framework_name', 'Pluralistic Translation Workbench'),
         'generation_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'github_discussions_url': 'https://github.com/anthropics/translation-workbench/discussions',
-        'license_url': 'https://github.com/anthropics/translation-workbench/blob/main/LICENSE'
+        'github_discussions_url': epub_config.get('github_discussions_url', 'https://github.com/anthropics/translation-workbench/discussions'),
+        'license_url': epub_config.get('license_url', 'https://github.com/anthropics/translation-workbench/blob/main/LICENSE'),
+        'translation_philosophy': epub_config.get('translation_philosophy', 'This translation was generated using an AI-powered framework designed for consistent, high-quality translation.')
     }
     
     # Substitute all variables in template
@@ -475,7 +488,8 @@ def create_epub_from_translations(translation_dir, output_path, book_title, auth
                 book.add_metadata(None, 'meta', '', {'name': 'translation:chapters', 'content': str(job_metadata.get('total_chapters', 0))})
                 book.add_metadata(None, 'meta', '', {'name': 'translation:time', 'content': performance.get('total_time_elapsed', 'Unknown')})
                 book.add_metadata(None, 'meta', '', {'name': 'translation:framework', 'content': 'Pluralistic Translation Workbench'})
-                book.add_metadata(None, 'meta', '', {'name': 'translation:version', 'content': job_metadata.get('project_info', {}).get('framework_version', 'v2.1.0')})
+                epub_meta_config = load_epub_metadata_config()
+                book.add_metadata(None, 'meta', '', {'name': 'translation:version', 'content': epub_meta_config.get('project_version', 'v2.1.0')})
                 
                 # Add timestamp
                 book.add_metadata('DC', 'date', job_metadata.get('timestamp', datetime.now().isoformat())[:10])
@@ -1061,12 +1075,12 @@ if st.session_state.get("run_job", False):
         
         # Project info
         "project_info": {
-            "framework_name": "Pluralistic Translation Workbench",
-            "framework_version": "v2.1.0",
-            "novel_title": "极道天魔 (Way of the Devil)",
-            "original_author": "王雨 (Wang Yu)",
-            "source_language": "Chinese (Simplified)",
-            "target_language": "English"
+            "framework_name": load_epub_metadata_config().get('framework_name', 'Pluralistic Translation Workbench'),
+            "framework_version": load_epub_metadata_config().get('project_version', 'v2.1.0'),
+            "novel_title": load_epub_metadata_config().get('novel_title', '极道天魔 (Way of the Devil)'),
+            "original_author": load_epub_metadata_config().get('original_author', '王雨 (Wang Yu)'),
+            "source_language": load_epub_metadata_config().get('source_language', 'Chinese (Simplified)'),
+            "target_language": load_epub_metadata_config().get('target_language', 'English')
         }
     }
     
@@ -1425,9 +1439,15 @@ if available_epub_runs and 'selected_run_info' in locals():
             epub_output_dir = os.path.join(DATA_DIR, "epub_exports")
             os.makedirs(epub_output_dir, exist_ok=True)
             
-            # Generate output filename
+            # Generate output filename with chapter range
             safe_title = "".join(c for c in epub_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            epub_filename = f"{safe_title.replace(' ', '_')}.epub"
+            chapter_range = selected_run_info.get('range', '')
+            if chapter_range:
+                # Clean chapter range for filename (Ch.700-705 -> Ch700-705)
+                clean_range = chapter_range.replace('.', '')
+                epub_filename = f"{safe_title.replace(' ', '_')}_{clean_range}.epub"
+            else:
+                epub_filename = f"{safe_title.replace(' ', '_')}.epub"
             epub_output_path = os.path.join(epub_output_dir, epub_filename)
             
             # Create EPUB

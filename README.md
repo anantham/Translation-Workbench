@@ -991,7 +991,8 @@ Edit these files for customization:
 
 1) make sure EPUB that is exported has info on how much time it took, cost from API calls, prompt used, model info, 
 2) link to project github, contact me for feature request, feedback
-3) 
+3) add more metrics like https://github.com/google-research/bleurt
+4) 
 
 
 ## 📊 Performance Benchmarks
