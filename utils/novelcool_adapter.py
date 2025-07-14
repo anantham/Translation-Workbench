@@ -1,0 +1,40 @@
+
+
+"""Adapter for novelcool.com."""
+from urllib.parse import urljoin
+from bs4 import BeautifulSoup
+from utils.scraping_adapters import ScraperAdapter
+
+class NovelcoolAdapter(ScraperAdapter):
+    """Adapter for scraping novelcool.com."""
+
+    def get_encoding(self):
+        return 'utf-8'
+
+    def extract_title(self, soup):
+        title_tag = soup.find('h2', class_='chapter-title')
+        return title_tag.text.strip() if title_tag else None
+
+    def extract_content(self, soup):
+        content_div = soup.find('div', class_='chapter-reading-section')
+        if content_div:
+            return content_div.get_text(separator='\n', strip=True)
+        return None
+
+    def get_next_link(self, soup, direction):
+        if direction == "Forwards (oldest to newest)":
+            # Find the 'Next>>' link
+            next_link_tag = soup.find('div', class_='chapter-reading-pageitem')
+            if next_link_tag:
+                link = next_link_tag.find('a')
+                if link and link.has_attr('href'):
+                    return urljoin(self.url, link['href'])
+        else: # Backwards
+            # Find the '<<Prev' link
+            prev_link_tag = soup.find('div', class_='chapter-reading-pageitem')
+            if prev_link_tag:
+                link = prev_link_tag.find_previous('div', class_='chapter-reading-pageitem').find('a')
+                if link and link.has_attr('href'):
+                    return urljoin(self.url, link['href'])
+        return None
+
