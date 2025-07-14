@@ -66,17 +66,91 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
     # --- Phase 2: Unified Scraping Loop ---
     current_url = start_url
     total_chapters_in_plan = len(chapters_to_process)
+    chapters_processed_count = 0
     
-    # ... (The rest of the function needs to be a single loop that traverses from start_url
-    # and checks each chapter against the 'chapters_to_process' list. This is a major
-    # architectural change from the previous version.)
+    def _save_manifest():
+        manifest_data = {
+            'scrape_update_time': datetime.now().isoformat(),
+            'start_url': start_url,
+            'scrape_direction': scrape_direction,
+            'total_chapters_scraped': len(successful_chapters),
+            'successful_chapters': successful_chapters,
+            'failed_chapters': failed_chapters
+        }
+        with open(manifest_path, 'w', encoding='utf-8') as f:
+            json.dump(manifest_data, f, indent=4, ensure_ascii=False)
+        logger.info(f"Manifest updated at {manifest_path}")
 
-    # This is a placeholder for the new unified loop.
-    # A full implementation would require rewriting the entire loop structure.
-    logger.info("Unified loop logic would execute here.")
+    try:
+        while current_url and chapters_to_process:
+            if st.session_state.get('stop_requested', False):
+                status_callback("🛑 Stop requested. Saving manifest...")
+                break
+
+            status_callback(f"Navigating to: {current_url}")
+            
+            try:
+                response = requests.get(current_url, timeout=20)
+                response.raise_for_status()
+                response.encoding = adapter.get_encoding()
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                title = adapter.extract_title(soup)
+                content = adapter.extract_content(soup)
+                
+                if not title or not content:
+                    logger.error(f"Could not extract title or content from {current_url}")
+                    current_url = adapter.get_next_link(soup, scrape_direction)
+                    continue
+
+                found_number, filename_num = adapter.extract_chapter_number(soup)
+                
+                if found_number in chapters_to_process:
+                    status_callback(f"Processing Chapter {found_number}...")
+                    
+                    # --- All the saving and conflict logic goes here ---
+                    filename = sanitize_filename(f"{filename_num}_{title}.txt")
+                    filepath = os.path.join(output_dir, filename)
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(content)
+
+                    chapter_data = {
+                        'number': found_number, 
+                        'filename_num': filename_num, 
+                        'title': title, 
+                        'url': current_url
+                    }
+                    successful_chapters.append(chapter_data)
+                    successful_chapters.sort(key=lambda x: x['number']) # Keep sorted
+                    _save_manifest()
+                    
+                    chapters_to_process.remove(found_number)
+                    chapters_processed_count += 1
+                    progress_callback(chapters_processed_count, total_chapters_in_plan)
+                    logger.info(f"Successfully scraped Chapter {filename_num}: {title}")
+
+                else:
+                    status_callback(f"Chapter {found_number} already exists. Skipping.")
+
+                current_url = adapter.get_next_link(soup, scrape_direction)
+                time.sleep(delay_seconds)
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error fetching {current_url}: {e}")
+                failed_chapters.append({'url': current_url, 'error': str(e)})
+                break
     
-    # For now, returning a success to indicate the planning phase worked.
-    return {'success': True, 'chapters_scraped': 0, 'errors': [], 'chapters': [], 'failed': []}
+    finally:
+        _save_manifest()
+        status_callback("Scraping complete.")
+
+    return {
+        'success': not failed_chapters,
+        'chapters_scraped': chapters_processed_count,
+        'errors': failed_chapters,
+        'chapters': successful_chapters,
+        'failed': failed_chapters
+    }
 
 def load_chapter_content(output_dir, filename_num):
     # Helper to read chapter content for preview
