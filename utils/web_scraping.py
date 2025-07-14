@@ -149,14 +149,25 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
                             logger.warning(warning_msg)
                             status_callback(f"⚠️ {warning_msg}")
 
-                    filename = sanitize_filename(f"{filename_num}_{title}.txt")
+                    # --- Robust Duplicate Check ---
+                    # Check if a file for this chapter number already exists on disk
                     
-                    # Check if this file already exists to prevent re-downloading
-                    if os.path.exists(os.path.join(output_dir, filename)):
-                         logger.info(f"Chapter {filename_num} already exists on disk. Skipping.")
-                         current_url = adapter.get_next_link(soup, scrape_direction)
-                         continue # Skip to next iteration
+                    # Helper function for robust check
+                    def chapter_already_exists(directory, chapter_id):
+                        for f in os.listdir(directory):
+                            if f.startswith(chapter_id + '_') and f.endswith('.txt'):
+                                return True
+                        return False
 
+                    if chapter_already_exists(output_dir, filename_num):
+                        logger.info(f"Chapter {filename_num} already exists on disk. Skipping.")
+                        status_callback(f"⏭️ Chapter {filename_num} already exists. Skipping.")
+                        current_url = adapter.get_next_link(soup, scrape_direction)
+                        continue # Skip to next iteration
+
+                    # --- End Duplicate Check ---
+
+                    filename = sanitize_filename(f"{filename_num}_{title}.txt")
                     filepath = os.path.join(output_dir, filename)
                     with open(filepath, 'w', encoding='utf-8') as f:
                         f.write(content)
