@@ -20,8 +20,9 @@ def extract_and_convert_chinese_numeral(text):
             - A string representation for the filename (e.g., "0085_0086").
         Returns (None, None) if no number is found or conversion fails.
     """
-    # Regex to find "第" followed by characters and ending with "章"
-    match = re.search(r'第(.+?)章', text)
+    # Regex to find "第" followed by valid Chinese numeral characters.
+    # This is more robust as it doesn't rely on the "章" character.
+    match = re.search(r'第([一二三四五六七八九十百千万\d~-]+)', text)
     if not match:
         logger.warning(f"Could not find a chapter number pattern in '{text}'.")
         return None, None
@@ -29,6 +30,7 @@ def extract_and_convert_chinese_numeral(text):
     numeral_part = match.group(1)
 
     # Check for a range pattern (e.g., "四十九~五十" or "八十五~六")
+    # The regex now correctly captures the numerals without the trailing "章"
     range_match = re.match(r'(.+?)[~-](.+)', numeral_part)
 
     try:
