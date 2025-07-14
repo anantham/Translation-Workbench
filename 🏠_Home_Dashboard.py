@@ -207,7 +207,6 @@ else:
     # --- STANDARD SCRAPING UI ---
     scraping_col1, scraping_col2 = st.columns([2, 1])
     with scraping_col1:
-        # ... (Novel URL Input and Scraping Configuration remains the same)
         st.subheader("📖 Novel URL Input")
     
         # URL input
@@ -219,13 +218,67 @@ else:
         
         # Dynamic output directory
         output_directory_name = "novel_raws/new_novel"
+        validation = {'valid': False}
         if novel_url:
-            # ... (logic to pre-fill directory name)
-            pass
+            validation = validate_scraping_url(novel_url)
+            if validation['valid']:
+                st.success(f"✅ Supported site: {validation['site_type']}")
+                try:
+                    import requests
+                    from bs4 import BeautifulSoup
+                    from utils.adapter_factory import get_adapter
+                    
+                    adapter = get_adapter(novel_url)
+                    response = requests.get(novel_url, timeout=10)
+                    response.encoding = adapter.get_encoding()
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    title = adapter.extract_title(soup)
+                    
+                    if title:
+                        sanitized_title = title.split(' ')[0].strip().replace(':', '_').replace(' ', '_').lower()
+                        site_name = validation.get('site_type', 'unknown').lower()
+                        output_directory_name = f"novel_raws/novel_{sanitized_title}_{site_name}"
+
+                except Exception as e:
+                    st.warning(f"Could not pre-fill directory name: {e}")
+            else:
+                st.error("Unsupported website.")
 
         st.subheader("⚙️ Scraping Configuration")
-        # ... (Max Chapters, Output Directory, Delay, Direction)
-        pass
+        
+        scraping_config_col1, scraping_config_col2 = st.columns(2)
+        
+        with scraping_config_col1:
+            max_chapters = st.number_input(
+                "Max Chapters to Scrape:",
+                min_value=1,
+                max_value=3000,
+                value=50,
+                help="Maximum number of chapters to scrape in this session"
+            )
+            
+            output_directory = st.text_input(
+                "Output Directory:",
+                value=output_directory_name,
+                help="Directory name where chapters will be saved"
+            )
+        
+        with scraping_config_col2:
+            delay_seconds = st.slider(
+                "Delay Between Requests (seconds):",
+                min_value=1.0,
+                max_value=10.0,
+                value=2.0,
+                step=0.5,
+                help="Delay to be respectful to the website server"
+            )
+            
+            scrape_direction = st.selectbox(
+                "Scraping Direction:",
+                ["Backwards (newest to oldest)", "Forwards (oldest to newest)"],
+                index=1,
+                help="Direction to follow chapter navigation links"
+            )
 
         # Button logic
         col_start, col_stop, _ = st.columns([1, 1, 5])
@@ -248,8 +301,24 @@ else:
 
     # Main scraping execution block
     if st.session_state.get('scraping_active', False):
-        # ... (progress bar, status text, etc.)
-        pass
+        progress_container = st.container()
+        status_container = st.container()
+        
+        with progress_container:
+            progress_bar = st.progress(0)
+            progress_text = st.empty()
+        
+        with status_container:
+            status_text = st.empty()
+            status_text.info("🌐 Initializing scraper...")
+        
+        def progress_callback(current, total):
+            progress = current / total if total > 0 else 0
+            progress_bar.progress(progress)
+            progress_text.text(f"Progress: {current}/{total} chapters ({progress:.1%})")
+        
+        def status_callback(message):
+            status_text.info(message)
         
         try:
             scraping_results = streamlit_scraper(
@@ -272,5 +341,25 @@ else:
             st.rerun()
 
     with scraping_col2:
-        # ... (Scraping Status display remains the same)
-        pass
+        st.subheader("📊 Scraping Status")
+    
+        raws_dir = "novel_raws"
+        if not os.path.exists(raws_dir):
+            os.makedirs(raws_dir)
+
+        existing_novels = [d for d in os.listdir(raws_dir) if os.path.isdir(os.path.join(raws_dir, d))]
+        
+        if existing_novels:
+            st.metric("📚 Existing Scraped Novels", len(existing_novels))
+            
+            with st.expander("📖 View Scraped Novels"):
+                for novel_dir in sorted(existing_novels):
+                    num_files = len([f for f in os.listdir(os.path.join(raws_dir, novel_dir)) if f.endswith('.txt')])
+                    st.text(f"- {novel_dir} ({num_files} chapters)")
+        else:
+            st.info("📭 No novels scraped yet.")
+            st.caption(f"Scraped data will be saved in the `{raws_dir}` directory.")
+        
+        if st.session_state.get('scraping_results'):
+            # ... (results display logic)
+            pass

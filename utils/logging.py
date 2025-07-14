@@ -13,7 +13,7 @@ def setup_logger():
         
         # Console handler
         console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO) # Keep console clean
+        console_handler.setLevel(logging.DEBUG) # Verbose console output
         
         # Create formatter and add it to the handlers
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
