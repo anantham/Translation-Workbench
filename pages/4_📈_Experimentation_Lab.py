@@ -155,7 +155,9 @@ with tab1:
     # Create style selection with metadata display
     style_options = {}
     for style in available_styles:
-        label = f"{style['name']} ({style['chapter_count']} chapters, {style['model_name']})"
+        # Get model name from metadata if available, otherwise use default
+        model_name = style.get('metadata', {}).get('model_name', 'Unknown Model')
+        label = f"{style['name']} ({style['chapter_count']} chapters, {model_name})"
         style_options[label] = style
     
     selected_styles = st.multiselect(
@@ -330,7 +332,9 @@ with tab2:
     # Create style selection with metadata display
     style_options = {}
     for style in available_styles:
-        label = f"{style['name']} ({style['chapter_count']} chapters, {style['model_name']})"
+        # Get model name from metadata if available, otherwise use default
+        model_name = style.get('metadata', {}).get('model_name', 'Unknown Model')
+        label = f"{style['name']} ({style['chapter_count']} chapters, {model_name})"
         style_options[label] = style
     
     selected_style_label = st.selectbox(

@@ -19,17 +19,57 @@ from dotenv import load_dotenv
 # Load environment variables from .env file at the start
 load_dotenv()
 
-# --- Organized Data Structure ---
+# --- Multi-Novel Data Structure ---
 DATA_DIR = "data"
-CACHE_DIR = os.path.join(DATA_DIR, "cache")
-EXPORT_DIR = os.path.join(DATA_DIR, "exports")
+NOVELS_DIR = os.path.join(DATA_DIR, "novels")
+SHARED_DIR = os.path.join(DATA_DIR, "shared")
 TEMP_DIR = os.path.join(DATA_DIR, "temp")
-MODELS_DIR = os.path.join(DATA_DIR, "models")
-TRANSLATIONS_DIR = os.path.join(DATA_DIR, "custom_translations")
-EVALUATIONS_DIR = os.path.join(DATA_DIR, "evaluations")
 
-# Ensure directories exist
-for directory in [DATA_DIR, CACHE_DIR, EXPORT_DIR, TEMP_DIR, MODELS_DIR, TRANSLATIONS_DIR, EVALUATIONS_DIR]:
+# Shared paths (global across novels)
+SHARED_CACHE_DIR = os.path.join(SHARED_DIR, "cache")
+SHARED_MODELS_DIR = os.path.join(SHARED_DIR, "models")
+SHARED_PROMPTS_FILE = os.path.join(SHARED_DIR, "custom_prompts.json")
+SHARED_PRICING_FILE = os.path.join(SHARED_DIR, "pricing_config.json")
+
+# Legacy paths (deprecated - for backward compatibility)
+CACHE_DIR = SHARED_CACHE_DIR  # Backward compatibility
+EXPORT_DIR = os.path.join(DATA_DIR, "exports")  # Will be novel-specific
+MODELS_DIR = SHARED_MODELS_DIR  # Backward compatibility
+TRANSLATIONS_DIR = os.path.join(DATA_DIR, "custom_translations")  # Will be novel-specific
+EVALUATIONS_DIR = os.path.join(DATA_DIR, "evaluations")  # Will be novel-specific
+
+# Helper functions for novel-specific paths
+def get_novel_dir(novel_name):
+    """Get the base directory for a specific novel."""
+    safe_name = novel_name.replace(' ', '_').replace('/', '_').replace('\\', '_')
+    return os.path.join(NOVELS_DIR, safe_name)
+
+def get_novel_alignment_map(novel_name):
+    """Get the alignment map file path for a specific novel."""
+    return os.path.join(get_novel_dir(novel_name), "alignment_map.json")
+
+def get_novel_cache_dir(novel_name):
+    """Get the cache directory for a specific novel."""
+    return os.path.join(get_novel_dir(novel_name), "cache")
+
+def get_novel_exports_dir(novel_name):
+    """Get the exports directory for a specific novel."""
+    return os.path.join(get_novel_dir(novel_name), "exports")
+
+def get_novel_ai_translations_dir(novel_name):
+    """Get the AI translations directory for a specific novel."""
+    return os.path.join(get_novel_dir(novel_name), "ai_translations")
+
+def get_novel_raw_chapters_dir(novel_name):
+    """Get the raw chapters directory for a specific novel."""
+    return os.path.join(get_novel_dir(novel_name), "raw_chapters")
+
+def get_novel_official_english_dir(novel_name):
+    """Get the official English directory for a specific novel."""
+    return os.path.join(get_novel_dir(novel_name), "official_english")
+
+# Ensure shared directories exist
+for directory in [DATA_DIR, SHARED_DIR, SHARED_CACHE_DIR, SHARED_MODELS_DIR, TEMP_DIR]:
     os.makedirs(directory, exist_ok=True)
 
 

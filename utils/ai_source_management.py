@@ -25,18 +25,44 @@ from .caching import get_cached_translation
 from .config import DATA_DIR
 
 
-def get_available_ai_sources(current_chapter=None):
+def get_available_ai_sources(current_chapter=None, novel_name="way_of_the_devil"):
     """Get list of available AI translation sources.
     
     Args:
         current_chapter: If provided, only include custom runs that have this chapter available
+        novel_name: Name of the novel to search for AI translations
     
     Returns:
         list: Available AI translation sources
     """
     sources = ["Fresh Gemini Translation", "Cached Gemini Translation"]
     
-    # Add custom translation runs
+    # Import config functions for novel-specific paths
+    from .config import get_novel_ai_translations_dir
+    
+    # Check new multi-novel structure first
+    novel_ai_translations_dir = get_novel_ai_translations_dir(novel_name)
+    if os.path.exists(novel_ai_translations_dir):
+        for run_name in os.listdir(novel_ai_translations_dir):
+            run_path = os.path.join(novel_ai_translations_dir, run_name)
+            if os.path.isdir(run_path):
+                if current_chapter is not None:
+                    # Check if this specific chapter exists in the run
+                    chapter_file = f"Chapter-{current_chapter:04d}-translated.txt"
+                    chapter_path = os.path.join(run_path, chapter_file)
+                    if os.path.exists(chapter_path):
+                        sources.append(f"Custom: {run_name}")
+                else:
+                    # Check if this run has any translation files (original behavior)
+                    try:
+                        translation_files = [f for f in os.listdir(run_path) if f.endswith('-translated.txt')]
+                        if translation_files:
+                            sources.append(f"Custom: {run_name}")
+                    except OSError:
+                        # Skip directories that can't be read
+                        continue
+    
+    # Also check legacy custom translations directory for backward compatibility
     custom_translations_dir = os.path.join(DATA_DIR, "custom_translations")
     if os.path.exists(custom_translations_dir):
         for run_name in os.listdir(custom_translations_dir):
@@ -47,17 +73,21 @@ def get_available_ai_sources(current_chapter=None):
                     chapter_file = f"Chapter-{current_chapter:04d}-translated.txt"
                     chapter_path = os.path.join(run_path, chapter_file)
                     if os.path.exists(chapter_path):
-                        sources.append(f"Custom: {run_name}")
+                        sources.append(f"Legacy: {run_name}")
                 else:
                     # Check if this run has any translation files (original behavior)
-                    translation_files = [f for f in os.listdir(run_path) if f.endswith('-translated.txt')]
-                    if translation_files:
-                        sources.append(f"Custom: {run_name}")
+                    try:
+                        translation_files = [f for f in os.listdir(run_path) if f.endswith('-translated.txt')]
+                        if translation_files:
+                            sources.append(f"Legacy: {run_name}")
+                    except OSError:
+                        # Skip directories that can't be read
+                        continue
     
     return sources
 
 
-def get_ai_translation_content(selected_ai_source, selected_chapter, session_state_ai_translation="", raw_content=""):
+def get_ai_translation_content(selected_ai_source, selected_chapter, session_state_ai_translation="", raw_content="", novel_name="way_of_the_devil"):
     """Get AI translation content based on selected source and chapter.
     
     Args:
@@ -65,13 +95,38 @@ def get_ai_translation_content(selected_ai_source, selected_chapter, session_sta
         selected_chapter: The current chapter number
         session_state_ai_translation: Current session state AI translation
         raw_content: Raw Chinese content for fresh translation
+        novel_name: Name of the novel to search for AI translations
     
     Returns:
         str: AI translation content or empty string if not available
     """
     if selected_ai_source.startswith("Custom: "):
-        # Load from custom translation run
+        # Load from new multi-novel structure
         run_name = selected_ai_source[8:]  # Remove "Custom: " prefix
+        custom_file = f"Chapter-{selected_chapter:04d}-translated.txt"
+        
+        # Import config functions for novel-specific paths
+        from .config import get_novel_ai_translations_dir
+        
+        # Try new multi-novel structure first
+        novel_ai_translations_dir = get_novel_ai_translations_dir(novel_name)
+        custom_path = os.path.join(novel_ai_translations_dir, run_name, custom_file)
+        custom_content = load_chapter_content(custom_path)
+        
+        if "File not found" not in custom_content:
+            return custom_content
+        
+        # If not found in new structure, try legacy path as fallback
+        legacy_path = os.path.join(DATA_DIR, "custom_translations", run_name, custom_file)
+        legacy_content = load_chapter_content(legacy_path)
+        
+        if "File not found" in legacy_content:
+            return ""
+        return legacy_content
+    
+    elif selected_ai_source.startswith("Legacy: "):
+        # Load from legacy custom translation run
+        run_name = selected_ai_source[8:]  # Remove "Legacy: " prefix
         custom_file = f"Chapter-{selected_chapter:04d}-translated.txt"
         custom_path = os.path.join(DATA_DIR, "custom_translations", run_name, custom_file)
         custom_content = load_chapter_content(custom_path)

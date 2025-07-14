@@ -36,6 +36,15 @@ from .config import (
     load_deepseek_api_config,
     show_openai_config_status,
     show_deepseek_config_status,
+    get_novel_dir,
+    get_novel_alignment_map,
+    get_novel_cache_dir,
+    get_novel_exports_dir,
+    get_novel_ai_translations_dir,
+    get_novel_raw_chapters_dir,
+    get_novel_official_english_dir,
+    NOVELS_DIR,
+    SHARED_DIR,
 )
 
 # Cost tracking (COMPLETED)
@@ -154,6 +163,7 @@ from .fine_tuning import (
     create_training_pipeline,
     execute_training_step,
     get_training_progress,
+    GOOGLE_AI_AVAILABLE,
 )
 
 # UI components and Streamlit interface (COMPLETED)
@@ -189,6 +199,14 @@ from .web_scraping import (
     validate_scraping_url as web_validate_scraping_url,
 )
 
+# Alignment map building (COMPLETED)
+from .alignment_builder import (
+    build_alignment_map,
+    streamlit_build_alignment_map,
+    detect_novel_structure,
+    save_alignment_map_with_backup,
+)
+
 # All modules completed!
 # Configuration and setup - from .config import (...)
 # Core translation functions - from .translation import (...)
@@ -214,6 +232,9 @@ __all__ = [
     'load_api_config', 'get_config_value', 'load_epub_metadata_config',
     'show_config_status', 'load_openai_api_config', 'load_deepseek_api_config',
     'show_openai_config_status', 'show_deepseek_config_status',
+    'get_novel_dir', 'get_novel_alignment_map', 'get_novel_cache_dir',
+    'get_novel_exports_dir', 'get_novel_ai_translations_dir', 'get_novel_raw_chapters_dir',
+    'get_novel_official_english_dir', 'NOVELS_DIR', 'SHARED_DIR',
     
     # Cost tracking (COMPLETED)
     'load_pricing_config', 'calculate_openai_cost', 'calculate_gemini_cost',
@@ -261,7 +282,7 @@ __all__ = [
     'start_openai_finetuning_job', 'get_openai_finetuning_status', 'list_openai_finetuning_jobs',
     'list_openai_finetuned_models', 'save_model_metadata', 'load_model_metadata',
     'list_trained_models', 'create_training_pipeline', 'execute_training_step',
-    'get_training_progress',
+    'get_training_progress', 'GOOGLE_AI_AVAILABLE',
     
     # UI components and Streamlit interface (COMPLETED)
     'escape_html', 'apply_comment_highlighting', 'save_inline_comments',
@@ -276,6 +297,9 @@ __all__ = [
     
     # Web scraping integration (COMPLETED)
     'streamlit_scraper', 'web_validate_scraping_url',
+    
+    # Alignment map building (COMPLETED)
+    'build_alignment_map', 'streamlit_build_alignment_map', 'detect_novel_structure', 'save_alignment_map_with_backup',
     
     # ALL MODULES COMPLETED! 🎉
 ]

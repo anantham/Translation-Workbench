@@ -24,6 +24,9 @@ cn2an
 # Environment variables
 python-dotenv
 
+# EPUB creation
+ebooklib
+
 # For styling and linting
 black
 flake8
