@@ -63,8 +63,26 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
     logger.info(f"Scraping Plan: {len(missing_chapters)} chapters to repair, {len(new_chapters_to_get)} new chapters to scrape.")
     status_callback(f"Plan: Repairing {len(missing_chapters)} chapters, then scraping {len(new_chapters_to_get)} new ones.")
 
-    # --- Phase 2: Unified Scraping Loop ---
+    # --- Phase 2: Determine Starting Point (Intelligent Jump) ---
     current_url = start_url
+    if chapters_to_process:
+        first_chapter_to_get = chapters_to_process[0]
+        jump_off_chapter_num = first_chapter_to_get - 1
+
+        if jump_off_chapter_num > 0:
+            # Find the URL of the chapter right before the first missing one
+            jump_off_chapter = next((ch for ch in successful_chapters if ch['number'] == jump_off_chapter_num), None)
+            if jump_off_chapter:
+                logger.info(f"Intelligent Jump: Starting from chapter {jump_off_chapter_num} to find chapter {first_chapter_to_get}.")
+                status_callback(f"Jumping to chapter {jump_off_chapter_num} to find first missing chapter...")
+                current_url = jump_off_chapter['url']
+            else:
+                logger.warning(f"Could not find chapter {jump_off_chapter_num} in manifest to perform jump. Starting from beginning.")
+    elif successful_chapters:
+        # If nothing to do, jump to the last chapter to check for new content
+        current_url = successful_chapters[-1]['url']
+
+    # --- Phase 3: Unified Scraping Loop ---
     total_chapters_in_plan = len(chapters_to_process)
     chapters_processed_count = 0
     
