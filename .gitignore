@@ -22,6 +22,7 @@ wheels/
 
 # Virtual Environment
 venv/
+.venv/
 env/
 ENV/
 
@@ -58,3 +59,10 @@ data/evaluations/
 
 # Configuration files with sensitive data
 config.json
+.env
+
+# Development and tooling
+.specstory/
+
+# Log files
+*.log
