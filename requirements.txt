@@ -21,6 +21,9 @@ nltk
 jieba
 cn2an
 
+# Environment variables
+python-dotenv
+
 # For styling and linting
 black
 flake8

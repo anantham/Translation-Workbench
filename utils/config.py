@@ -14,6 +14,10 @@ This module handles:
 
 import os
 import json
+from dotenv import load_dotenv
+
+# Load environment variables from .env file at the start
+load_dotenv()
 
 # --- Organized Data Structure ---
 DATA_DIR = "data"
