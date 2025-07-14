@@ -53,6 +53,10 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
         failed_chapters = manifest.get('failed_chapters', [])
         
         verified_chapters = [ch for ch in manifest_chapters if ch.get('filename_num') in disk_chapter_nums]
+        
+        logger.info(f"Verification complete. Manifest chapters: {len(manifest_chapters)}, Found on disk: {len(verified_chapters)}")
+        logger.debug(f"Verified chapter numbers found on disk: {[ch['filename_num'] for ch in verified_chapters]}")
+
         if len(verified_chapters) != len(manifest_chapters):
             status_callback(f"⚠️ Found {len(verified_chapters)} chapters on disk, which differs from manifest. Corrected state.")
         successful_chapters = sorted(verified_chapters, key=lambda x: x['number'])
