@@ -316,10 +316,11 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
         # --- Mismatch Detection and Resolution ---
         if last_known_good_num is not None:
             expected_num = last_known_good_num - 1 if direction == "Backwards (newest to oldest)" else last_known_good_num + 1
-            if current_chapter_num != expected_num:
-                logger.warning(f"[SEQUENCE BREAK] Expected Ch. {expected_num}, but found Ch. {current_chapter_num} at {current_url}")
+            # A sequence break occurs if the expected chapter is not within the range of the found chapter.
+            # This handles cases where a single chapter page (e.g., 49) has been replaced by a combined page (49-50).
+            if not (current_chapter_num <= expected_num <= end_chapter_num):
+                logger.warning(f"[SEQUENCE BREAK] Expected Ch. {expected_num}, but found Ch. {current_chapter_num} (range: {current_chapter_num}-{end_chapter_num}) at {current_url}")
                 logger.info(f"    - Title: '{title}'")
-                logger.info(f"    - Extracted Numbers (start, end): ({current_chapter_num}, {end_chapter_num})")
                 
                 resolution = 'abort' # Default action
                 if conflict_handler:
