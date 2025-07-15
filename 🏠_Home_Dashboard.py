@@ -232,8 +232,8 @@ st.header("🌐 Live Web Scraping")
 st.caption("Step 0: Scrape raw Chinese chapters from web novels before data alignment")
 
 # --- CONFLICT RESOLUTION UI ---
-if 'scraping_conflict' in st.session_state and st.session_state.scraping_conflict:
-    conflict = st.session_state.scraping_conflict
+if 'scraping_conflict_data' in st.session_state and st.session_state.scraping_conflict_data:
+    conflict = st.session_state.scraping_conflict_data
     st.error("🕵️ User Intervention Required: Chapter Mismatch")
     
     with st.container(border=True):
@@ -252,19 +252,20 @@ if 'scraping_conflict' in st.session_state and st.session_state.scraping_conflic
         btn_col1, btn_col2, btn_col3 = st.columns(3)
         with btn_col1:
             if st.button(f"✅ Use Expected Number ({conflict['expected_number']})", type="primary"):
+                logger.debug(f"[UI] User chose 'expected'. Setting override and rerunning.")
                 st.session_state.scraping_override = 'expected'
-                st.session_state.scraping_conflict = None
                 st.session_state.scraping_active = True
                 st.rerun()
         with btn_col2:
             if st.button(f"⚠️ Use Title's Number ({conflict['found_number']})"):
+                logger.debug(f"[UI] User chose 'title'. Setting override and rerunning.")
                 st.session_state.scraping_override = 'title'
-                st.session_state.scraping_conflict = None
                 st.session_state.scraping_active = True
                 st.rerun()
         with btn_col3:
             if st.button("🛑 Abort Scraping"):
-                st.session_state.scraping_conflict = None
+                logger.debug("[UI] User chose 'abort'. Clearing conflict and stopping.")
+                st.session_state.scraping_conflict_data = None
                 st.session_state.scraping_active = False
                 st.warning("Scraping aborted by user.")
                 st.rerun()
@@ -318,7 +319,7 @@ else:
                 "Max Chapters to Scrape:",
                 min_value=1,
                 max_value=3000,
-                value=50,
+                value=500,
                 help="Maximum number of chapters to scrape in this session"
             )
             
@@ -331,9 +332,9 @@ else:
         with scraping_config_col2:
             delay_seconds = st.slider(
                 "Delay Between Requests (seconds):",
-                min_value=1.0,
+                min_value=0.5,
                 max_value=10.0,
-                value=2.0,
+                value=0.5,
                 step=0.5,
                 help="Delay to be respectful to the website server"
             )
@@ -354,7 +355,7 @@ else:
                 st.session_state.scraping_active = True
                 st.session_state.stop_requested = False
                 st.session_state.scraping_results = None
-                st.session_state.scraping_conflict = None
+                st.session_state.scraping_conflict_data = None
                 st.session_state.scraping_override = None
                 st.rerun()
 
@@ -384,27 +385,46 @@ else:
         
         def status_callback(message):
             status_text.info(message)
+
+        def conflict_handler(url, expected_number, found_number, title, is_parse_error=False, last_chapter_preview=None, current_chapter_preview=None):
+            logger.debug("[UI] Conflict detected. Setting state for UI resolution.")
+            st.session_state.scraping_conflict_data = {
+                "url": url,
+                "expected_number": expected_number,
+                "found_number": found_number,
+                "title": title,
+                "is_parse_error": is_parse_error,
+                "last_chapter_preview": last_chapter_preview,
+                "current_chapter_preview": current_chapter_preview
+            }
+            st.session_state.scraping_active = False
+            # Do NOT call st.rerun() here. Let the scraper thread exit gracefully.
+            return 'defer'
         
         try:
             logger.debug(f"[DASHBOARD] PRE-CALL check: status_callback is {status_callback}")
-            scraping_results = streamlit_scraper(
+            streamlit_scraper(
                 start_url=novel_url,
                 output_dir=output_directory,
                 max_chapters=max_chapters,
                 delay_seconds=delay_seconds,
                 progress_callback=progress_callback,
                 status_callback=status_callback,
+                conflict_handler=conflict_handler,
                 scrape_direction=scrape_direction
             )
             
-            st.session_state.scraping_results = scraping_results
-            
         except Exception as e:
             st.error(f"💥 Scraping failed with a critical error: {str(e)}")
+            st.session_state.scraping_active = False
         finally:
-            if not st.session_state.get('scraping_conflict'):
+            # This block now only handles the state transition after the scraper
+            # has finished its work (or failed). The rerun is now only triggered
+            # by explicit user action.
+            if not st.session_state.get('scraping_conflict_data'):
+                logger.debug("[UI] Scraper finished without conflict. Deactivating scraping state.")
                 st.session_state.scraping_active = False
-            st.rerun()
+                st.rerun() # Rerun only on clean exit
 
     with scraping_col2:
         st.subheader("📊 Scraping Status")

@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from utils.logging import logger
 from utils.adapter_factory import get_adapter
+from utils.debug_helpers import save_failed_html
 
 def sanitize_filename(filename):
     return re.sub(r'[\\/*?:"<>|]', "", filename).strip()
@@ -47,12 +48,13 @@ def get_url_for_chapter(chapter_num, metadata):
     chapter_info = metadata.get("chapters", {}).get(str(chapter_num))
     return chapter_info.get("url") if chapter_info else None
 
-def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction: str, max_chapters: int = 1000, delay_seconds: int = 1, progress_callback=None, status_callback=None, conflict_handler=None):
+def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction: str, max_chapters: int = 1000, delay_seconds: int = 1, progress_callback=None, status_callback=None, conflict_handler=None, resume_info=None):
     # --- RCA Logging ---
     logger.info("--- Scraper Function Entry Point ---")
     logger.debug(f"    - status_callback: {status_callback}")
     logger.debug(f"    - progress_callback: {progress_callback}")
     logger.debug(f"    - conflict_handler: {conflict_handler}")
+    logger.debug(f"    - resume_info: {resume_info}")
     logger.info("------------------------------------")
 
     adapter = get_adapter(start_url)
@@ -77,8 +79,103 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
 
     logger.info(f"🚀 Starting Scrape from: {start_url}")
 
+    deferred_stop = False
     chapters_scraped = 0
     while current_url and chapters_scraped < max_chapters:
+        if resume_info:
+            try:
+                logger.info(f"  [RESUME] Activating resume logic with: {resume_info}")
+                override_decision = resume_info['override']
+                current_url = resume_info['url']
+                status_callback(f"  [RESUME] Fetching chapter from {current_url}")
+                
+                soup = fetch_with_retry(current_url, headers, adapter.get_encoding())
+                if not soup:
+                    logger.critical(f"    [FATAL] Could not fetch content for resumed URL {current_url}. Stopping.")
+                    status_callback(f"    [FATAL] Resume failed: Could not fetch content.")
+                    break
+
+                logger.debug("  [RESUME] Successfully fetched content, extracting title.")
+                title = adapter.extract_title(soup)
+                if not title:
+                    logger.error(f"    [PARSE ERROR] Could not extract title from resumed URL: {current_url}")
+                    status_callback(f"    [FATAL] Resume failed: Could not parse title.")
+                    break
+
+                logger.debug(f"  [RESUME] Successfully extracted title: '{title}'")
+                _, _, filename_num_temp = adapter.parse_chapter_info(title)
+
+                if override_decision == 'expected':
+                    current_chapter_num = resume_info['expected_number']
+                    end_chapter_num = current_chapter_num
+                    filename_num = f"{current_chapter_num:04d}"
+                    logger.info(f"  [RESUME] Overriding to EXPECTED chapter number: {current_chapter_num}")
+                elif override_decision == 'title':
+                    current_chapter_num = resume_info['found_number']
+                    end_chapter_num = current_chapter_num
+                    filename_num = filename_num_temp
+                    logger.info(f"  [RESUME] Overriding to FOUND chapter number: {current_chapter_num}")
+                    last_known_good_num = current_chapter_num + 1 if direction == "Backwards (newest to oldest)" else current_chapter_num - 1
+                
+                logger.debug(f"  [RESUME] Final chapter number: {current_chapter_num}, filename number: {filename_num}")
+                filename = sanitize_filename(f"Chapter-{filename_num}-{title}.txt")
+                filepath = os.path.join(output_dir, filename)
+                
+                logger.debug(f"  [RESUME] Checking for existing file at: {filepath}")
+                if not os.path.exists(filepath):
+                    logger.debug("  [RESUME] File does not exist, extracting content.")
+                    content = adapter.extract_content(soup)
+                    if content:
+                        with open(filepath, 'w', encoding='utf-8') as f:
+                            f.write(content)
+                        status_callback(f"    [SAVED] Chapter {current_chapter_num}: {filename}")
+                        logger.info(f"    [SAVED] Chapter {current_chapter_num}: {filename}")
+                    else:
+                        logger.error(f"    [PARSE ERROR] Could not extract content from resumed URL: {current_url}")
+                        logger.error(f"    [PARSE ERROR] Resume title was: '{title}'")
+                        logger.error(f"    [PARSE ERROR] Resume adapter: {type(adapter).__name__}")
+                        
+                        # Save the failed resume HTML for inspection
+                        adapter_name = type(adapter).__name__.replace('Adapter', '').lower()
+                        saved_file = save_failed_html(soup, current_url, adapter_name, "resume_content_fail")
+                        if saved_file:
+                            logger.error(f"    [PARSE ERROR] Resume failed HTML saved to: {saved_file}")
+                        
+                        status_callback(f"    [FATAL] Resume failed: Could not parse content.")
+                        break
+                else:
+                    status_callback(f"    [SKIP] File already exists for Chapter {current_chapter_num}.")
+                    logger.info(f"    [SKIP] File already exists for Chapter {current_chapter_num}.")
+
+                next_url = adapter.get_next_link(soup, direction)
+                logger.debug(f"  [RESUME] Found next URL: {next_url}")
+
+                metadata["chapters"][str(current_chapter_num)] = {
+                    "title": title, "url": current_url, "file_exists": True, 
+                    "previous_url": next_url, "filename_num": filename_num,
+                    "end_chapter_num": end_chapter_num
+                }
+                save_metadata(metadata, metadata_file)
+                logger.info(f"    [META] Metadata saved for chapter {current_chapter_num}.")
+                
+                last_known_good_num = end_chapter_num
+                current_url = next_url
+                chapters_scraped += 1
+                if progress_callback:
+                    progress_callback(chapters_scraped, max_chapters)
+                
+                logger.info(f"  [RESUME] Resume block complete. Continuing to next chapter: {current_url}")
+                time.sleep(delay_seconds)
+                continue
+
+            except Exception as e:
+                logger.critical(f"  [RESUME FATAL] An unexpected error occurred in the resume block: {e}", exc_info=True)
+                status_callback(f"💥 FATAL ERROR during resume: {e}")
+                break # Stop scraping
+            finally:
+                # Ensure resume_info is cleared to prevent re-triggering, even if an error occurs
+                resume_info = None
+
         status_callback(f"  -> Processing URL: {current_url}")
         logger.info("-" * 70)
         logger.info(f"  -> Processing URL: {current_url}")
@@ -237,6 +334,12 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                             resolution = 'abort'
                             break
                 
+                if resolution == 'defer':
+                    logger.info("    [DEFER] UI is handling the conflict. Scraper is pausing.")
+                    deferred_stop = True
+                    current_url = None # Explicitly stop the loop
+                    break
+
                 if resolution == 'expected':
                     logger.info(f"    [USER] Using expected chapter number: {expected_num}")
                     current_chapter_num = expected_num
@@ -255,6 +358,15 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
             content = adapter.extract_content(soup)
             if not content:
                 logger.error(f"    [PARSE ERROR] Could not extract content from: {current_url}")
+                logger.error(f"    [PARSE ERROR] Title was: '{title}'")
+                logger.error(f"    [PARSE ERROR] Adapter: {type(adapter).__name__}")
+                logger.error(f"    [PARSE ERROR] Page length: {len(str(soup))} chars")
+                
+                # Save the failed HTML for inspection
+                adapter_name = type(adapter).__name__.replace('Adapter', '').lower()
+                saved_file = save_failed_html(soup, current_url, adapter_name, "scraper_content_fail")
+                if saved_file:
+                    logger.error(f"    [PARSE ERROR] Failed HTML saved to: {saved_file}")
                 break
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(content)
@@ -293,7 +405,7 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
 
         time.sleep(delay_seconds)
 
-    if current_url is None:
+    if current_url is None and not deferred_stop:
         if status_callback:
             status_callback(f"\n🏁 Reached the end of the line (no more '{direction}' links).")
 
