@@ -495,139 +495,142 @@ with tab2:
         else:
             st.info("👆 Prepare dataset in the 'Dataset Preparation' tab first")
     
-    with col2:
-        st.subheader("🔥 Launch Training")
+    # This is a placeholder for the new logic that will be added in a subsequent step.
+# For now, we are removing the old, broken conflict handler.
+# The new logic will check the return value of the scraper and set the session state.
+with col2:
+    st.subheader("🔥 Launch Training")
+    
+    # Safety checks
+    can_train = all([
+        api_key,
+        hasattr(st.session_state, 'train_data'),
+        len(getattr(st.session_state, 'train_data', [])) > 0
+    ])
+    
+    if can_train:
+        st.success("✅ Ready to train!")
         
-        # Safety checks
-        can_train = all([
-            api_key,
-            hasattr(st.session_state, 'train_data'),
-            len(getattr(st.session_state, 'train_data', [])) > 0
-        ])
+        # Training confirmation
+        train_confirmed = st.checkbox(
+            "I confirm this training configuration",
+            help="This will start a fine-tuning job on Google AI"
+        )
         
-        if can_train:
-            st.success("✅ Ready to train!")
-            
-            # Training confirmation
-            train_confirmed = st.checkbox(
-                "I confirm this training configuration",
-                help="This will start a fine-tuning job on Google AI"
-            )
-            
-            if train_confirmed and st.button("🚀 **Start Training**", type="primary"):
-                with st.spinner("Starting fine-tuning job..."):
-                    if selected_platform == "Google Gemini":
-                        operation, error = start_finetuning_job(
-                            api_key=api_key,
-                            training_data=st.session_state.train_data,
-                            base_model=selected_base_model,
-                            epoch_count=epoch_count,
-                            batch_size=batch_size,
-                            learning_rate=learning_rate
-                        )
-                    elif selected_platform == "OpenAI":
-                        # First, create JSONL content from training data
-                        train_jsonl, val_jsonl, export_stats = create_translation_jsonl(
-                            st.session_state.training_examples,
-                            train_split=0.8,
-                            format_type="OpenAI Fine-tuning",
-                            system_prompt="You are a professional translator specializing in Chinese to English translation of web novels."
-                        )
-                        
-                        # Upload training file to OpenAI
-                        file_response, upload_error = upload_training_file_openai(api_key, train_jsonl)
-                        
-                        if upload_error:
-                            st.error(f"❌ File upload failed: {upload_error}")
-                            operation = None
-                            error = upload_error
-                        else:
-                            # Start fine-tuning job
-                            operation, error = start_openai_finetuning_job(
-                                api_key=api_key,
-                                training_file_id=file_response.id,
-                                model=selected_base_model,
-                                n_epochs=n_epochs,
-                                batch_size=batch_size,
-                                learning_rate_multiplier=learning_rate_multiplier
-                            )
+        if train_confirmed and st.button("🚀 **Start Training**", type="primary"):
+            with st.spinner("Starting fine-tuning job..."):
+                if selected_platform == "Google Gemini":
+                    operation, error = start_finetuning_job(
+                        api_key=api_key,
+                        training_data=st.session_state.train_data,
+                        base_model=selected_base_model,
+                        epoch_count=epoch_count,
+                        batch_size=batch_size,
+                        learning_rate=learning_rate
+                    )
+                elif selected_platform == "OpenAI":
+                    # First, create JSONL content from training data
+                    train_jsonl, val_jsonl, export_stats = create_translation_jsonl(
+                        st.session_state.training_examples,
+                        train_split=0.8,
+                        format_type="OpenAI Fine-tuning",
+                        system_prompt="You are a professional translator specializing in Chinese to English translation of web novels."
+                    )
                     
-                    if operation:
-                        st.success("🎉 Training job started successfully!")
-                        
-                        # Platform-specific job info display
-                        if selected_platform == "Google Gemini":
-                            st.info(f"Job Name: {operation.name}")
-                            job_name = operation.name
-                        elif selected_platform == "OpenAI":
-                            st.info(f"Job ID: {operation.id}")
-                            st.info(f"Model: {operation.model}")
-                            job_name = operation.id
-                        
-                        # Platform-specific job metadata
-                        if selected_platform == "Google Gemini":
-                            job_metadata = {
-                                "platform": "Google Gemini",
-                                "job_name": job_name,
-                                "base_model": selected_base_model,
-                                "hyperparameters": {
-                                    "epoch_count": epoch_count,
-                                    "batch_size": batch_size,
-                                    "learning_rate": learning_rate
-                                },
-                                "dataset_info": {
-                                    "train_examples": len(st.session_state.train_data),
-                                    "val_examples": len(st.session_state.val_data),
-                                    "train_split": train_split
-                                }
-                            }
-                        elif selected_platform == "OpenAI":
-                            job_metadata = {
-                                "platform": "OpenAI",
-                                "job_name": job_name,
-                                "base_model": selected_base_model,
-                                "hyperparameters": {
-                                    "n_epochs": n_epochs,
-                                    "batch_size": batch_size,
-                                    "learning_rate_multiplier": learning_rate_multiplier
-                                },
-                                "dataset_info": {
-                                    "training_file_id": file_response.id if selected_platform == "OpenAI" else None,
-                                    "train_examples": export_stats['train_count'] if selected_platform == "OpenAI" else len(st.session_state.train_data),
-                                    "val_examples": export_stats['val_count'] if selected_platform == "OpenAI" else len(st.session_state.val_data),
-                                    "train_split": 0.8 if selected_platform == "OpenAI" else train_split
-                                }
-                            }
-                        
-                        metadata_file = save_model_metadata(
-                            job_metadata, 
-                            job_metadata["hyperparameters"], 
-                            job_metadata["dataset_info"]
-                        )
-                        
-                        if metadata_file:
-                            st.success(f"📁 Metadata saved: {os.path.basename(metadata_file)}")
-                        
-                        # Add to session state for monitoring
-                        if 'training_jobs' not in st.session_state:
-                            st.session_state.training_jobs = []
-                        
-                        st.session_state.training_jobs.append({
-                            "name": operation.name,
-                            "started_at": datetime.now(),
-                            "status": "CREATING",
-                            "metadata": job_metadata
-                        })
-                        
-                        st.rerun()
+                    # Upload training file to OpenAI
+                    file_response, upload_error = upload_training_file_openai(api_key, train_jsonl)
+                    
+                    if upload_error:
+                        st.error(f"❌ File upload failed: {upload_error}")
+                        operation = None
+                        error = upload_error
                     else:
-                        st.error(f"❌ Training failed: {error}")
-        else:
-            st.warning("⚠️ Missing requirements:")
-            if not api_key:
-                st.text("• API key")
-            if not hasattr(st.session_state, 'train_data'):
-                st.text("• Training data")
+                        # Start fine-tuning job
+                        operation, error = start_openai_finetuning_job(
+                            api_key=api_key,
+                            training_file_id=file_response.id,
+                            model=selected_base_model,
+                            n_epochs=n_epochs,
+                            batch_size=batch_size,
+                            learning_rate_multiplier=learning_rate_multiplier
+                        )
+                
+                if operation:
+                    st.success("🎉 Training job started successfully!")
+                    
+                    # Platform-specific job info display
+                    if selected_platform == "Google Gemini":
+                        st.info(f"Job Name: {operation.name}")
+                        job_name = operation.name
+                    elif selected_platform == "OpenAI":
+                        st.info(f"Job ID: {operation.id}")
+                        st.info(f"Model: {operation.model}")
+                        job_name = operation.id
+                    
+                    # Platform-specific job metadata
+                    if selected_platform == "Google Gemini":
+                        job_metadata = {
+                            "platform": "Google Gemini",
+                            "job_name": job_name,
+                            "base_model": selected_base_model,
+                            "hyperparameters": {
+                                "epoch_count": epoch_count,
+                                "batch_size": batch_size,
+                                "learning_rate": learning_rate
+                            },
+                            "dataset_info": {
+                                "train_examples": len(st.session_state.train_data),
+                                "val_examples": len(st.session_state.val_data),
+                                "train_split": train_split
+                            }
+                        }
+                    elif selected_platform == "OpenAI":
+                        job_metadata = {
+                            "platform": "OpenAI",
+                            "job_name": job_name,
+                            "base_model": selected_base_model,
+                            "hyperparameters": {
+                                "n_epochs": n_epochs,
+                                "batch_size": batch_size,
+                                "learning_rate_multiplier": learning_rate_multiplier
+                            },
+                            "dataset_info": {
+                                "training_file_id": file_response.id if selected_platform == "OpenAI" else None,
+                                "train_examples": export_stats['train_count'] if selected_platform == "OpenAI" else len(st.session_state.train_data),
+                                "val_examples": export_stats['val_count'] if selected_platform == "OpenAI" else len(st.session_state.val_data),
+                                "train_split": 0.8 if selected_platform == "OpenAI" else train_split
+                            }
+                        }
+                    
+                    metadata_file = save_model_metadata(
+                        job_metadata, 
+                        job_metadata["hyperparameters"], 
+                        job_metadata["dataset_info"]
+                    )
+                    
+                    if metadata_file:
+                        st.success(f"📁 Metadata saved: {os.path.basename(metadata_file)}")
+                    
+                    # Add to session state for monitoring
+                    if 'training_jobs' not in st.session_state:
+                        st.session_state.training_jobs = []
+                    
+                    st.session_state.training_jobs.append({
+                        "name": operation.name,
+                        "started_at": datetime.now(),
+                        "status": "CREATING",
+                        "metadata": job_metadata
+                    })
+                    
+                    st.rerun()
+                else:
+                    st.error(f"❌ Training failed: {error}")
+    else:
+        st.warning("⚠️ Missing requirements:")
+        if not api_key:
+            st.text("• API key")
+        if not hasattr(st.session_state, 'train_data'):
+            st.text("• Training data")
 
 # --- Tab 3: Training Monitoring ---
 with tab3:

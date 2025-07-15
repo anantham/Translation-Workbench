@@ -351,15 +351,23 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                         logger.error(f"Failed to read preview for last chapter: {e}")
                     # --- End Preview Fetching ---
 
-                    resolution = conflict_handler(
-                        url=current_url,
-                        expected_number=expected_num,
-                        found_number=current_chapter_num,
-                        title=title,
-                        last_chapter_preview=last_chapter_preview,
-                        current_chapter_preview=current_chapter_preview
-                    )
-                else: # Fallback to CLI
+                    # Instead of calling a handler, prepare data to be returned
+                    conflict_data = {
+                        'type': 'sequence_break',
+                        'url': current_url,
+                        'expected_number': expected_num,
+                        'found_number': current_chapter_num,
+                        'title': title,
+                        'last_chapter_preview': last_chapter_preview,
+                        'current_chapter_preview': current_chapter_preview
+                    }
+                    
+                    # If a handler is provided (for UI mode), return the data
+                    if conflict_handler:
+                        logger.info("    [DEFER] Conflict detected. Returning data to UI for resolution.")
+                        return {"status": "conflict", "data": conflict_data}
+
+                    # Fallback to CLI if no handler
                     print(f"    [SEQUENCE BREAK] Chapter number mismatch detected!")
                     print(f"    Expected: Chapter {expected_num}")
                     print(f"    Found:    Chapter {current_chapter_num} ('{title}')")
@@ -378,10 +386,9 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                             break
                 
                 if resolution == 'defer':
-                    logger.info("    [DEFER] UI is handling the conflict. Scraper is pausing.")
-                    deferred_stop = True
-                    current_url = None # Explicitly stop the loop
-                    break
+                    # This state should not be reached if conflict_handler is used
+                    logger.error("    [FATAL] 'defer' resolution reached without a conflict handler.")
+                    return {"status": "error", "message": "Deferred without handler."}
 
                 if resolution == 'expected':
                     logger.info(f"    [USER] Using expected chapter number: {expected_num}")
@@ -391,7 +398,7 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                     last_known_good_num = current_chapter_num + 1 if direction == "Backwards (newest to oldest)" else current_chapter_num - 1
                 else:
                     logger.critical("    [USER] Aborting scrape due to sequence break.")
-                    break
+                    return {"status": "aborted"}
 
         filename = sanitize_filename(f"Chapter-{filename_num}-{title}.txt")
         filepath = os.path.join(output_dir, filename)

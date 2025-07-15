@@ -53,7 +53,7 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
         st.session_state.scraping_override = None
 
     try:
-        scrape_novel(
+        result = scrape_novel(
             start_url=current_url,
             output_dir=output_dir,
             metadata_file=f"{output_dir}/manifest.json",
@@ -62,13 +62,15 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
             delay_seconds=delay_seconds,
             progress_callback=progress_callback,
             status_callback=status_callback,
-            conflict_handler=conflict_handler,
+            conflict_handler=conflict_handler, # Still passed for CLI mode
             resume_info=resume_info
         )
+        return result
     except Exception as e:
         logger.critical(f"💥 Scraping failed with a critical error: {str(e)}")
         if status_callback:
             status_callback(f"💥 Scraping failed with a critical error: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
 
 def validate_scraping_url(url):
