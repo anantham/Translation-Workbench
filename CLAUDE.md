@@ -71,6 +71,98 @@ https://wtr-lab.com/en/serie-5467/extreme-demon?tab=toc
 https://www.dxmwx.org/read/43713_33325507.html
 
 
+## DEBUGGING METHODOLOGY - EVIDENCE-DRIVEN DIAGNOSIS
+
+### The Scientific Debugging Process (2025-07-15)
+
+**🚨 CRITICAL RULE: Never patch based on assumptions. Always gather evidence first.**
+
+#### Step 1: Formulate Multiple Uncorrelated Hypotheses
+When encountering a bug like `'NoneType' object is not callable`, generate 3-5 different hypotheses that could explain the error:
+
+**Example for NovelCool scraper error:**
+1. **Import/Module Loading Issue**: New code not loaded due to Python cache
+2. **Method Call on None**: `content_div.copy()` returns None or method doesn't exist  
+3. **Missing Method**: `_clean_content_container()` method not defined or accessible
+4. **BeautifulSoup Version**: Method compatibility issues between BS4 versions
+5. **Exception in Method**: Error inside `_clean_content_container()` not caught
+
+#### Step 2: Add Verbose Debug Logging to Collect Evidence
+Don't guess - instrument the code to gather data:
+
+```python
+def extract_content(self, soup):
+    logger.debug("[NOVELCOOL] Starting content extraction")
+    
+    # HYPOTHESIS TESTING: Check what we actually found
+    content_div = soup.find('p', class_='chapter-start-mark')
+    logger.debug(f"[NOVELCOOL] content_div type: {type(content_div)}")
+    logger.debug(f"[NOVELCOOL] content_div value: {content_div}")
+    
+    if content_div:
+        logger.debug(f"[NOVELCOOL] content_div.copy method exists: {hasattr(content_div, 'copy')}")
+        logger.debug(f"[NOVELCOOL] _clean_content_container method exists: {hasattr(self, '_clean_content_container')}")
+        
+        # Test each step individually
+        try:
+            copied_div = content_div.copy()
+            logger.debug(f"[NOVELCOOL] copy() succeeded, type: {type(copied_div)}")
+        except Exception as e:
+            logger.error(f"[NOVELCOOL] copy() failed: {e}")
+            return None
+            
+        try:
+            cleaned_div = self._clean_content_container(copied_div)
+            logger.debug(f"[NOVELCOOL] clean succeeded, type: {type(cleaned_div)}")
+        except Exception as e:
+            logger.error(f"[NOVELCOOL] clean failed: {e}")
+            return None
+```
+
+#### Step 3: Systematically Test Each Hypothesis
+- **Run minimal test**: Add logging and re-run to see which step fails
+- **Check evidence**: Look at logs to see which hypothesis is supported
+- **Falsify systematically**: Rule out hypotheses one by one
+
+#### Step 4: Create General Solution Class
+Once root cause is identified, create a solution that addresses the entire class of issues:
+
+```python
+def safe_content_extraction(self, selector_func, cleanup_func=None):
+    """Generic safe extraction with comprehensive error handling."""
+    try:
+        element = selector_func()
+        if not element:
+            return None, "Element not found"
+            
+        if cleanup_func and hasattr(element, 'copy'):
+            try:
+                cleaned = cleanup_func(element.copy())
+                return cleaned.get_text(strip=True), "Success"
+            except Exception as e:
+                logger.warning(f"Cleanup failed: {e}, using raw extraction")
+                return element.get_text(strip=True), "Cleanup failed, raw used"
+        else:
+            return element.get_text(strip=True), "Raw extraction"
+            
+    except Exception as e:
+        logger.error(f"Extraction failed: {e}")
+        return None, f"Failed: {e}"
+```
+
+### Key Anti-Patterns to Avoid
+❌ **Assumption-driven fixing**: "It's probably X, let me patch X"  
+❌ **Single hypothesis testing**: Only considering one explanation  
+❌ **Immediate patching**: Fixing before understanding  
+❌ **Generic error handling**: `try/except: pass` without logging  
+
+### Key Patterns to Follow  
+✅ **Evidence-driven diagnosis**: Collect data first, then analyze  
+✅ **Multiple hypothesis generation**: Consider uncorrelated explanations  
+✅ **Systematic falsification**: Test and rule out hypotheses methodically  
+✅ **Comprehensive logging**: Log enough data to understand state  
+✅ **General solution design**: Fix the class of problems, not just the instance  
+
 ## RULES
 
 
