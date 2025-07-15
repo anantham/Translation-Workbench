@@ -163,7 +163,7 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                     break
 
                 logger.debug(f"  [RESUME] Successfully extracted title: '{title}'")
-                _, _, filename_num_temp = adapter.parse_chapter_info(title)
+                _, _, filename_num_temp = adapter.parse_chapter_info(title, soup)
 
                 if override_decision == 'expected':
                     current_chapter_num = resume_info['expected_number']

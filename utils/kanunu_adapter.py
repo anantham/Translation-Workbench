@@ -57,28 +57,30 @@ class KanunuAdapter(BaseAdapter):
 
     def parse_chapter_info(self, title, soup):
         """Overrides the base parser to handle combined chapters from kanunu8.
-        It prioritizes the on-page H1/body text over the HTML title tag,
-        as the title tag is sometimes incorrect.
+        It prioritizes the on-page content text over the H1 or HTML title tag,
+        as those are sometimes incorrect.
         """
         numeral_part = None
-        # 1. Try to find the chapter number from the on-page content first.
-        # This is more reliable than the <title> tag.
-        body_match_h1 = soup.find('h1', string=re.compile(r"第[一二三四五六七八九十百千万零\d~-]+章"))
-        body_match_p = soup.find('p', string=re.compile(r"第[一二三四五六七八九十百千万零\d~-]+章"))
         
-        if body_match_h1:
-            match = re.search(r'第([一二三四五六七八九十百千万零\d~-]+)章', body_match_h1.text)
+        # 1. Prioritize the main content div, as it's the most reliable source.
+        content_div = soup.find('div', id='neirong')
+        if content_div:
+            content_text = content_div.get_text(separator="\n", strip=True)
+            match = re.search(r'第([一二三四五六七八九十百千万零\d~-]+)章', content_text)
             if match:
                 numeral_part = match.group(1)
-                logger.debug(f"Found chapter numeral '{numeral_part}' in H1 tag.")
-        
-        if not numeral_part and body_match_p:
-            match = re.search(r'第([一二三四五六七八九十百千万零\d~-]+)章', body_match_p.text)
-            if match:
-                numeral_part = match.group(1)
-                logger.debug(f"Found chapter numeral '{numeral_part}' in P tag.")
+                logger.debug(f"Found chapter numeral '{numeral_part}' in content div.")
 
-        # 2. If not found in the body, fall back to the HTML title.
+        # 2. If not in content, check the H1 tag as a fallback.
+        if not numeral_part:
+            body_match_h1 = soup.find('h1', string=re.compile(r"第[一二三四五六七八九十百千万零\d~-]+章"))
+            if body_match_h1:
+                match = re.search(r'第([一二三四五六七八九十百千万零\d~-]+)章', body_match_h1.text)
+                if match:
+                    numeral_part = match.group(1)
+                    logger.debug(f"Found chapter numeral '{numeral_part}' in H1 tag.")
+
+        # 3. If still not found, fall back to the HTML title.
         if not numeral_part:
             logger.warning("Could not find chapter number in body, falling back to title tag.")
             match = re.search(r'第([一二三四五六七八九十百千万零\d~-]+)', title)
@@ -86,7 +88,7 @@ class KanunuAdapter(BaseAdapter):
                 numeral_part = match.group(1)
 
         if not numeral_part:
-            logger.error(f"Could not find a chapter number pattern in either body or title: '{title}'.")
+            logger.error(f"Could not find a chapter number pattern in body or title: '{title}'.")
             return None, None, None
         range_match = re.match(r'(.+?)[~-](.+)', numeral_part)
 
