@@ -41,11 +41,11 @@ except ImportError:
     pass
 
 
-def translate_with_gemini(raw_text: str, api_key: str, use_cache=True):
+def translate_with_gemini(raw_text: str, api_key: str, use_cache=True, novel_name: str = None):
     """Sends raw text to Gemini for translation with caching support."""
     # Check cache first if enabled
     if use_cache:
-        cached_translation = get_cached_translation(raw_text)
+        cached_translation = get_cached_translation(raw_text, novel_name=novel_name)
         if cached_translation:
             return cached_translation
     
@@ -62,7 +62,7 @@ def translate_with_gemini(raw_text: str, api_key: str, use_cache=True):
         
         # Store in cache if successful and caching is enabled
         if use_cache and translation and not translation.startswith("API Request Failed"):
-            store_translation_in_cache(raw_text, translation)
+            store_translation_in_cache(raw_text, translation, novel_name=novel_name)
         
         return translation
     except Exception as e:

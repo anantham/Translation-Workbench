@@ -53,18 +53,20 @@ def save_similarity_cache(cache):
         print(f"Warning: Could not save similarity cache: {e}")
 
 
-def get_translation_cache_path(raw_text):
+def get_translation_cache_path(raw_text, novel_name=None):
     """Generate cache file path for AI translation."""
     if not os.path.exists(AI_TRANSLATION_CACHE_DIR):
         os.makedirs(AI_TRANSLATION_CACHE_DIR)
     
-    text_hash = generate_text_hash(raw_text)
+    # Incorporate novel_name into the hash if provided
+    hash_input = f"{novel_name}_{raw_text}" if novel_name else raw_text
+    text_hash = generate_text_hash(hash_input)
     return os.path.join(AI_TRANSLATION_CACHE_DIR, f"translation_{text_hash}.txt")
 
 
-def get_cached_translation(raw_text):
+def get_cached_translation(raw_text, novel_name=None):
     """Get cached AI translation if available."""
-    cache_path = get_translation_cache_path(raw_text)
+    cache_path = get_translation_cache_path(raw_text, novel_name=novel_name)
     if os.path.exists(cache_path):
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
@@ -74,9 +76,9 @@ def get_cached_translation(raw_text):
     return None
 
 
-def store_translation_in_cache(raw_text, translation):
+def store_translation_in_cache(raw_text, translation, novel_name=None):
     """Store AI translation in cache file."""
-    cache_path = get_translation_cache_path(raw_text)
+    cache_path = get_translation_cache_path(raw_text, novel_name=novel_name)
     try:
         with open(cache_path, 'w', encoding='utf-8') as f:
             f.write(translation)
