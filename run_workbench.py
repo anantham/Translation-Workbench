@@ -35,8 +35,8 @@ def launch_workbench():
         print("❌ 🏠_Home_Dashboard.py not found. Please run from the project directory.")
         return
     
-    if not os.path.exists("utils.py"):
-        print("❌ utils.py not found. Please ensure all files are present.")
+    if not os.path.exists("utils"):
+        print("❌ utils/ directory not found. Please ensure all files are present.")
         return
     
     if not os.path.exists("pages"):

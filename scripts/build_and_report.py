@@ -795,7 +795,7 @@ def main():
         print(f"✅ API key loaded from {api_source}")
         
     except ImportError as e:
-        print(f"❌ Could not import utils.py: {e}")
+        print(f"❌ Could not import utils module: {e}")
         print("💡 Make sure you're running from the project root directory")
         return
     
