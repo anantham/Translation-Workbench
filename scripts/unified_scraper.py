@@ -20,16 +20,20 @@ def is_chapter_covered_by_range_file(chapter_num, metadata, output_dir):
     For example, if we're looking for chapter 50 and there's a range file
     "Chapter-0049-0050-..." covering chapters 49-50, this returns True.
     """
-    for ch_num_str, chapter_info in metadata.get("chapters", {}).items():
+    for ch_key, chapter_info in metadata.get("chapters", {}).items():
         try:
-            ch_num = int(ch_num_str)
-            end_chapter_num = chapter_info.get("end_chapter_num", ch_num)
-            
+            # Handle both single keys "49" and range keys "49-50"
+            if '-' in ch_key:
+                start_ch, end_ch = map(int, ch_key.split('-'))
+            else:
+                start_ch = int(ch_key)
+                end_ch = chapter_info.get("end_chapter_num", start_ch)
+
             # Check if the target chapter_num falls within this range
-            if ch_num <= chapter_num <= end_chapter_num:
+            if start_ch <= chapter_num <= end_ch:
                 # Verify the range file actually exists
-                title = chapter_info.get("title", f"Chapter {ch_num}")
-                filename_num = chapter_info.get("filename_num", f"{ch_num:04d}")
+                title = chapter_info.get("title", f"Chapter {ch_key}")
+                filename_num = chapter_info.get("filename_num", f"{start_ch:04d}")
                 filename = sanitize_filename(f"Chapter-{filename_num}-{title}.txt")
                 expected_filepath = os.path.join(output_dir, filename)
                 
@@ -103,8 +107,16 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
     last_known_good_num = None
     
     if "chapters" in metadata and metadata["chapters"]:
-        last_known_good_num = max([int(k) for k in metadata["chapters"].keys()])
-        logger.info(f"Resuming scrape. Last known good chapter is {last_known_good_num}")
+        # New logic to handle integer and range keys
+        processed_keys = []
+        for k in metadata["chapters"].keys():
+            if '-' in k:
+                processed_keys.append(int(k.split('-')[1]))
+            else:
+                processed_keys.append(int(k))
+        if processed_keys:
+            last_known_good_num = max(processed_keys)
+            logger.info(f"Resuming scrape. Last known good chapter is {last_known_good_num}")
 
     logger.info(f"🚀 Starting Scrape from: {start_url}")
 
@@ -211,54 +223,47 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
 
         # --- Advanced Cache/Manifest Validation ---
         cache_hit = False
-        for ch_num_str, chapter_info in metadata.get("chapters", {}).items():
+        for ch_key, chapter_info in metadata.get("chapters", {}).items():
             if chapter_info.get("url") == current_url:
-                ch_num = int(ch_num_str)
-                logger.debug(f"URL {current_url} found in metadata for chapter {ch_num}.")
-                title = chapter_info.get("title", f"Chapter {ch_num}")
-                filename_num = chapter_info.get("filename_num", f"{ch_num:04d}")
+                # This chapter's URL is in the metadata. We can trust the info.
+                logger.debug(f"URL {current_url} found in metadata under key '{ch_key}'.")
+                
+                title = chapter_info.get("title", f"Chapter {ch_key}")
+                filename_num = chapter_info.get("filename_num", "0000")
                 filename = sanitize_filename(f"Chapter-{filename_num}-{title}.txt")
                 expected_filepath = os.path.join(output_dir, filename)
                 
                 metadata_says_exists = chapter_info.get("file_exists", False)
                 file_actually_exists = os.path.exists(expected_filepath)
                 
-                # NEW: Check if this chapter is covered by a range file
-                if not file_actually_exists:
-                    is_covered, range_filepath, range_info = is_chapter_covered_by_range_file(ch_num, metadata, output_dir)
-                    if is_covered:
-                        file_actually_exists = True
-                        expected_filepath = range_filepath
-                        logger.debug(f"    [RANGE FILE] Chapter {ch_num} covered by range file: {range_filepath}")
-                
                 logger.debug(f"    - Metadata 'file_exists': {metadata_says_exists}")
                 logger.debug(f"    - Filesystem check: {file_actually_exists} at '{expected_filepath}'")
 
                 if metadata_says_exists and file_actually_exists:
-                    status_callback(f"    [CACHE HIT] Chapter {ch_num} is confirmed on disk. Skipping.")
-                    logger.info(f"    [CACHE HIT] Chapter {ch_num} is confirmed on disk. Skipping.")
+                    status_callback(f"    [CACHE HIT] Chapter(s) {ch_key} confirmed on disk. Skipping.")
+                    logger.info(f"    [CACHE HIT] Chapter(s) {ch_key} confirmed on disk. Skipping.")
                     
                     chapters_scraped += 1
                     if progress_callback:
                         progress_callback(chapters_scraped, max_chapters)
 
                     current_url = chapter_info.get("previous_url")
-                    last_known_good_num = chapter_info.get("end_chapter_num", ch_num)
+                    last_known_good_num = chapter_info.get("end_chapter_num")
                     cache_hit = True
                     break
                 elif metadata_says_exists and not file_actually_exists:
-                    logger.warning(f"    [STALE CACHE] Chapter {ch_num} marked as existing but file is missing.")
+                    logger.warning(f"    [STALE CACHE] Chapter(s) {ch_key} marked as existing but file is missing.")
                     logger.info(f"    [FIXING] Updating metadata and re-scraping chapter.")
-                    metadata["chapters"][ch_num_str]["file_exists"] = False
+                    metadata["chapters"][ch_key]["file_exists"] = False
                     save_metadata(metadata, metadata_file)
                     break 
                 elif not metadata_says_exists and file_actually_exists:
-                    logger.info(f"    [ORPHANED FILE] File for chapter {ch_num} exists but metadata is not updated.")
+                    logger.info(f"    [ORPHANED FILE] File for chapter(s) {ch_key} exists but metadata is not updated.")
                     logger.info(f"    [FIXING] Updating metadata to reflect existing file.")
-                    metadata["chapters"][ch_num_str]["file_exists"] = True
+                    metadata["chapters"][ch_key]["file_exists"] = True
                     save_metadata(metadata, metadata_file)
                     current_url = chapter_info.get("previous_url")
-                    last_known_good_num = chapter_info.get("end_chapter_num", ch_num)
+                    last_known_good_num = chapter_info.get("end_chapter_num")
                     cache_hit = True
                     break
         
@@ -417,18 +422,27 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
         
         next_url = adapter.get_next_link(soup, direction)
 
-        logger.debug(f"Updating metadata for chapter {current_chapter_num}")
-        metadata["chapters"][str(current_chapter_num)] = {
+        # --- Metadata Update ---
+        # Handle combined chapters by using a range string as the key
+        if current_chapter_num != end_chapter_num:
+            metadata_key = f"{current_chapter_num}-{end_chapter_num}"
+            logger.info(f"    [META] Saving combined chapter metadata under key: '{metadata_key}'")
+        else:
+            metadata_key = str(current_chapter_num)
+
+        logger.debug(f"Updating metadata for chapter(s) {metadata_key}")
+        metadata["chapters"][metadata_key] = {
             "title": title, 
             "url": current_url, 
             "file_exists": True, 
             "previous_url": next_url, 
             "filename_num": filename_num,
+            "start_chapter_num": current_chapter_num, # Explicitly store start
             "end_chapter_num": end_chapter_num
         }
         
         save_metadata(metadata, metadata_file)
-        logger.info(f"    [META] Metadata saved for chapter {current_chapter_num}.")
+        logger.info(f"    [META] Metadata saved for chapter(s) {metadata_key}.")
             
         last_known_good_num = end_chapter_num
         current_url = next_url
