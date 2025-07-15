@@ -252,6 +252,221 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 4. **Include testing steps** for the reviewer
 5. **Backup critical files** before major changes
 
+## ALIGNMENT MAP BUILDER - IMPLEMENTATION DETAILS (2025-07-15)
+
+### ✅ COMPLETED IMPLEMENTATION (Phases 1-3)
+
+#### **Phase 1: Enhanced Utils Module (`utils/alignment_map_builder.py`)**
+
+**Key Functions Implemented:**
+1. **`build_and_save_alignment_map(chinese_dir, english_dir, novel_name, output_path=None)`**
+   - Complete workflow function with central storage
+   - Returns: `(success, message, build_stats)`
+   - Handles validation, building, and saving with backup
+
+2. **`preview_alignment_mapping(chinese_dir, english_dir)`**
+   - Preview system without actually building
+   - Returns comprehensive statistics and validation results
+   - Shows file issues and overlap analysis
+
+3. **`validate_chapter_directories(chinese_dir, english_dir)`**
+   - Comprehensive directory and file validation
+   - Checks existence, permissions, file integrity
+   - Returns detailed statistics and error reporting
+
+4. **`scan_directory_for_chapters(directory_path, file_pattern=None, validate_files=True)`**
+   - Directory-agnostic file scanning
+   - Supports encoding detection (UTF-8, GBK, Latin-1)
+   - Comprehensive file validation with size/content checks
+
+5. **`get_alignment_map_path(novel_name)`**
+   - Central storage path generator: `data/alignments/{novel}_alignment_map.json`
+   - Automatic directory creation and filename sanitization
+
+**Critical Technical Patterns:**
+- **Fail-loud error handling** with categorical logging prefixes
+- **Encoding detection** for Chinese text files
+- **File validation** with size limits and content analysis
+- **Central storage** in `data/alignments/` directory
+- **Backup system** with timestamps before overwriting
+
+#### **Phase 2: Data Review Page Integration (`pages/1_📖_Data_Review_Alignment.py`)**
+
+**UI Integration Points:**
+- **Directory selection UI** when no alignment map exists
+- **Preview system** with statistics and file issue reporting
+- **Progressive workflow**: Preview → Build → Results
+- **Session state management** for UI flow control
+
+**Key UI Components:**
+```python
+# Directory selection when no alignment map
+if not alignment_map:
+    st.header("🔨 Build Alignment Map")
+    
+    # Two-column directory selection
+    chinese_dir = st.text_input("Chinese Directory Path:")
+    english_dir = st.text_input("English Directory Path:")
+    
+    # Preview button triggers validation
+    if st.button("👀 Preview Alignment"):
+        preview_result = preview_alignment_mapping(chinese_dir, english_dir)
+        # Display statistics and file issues
+    
+    # Build button triggers actual creation
+    if st.button("🔨 Build Alignment Map"):
+        success, message, stats = build_and_save_alignment_map(chinese_dir, english_dir, novel_name)
+        # Clear session state and trigger rerun
+```
+
+#### **Phase 3: Home Dashboard Cleanup (`🏠_Home_Dashboard.py`)**
+
+**Changes Made:**
+- **Removed lines 120-182**: Entire Build Alignment Map section
+- **Updated status checking** to check both central and legacy locations
+- **Clean separation**: Home = scraping, Data Review = alignment building
+
+**Status Checking Logic:**
+```python
+# Check central location first
+alignments_dir = os.path.join("data", "alignments")
+alignment_maps_found = len([f for f in os.listdir(alignments_dir) if f.endswith('_alignment_map.json')])
+
+# Also check legacy location
+legacy_alignment_exists = os.path.exists("alignment_map.json")
+```
+
+### 🔄 PENDING IMPLEMENTATION (Phases 4-5)
+
+#### **Phase 4.1: Comprehensive Test Infrastructure** ⏳
+
+**Required Test Structure:**
+```
+tests/
+├── test_alignment_map_builder.py          # Unit tests
+├── test_integration_alignment.py          # Integration tests
+├── fixtures/                              # Test data
+│   ├── chinese_chapters/                  # Sample Chinese files
+│   ├── english_chapters/                  # Sample English files
+│   ├── problematic_files/                 # Edge cases
+│   └── expected_outputs/                  # Expected results
+└── conftest.py                            # Pytest configuration
+```
+
+**Critical Test Cases:**
+1. **Directory Validation Tests**
+   - Non-existent directories
+   - Permission errors
+   - Empty directories
+   - Mixed file types
+
+2. **File Validation Tests**
+   - Different encodings (UTF-8, GBK, Latin-1)
+   - Corrupted files
+   - HTML content instead of text
+   - Extremely large files (>50MB)
+   - Empty files
+
+3. **Chapter Number Extraction Tests**
+   - Various filename formats
+   - Edge cases with special characters
+   - Duplicate chapter numbers
+
+4. **Alignment Map Building Tests**
+   - Perfect overlap scenarios
+   - Partial overlap scenarios
+   - No overlap scenarios
+   - Mixed valid/invalid files
+
+5. **Central Storage Tests**
+   - Path generation and sanitization
+   - Backup creation and restoration
+   - Concurrent access handling
+
+**Test Data Requirements:**
+- **Sample Chinese files** with proper encoding
+- **Sample English files** with standard naming
+- **Problematic files** for edge case testing
+- **Expected alignment maps** for validation
+
+**Key Test Functions to Implement:**
+```python
+def test_validate_chapter_directories_success():
+    # Test successful validation with both directories
+    
+def test_validate_chapter_directories_missing():
+    # Test handling of missing directories
+    
+def test_file_validation_encoding_detection():
+    # Test automatic encoding detection
+    
+def test_build_alignment_map_perfect_overlap():
+    # Test when Chinese and English chapters align perfectly
+    
+def test_central_storage_path_generation():
+    # Test path generation and sanitization
+```
+
+#### **Phase 5.1: End-to-End Testing and Validation** ⏳
+
+**Integration Test Scenarios:**
+1. **Full Workflow Testing**
+   - Start with two directories
+   - Run preview
+   - Build alignment map
+   - Verify central storage
+   - Test backup creation
+
+2. **UI Integration Testing**
+   - Simulate user directory selection
+   - Test session state management
+   - Verify page rerun behavior
+   - Test error display
+
+3. **Error Recovery Testing**
+   - Handling of partial failures
+   - Recovery from corrupted files
+   - Graceful handling of permission errors
+
+4. **Performance Testing**
+   - Large directory handling (1000+ files)
+   - Memory usage monitoring
+   - Encoding detection performance
+
+**Validation Checkpoints:**
+- **Data integrity**: Verify alignment map accuracy
+- **File preservation**: Ensure original files unchanged
+- **Backup system**: Test backup creation and restoration
+- **Error reporting**: Verify all failure modes logged properly
+- **UI responsiveness**: Test with various directory sizes
+
+### 🔧 IMPLEMENTATION GUIDELINES FOR PHASES 4-5
+
+**Testing Infrastructure Setup:**
+1. Create `tests/` directory structure
+2. Install pytest dependencies: `pip install pytest pytest-mock`
+3. Create test fixtures with known good/bad data
+4. Implement unit tests for each function
+5. Add integration tests for full workflows
+
+**Key Testing Patterns:**
+- **Mock file operations** for permission testing
+- **Use temporary directories** for isolation
+- **Parametrize tests** for different scenarios
+- **Mock streamlit components** for UI testing
+
+**Performance Benchmarks:**
+- Directory scanning: <1s for 1000 files
+- File validation: <5s for 1000 files
+- Alignment map building: <10s for 1000 files
+- Memory usage: <500MB for large datasets
+
+**Error Handling Validation:**
+- All error messages should be user-friendly
+- All errors should be logged with context
+- Recovery suggestions should be provided
+- Partial failures should not corrupt data
+
 ## PLURALISTIC TRANSLATION WORKBENCH - FUTURE ROADMAP
 
 ### Current Implementation: MLOps Research Platform

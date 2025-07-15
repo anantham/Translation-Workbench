@@ -9,7 +9,7 @@ import time
 from utils.config import load_api_config, show_config_status
 from utils.logging import logger
 from utils.web_scraping import validate_scraping_url, streamlit_scraper
-from utils.alignment_builder import streamlit_build_alignment_map, detect_novel_structure
+from utils.alignment_map_builder import get_alignment_map_path
 
 # Page configuration
 st.set_page_config(
@@ -34,6 +34,7 @@ with col1:
     **Use the sidebar navigation** ← to access all workbench tools:
     
     📖 **Data Review & Alignment**
+    - Build alignment maps from directory selection
     - Chapter-by-chapter quality control and manual corrections
     - Binary search for misalignment detection
     - Surgical alignment corrections and chapter splitting
@@ -89,12 +90,25 @@ with col2:
     # Data availability check
     st.subheader("📊 Data Status")
     
-    alignment_map_exists = os.path.exists("alignment_map.json")
-    if alignment_map_exists:
-        st.success("✅ **Alignment Map**: Available")
+    # Check for alignment maps in central location
+    alignments_dir = os.path.join("data", "alignments")
+    alignment_maps_found = 0
+    
+    if os.path.exists(alignments_dir):
+        alignment_maps_found = len([f for f in os.listdir(alignments_dir) if f.endswith('_alignment_map.json')])
+    
+    # Also check legacy location
+    legacy_alignment_exists = os.path.exists("alignment_map.json")
+    
+    if alignment_maps_found > 0:
+        st.success(f"✅ **Alignment Maps**: {alignment_maps_found} found in central location")
+        st.caption(f"📁 Location: `{alignments_dir}`")
+    elif legacy_alignment_exists:
+        st.info("📁 **Alignment Map**: Legacy location found")
+        st.caption("Consider migrating to Data Review page for new central location")
     else:
-        st.warning("⚠️ **Alignment Map**: Not found")
-        st.caption("Run data curation on the Data Review page to create alignment map")
+        st.warning("⚠️ **Alignment Maps**: None found")
+        st.caption("Build alignment maps in the Data Review & Alignment page")
     
     # Directory structure check
     data_dirs = ["data", "data/cache", "data/custom_translations"]
@@ -117,68 +131,6 @@ with col2:
     else:
         st.info("🎨 **Custom Translation Runs**: None yet")
     
-    # Build Alignment Map section
-    st.subheader("🔨 Build Alignment Map")
-    
-    # Check for alignment map and detect structure
-    alignment_map_exists = os.path.exists("alignment_map.json")
-    structure_info = detect_novel_structure("way_of_the_devil")
-    
-    if alignment_map_exists:
-        st.success("✅ **Alignment Map**: Found")
-        st.caption(f"📁 Location: alignment_map.json")
-    else:
-        st.warning("❌ **Alignment Map**: Not found")
-        st.caption("Click the button below to build alignment map from available chapters")
-    
-    # Show detected structure
-    if structure_info["structure_type"]:
-        st.info(f"📂 **Structure**: {structure_info['structure_type']}")
-        if structure_info["english_dir"] and os.path.exists(structure_info["english_dir"]):
-            english_count = len([f for f in os.listdir(structure_info["english_dir"]) if f.endswith('.txt')])
-            st.caption(f"🇺🇸 English chapters: {english_count} found")
-        if structure_info["chinese_dir"] and os.path.exists(structure_info["chinese_dir"]):
-            chinese_count = len([f for f in os.listdir(structure_info["chinese_dir"]) if f.endswith('.txt')])
-            st.caption(f"🇨🇳 Chinese chapters: {chinese_count} found")
-    else:
-        st.error("❌ **No chapter directories found**")
-        st.caption("Please ensure English and/or Chinese chapters are available")
-    
-    # Build button and progress handling
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        build_disabled = not structure_info["structure_type"]
-        if st.button("🔨 Build Alignment Map", disabled=build_disabled, help="Build alignment map from available chapters"):
-            if not build_disabled:
-                st.session_state.build_alignment_active = True
-                st.session_state.build_force_rebuild = False
-                st.rerun()
-    
-    with col2:
-        if st.button("🔄 Force Rebuild", disabled=build_disabled, help="Force complete rebuild ignoring existing alignment"):
-            if not build_disabled:
-                st.session_state.build_alignment_active = True
-                st.session_state.build_force_rebuild = True
-                st.rerun()
-    
-    # Handle build process
-    if st.session_state.get('build_alignment_active', False):
-        with st.spinner("Building alignment map..."):
-            success, message, build_stats = streamlit_build_alignment_map(
-                novel_name="way_of_the_devil",
-                force_rebuild=st.session_state.get('build_force_rebuild', False)
-            )
-            
-            if success:
-                st.success(message)
-                st.session_state.build_alignment_active = False
-                st.rerun()
-            else:
-                st.error(f"❌ Build failed: {message}")
-                if build_stats.get("error"):
-                    st.error(build_stats["error"])
-                st.session_state.build_alignment_active = False
 
 # Quick start workflow
 st.markdown("---")
@@ -197,7 +149,8 @@ with workflow_col0:
 with workflow_col1:
     st.markdown("""
     **1. 📖 Data Review**
-    - Align Chinese with English
+    - Build alignment maps from directories
+    - Align Chinese with English chapters
     - Fix misaligned chapters
     - Quality control checks
     """)
@@ -232,7 +185,7 @@ st.header("🌐 Live Web Scraping")
 st.caption("Step 0: Scrape raw Chinese chapters from web novels before data alignment")
 
 # --- CONFLICT RESOLUTION UI ---
-if 'scraping_conflict_data' in st.session_state and st.session_state.scraping_conflict_data:
+if st.session_state.get('scraping_conflict_data'):
     conflict = st.session_state.scraping_conflict_data
     st.error("🕵️ User Intervention Required: Chapter Mismatch")
     
@@ -254,12 +207,16 @@ if 'scraping_conflict_data' in st.session_state and st.session_state.scraping_co
             if st.button(f"✅ Use Expected Number ({conflict['expected_number']})", type="primary"):
                 logger.debug(f"[UI] User chose 'expected'. Setting override and rerunning.")
                 st.session_state.scraping_override = 'expected'
+                st.session_state.resume_from_conflict = st.session_state.scraping_conflict_data
+                st.session_state.scraping_conflict_data = None
                 st.session_state.scraping_active = True
                 st.rerun()
         with btn_col2:
             if st.button(f"⚠️ Use Title's Number ({conflict['found_number']})"):
                 logger.debug(f"[UI] User chose 'title'. Setting override and rerunning.")
                 st.session_state.scraping_override = 'title'
+                st.session_state.resume_from_conflict = st.session_state.scraping_conflict_data
+                st.session_state.scraping_conflict_data = None
                 st.session_state.scraping_active = True
                 st.rerun()
         with btn_col3:
@@ -269,42 +226,93 @@ if 'scraping_conflict_data' in st.session_state and st.session_state.scraping_co
                 st.session_state.scraping_active = False
                 st.warning("Scraping aborted by user.")
                 st.rerun()
+
+# --- ACTIVE SCRAPING UI ---
+elif st.session_state.get('scraping_active', False):
+    progress_container = st.container()
+    status_container = st.container()
+    
+    with progress_container:
+        progress_bar = st.progress(0)
+        progress_text = st.empty()
+    
+    with status_container:
+        status_text = st.empty()
+        status_text.info("🌐 Initializing scraper...")
+    
+    def progress_callback(current, total):
+        progress = current / total if total > 0 else 0
+        progress_bar.progress(progress)
+        progress_text.text(f"Progress: {current}/{total} chapters ({progress:.1%})")
+    
+    def status_callback(message):
+        status_text.info(message)
+
+    def conflict_handler(url, expected_number, found_number, title, is_parse_error=False, last_chapter_preview=None, current_chapter_preview=None):
+        logger.info("--- CONFLICT HANDLER ACTIVATED ---")
+        st.session_state.scraping_conflict_data = {
+            "url": url, "expected_number": expected_number, "found_number": found_number,
+            "title": title, "is_parse_error": is_parse_error,
+            "last_chapter_preview": last_chapter_preview, "current_chapter_preview": current_chapter_preview
+        }
+        st.session_state.scraping_active = False
+        logger.info("--- CONFLICT HANDLER FINISHED ---")
+        return 'defer'
+
+    try:
+        results = streamlit_scraper(
+            start_url=st.session_state.novel_url,
+            output_dir=st.session_state.output_directory,
+            max_chapters=st.session_state.max_chapters,
+            delay_seconds=st.session_state.delay_seconds,
+            progress_callback=progress_callback,
+            status_callback=status_callback,
+            conflict_handler=conflict_handler,
+            scrape_direction=st.session_state.scrape_direction
+        )
+        
+        if results and results.get('status') == 'conflict':
+            st.session_state.scraping_conflict_data = results['data']
+        
+    except Exception as e:
+        st.error(f"💥 Scraping failed with a critical error: {str(e)}")
+        st.session_state.scraping_active = False
+    finally:
+        if not st.session_state.get('scraping_conflict_data'):
+            st.session_state.scraping_active = False
+        st.rerun()
+
+# --- STANDARD SCRAPING UI ---
 else:
-    # --- STANDARD SCRAPING UI ---
     scraping_col1, scraping_col2 = st.columns([2, 1])
     with scraping_col1:
         st.subheader("📖 Novel URL Input")
     
-        # URL input
         novel_url = st.text_input(
             "Novel Chapter URL:",
             placeholder="https://www.dxmwx.org/read/43713_33325507.html",
             help="Enter the URL of a chapter from the novel you want to scrape"
         )
         
-        # Dynamic output directory
         output_directory_name = "novel_raws/new_novel"
-        validation = {'valid': False}
         if novel_url:
             validation = validate_scraping_url(novel_url)
             if validation['valid']:
                 st.success(f"✅ Supported site: {validation['site_type']}")
                 try:
+                    # This logic can be simplified as it's just for a default name
                     import requests
                     from bs4 import BeautifulSoup
                     from utils.adapter_factory import get_adapter
-                    
                     adapter = get_adapter(novel_url)
                     response = requests.get(novel_url, timeout=10)
                     response.encoding = adapter.get_encoding()
                     soup = BeautifulSoup(response.text, 'html.parser')
                     title = adapter.extract_title(soup)
-                    
                     if title:
                         sanitized_title = title.split(' ')[0].strip().replace(':', '_').replace(' ', '_').lower()
                         site_name = validation.get('site_type', 'unknown').lower()
                         output_directory_name = f"data/novels/{sanitized_title}_{site_name}/raw_chapters"
-
                 except Exception as e:
                     st.warning(f"Could not pre-fill directory name: {e}")
             else:
@@ -315,116 +323,31 @@ else:
         scraping_config_col1, scraping_config_col2 = st.columns(2)
         
         with scraping_config_col1:
-            max_chapters = st.number_input(
-                "Max Chapters to Scrape:",
-                min_value=1,
-                max_value=3000,
-                value=500,
-                help="Maximum number of chapters to scrape in this session"
-            )
-            
-            output_directory = st.text_input(
-                "Output Directory:",
-                value=output_directory_name,
-                help="Directory name where chapters will be saved"
-            )
+            max_chapters = st.number_input("Max Chapters to Scrape:", min_value=1, max_value=3000, value=500)
+            output_directory = st.text_input("Output Directory:", value=output_directory_name)
         
         with scraping_config_col2:
-            delay_seconds = st.slider(
-                "Delay Between Requests (seconds):",
-                min_value=0.5,
-                max_value=10.0,
-                value=0.5,
-                step=0.5,
-                help="Delay to be respectful to the website server"
-            )
-            
-            scrape_direction = st.selectbox(
-                "Scraping Direction:",
-                ["Backwards (newest to oldest)", "Forwards (oldest to newest)"],
-                index=1,
-                help="Direction to follow chapter navigation links"
-            )
+            delay_seconds = st.slider("Delay Between Requests (seconds):", min_value=0.5, max_value=10.0, value=0.5, step=0.5)
+            scrape_direction = st.selectbox("Scraping Direction:", ["Backwards (newest to oldest)", "Forwards (oldest to newest)"], index=1)
 
-        # Button logic
         col_start, col_stop, _ = st.columns([1, 1, 5])
         
         with col_start:
-            start_button_disabled = st.session_state.get('scraping_active', False)
-            if st.button("🚀 Start Scraping", type="primary", disabled=start_button_disabled):
+            if st.button("🚀 Start Scraping", type="primary"):
                 st.session_state.scraping_active = True
-                st.session_state.stop_requested = False
-                st.session_state.scraping_results = None
+                st.session_state.novel_url = novel_url
+                st.session_state.output_directory = output_directory
+                st.session_state.max_chapters = max_chapters
+                st.session_state.delay_seconds = delay_seconds
+                st.session_state.scrape_direction = scrape_direction
                 st.session_state.scraping_conflict_data = None
                 st.session_state.scraping_override = None
                 st.rerun()
 
         with col_stop:
-            if st.session_state.get('scraping_active', False):
-                if st.button("🛑 Stop Scraping"):
-                    st.session_state.stop_requested = True
-                    st.warning("Stop request received. Finishing current chapter...")
+            # This button is only relevant when scraping is active, handled by the other UI block
+            pass
 
-    # Main scraping execution block
-    if st.session_state.get('scraping_active', False):
-        progress_container = st.container()
-        status_container = st.container()
-        
-        with progress_container:
-            progress_bar = st.progress(0)
-            progress_text = st.empty()
-        
-        with status_container:
-            status_text = st.empty()
-            status_text.info("🌐 Initializing scraper...")
-        
-        def progress_callback(current, total):
-            progress = current / total if total > 0 else 0
-            progress_bar.progress(progress)
-            progress_text.text(f"Progress: {current}/{total} chapters ({progress:.1%})")
-        
-        def status_callback(message):
-            status_text.info(message)
-
-        def conflict_handler(url, expected_number, found_number, title, is_parse_error=False, last_chapter_preview=None, current_chapter_preview=None):
-            logger.debug("[UI] Conflict detected. Setting state for UI resolution.")
-            st.session_state.scraping_conflict_data = {
-                "url": url,
-                "expected_number": expected_number,
-                "found_number": found_number,
-                "title": title,
-                "is_parse_error": is_parse_error,
-                "last_chapter_preview": last_chapter_preview,
-                "current_chapter_preview": current_chapter_preview
-            }
-            st.session_state.scraping_active = False
-            # Do NOT call st.rerun() here. Let the scraper thread exit gracefully.
-            return 'defer'
-        
-        try:
-            logger.debug(f"[DASHBOARD] PRE-CALL check: status_callback is {status_callback}")
-            streamlit_scraper(
-                start_url=novel_url,
-                output_dir=output_directory,
-                max_chapters=max_chapters,
-                delay_seconds=delay_seconds,
-                progress_callback=progress_callback,
-                status_callback=status_callback,
-                conflict_handler=conflict_handler,
-                scrape_direction=scrape_direction
-            )
-            
-        except Exception as e:
-            st.error(f"💥 Scraping failed with a critical error: {str(e)}")
-            st.session_state.scraping_active = False
-        finally:
-            # This block now only handles the state transition after the scraper
-            # has finished its work (or failed). The rerun is now only triggered
-            # by explicit user action.
-            if not st.session_state.get('scraping_conflict_data'):
-                logger.debug("[UI] Scraper finished without conflict. Deactivating scraping state.")
-                st.session_state.scraping_active = False
-                st.rerun() # Rerun only on clean exit
 
     with scraping_col2:
         st.subheader("📊 Scraping Status")
