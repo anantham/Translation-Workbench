@@ -15,6 +15,12 @@ import hashlib
 from utils import *
 from utils import get_ai_translation_content  # Explicit import for Streamlit caching
 from utils import SEMANTIC_AVAILABLE, SEMANTIC_ERROR_MESSAGE  # Explicit import for availability checks
+from utils.alignment_map_builder import (
+    preview_alignment_mapping, 
+    build_and_save_alignment_map,
+    get_alignment_map_path,
+    validate_chapter_directories
+)
 
 # All shared functions now imported from utils.py
 
@@ -228,16 +234,25 @@ if selected_novel:
     {legacy_warning}
     """)
     
-    # Get alignment map file path
-    if novel_info.get('alignment_map'):
+    # Get alignment map file path - try new central location first
+    central_alignment_file = get_alignment_map_path(selected_novel)
+    
+    if os.path.exists(central_alignment_file):
+        novel_alignment_file = central_alignment_file
+        st.sidebar.success(f"📁 Alignment map: `{os.path.basename(novel_alignment_file)}`")
+    elif novel_info.get('alignment_map'):
         novel_alignment_file = novel_info['alignment_map']
+        st.sidebar.info(f"📁 Legacy alignment map: `{os.path.basename(novel_alignment_file)}`")
     else:
         # Try legacy fallback
         novel_alignment_file = f"alignment_map_{selected_novel.replace(' ', '_').replace('/', '_')}.json"
         if not os.path.exists(novel_alignment_file):
             novel_alignment_file = "alignment_map.json"  # Last resort fallback
-    
-    st.sidebar.caption(f"Alignment map: `{os.path.basename(novel_alignment_file)}`")
+        
+        if os.path.exists(novel_alignment_file):
+            st.sidebar.info(f"📁 Legacy alignment map: `{os.path.basename(novel_alignment_file)}`")
+        else:
+            st.sidebar.warning("📁 No alignment map found")
 else:
     st.error("Please select a novel to continue")
     st.stop()
@@ -245,14 +260,304 @@ else:
 # Load alignment map for selected novel
 alignment_map = load_alignment_map(novel_alignment_file)
 
-# Validate alignment map exists
-if not alignment_map and novel_info.get('alignment_map'):
-    st.error(f"❌ Could not load alignment map: {novel_alignment_file}")
-    st.info("💡 The alignment map should be automatically created when you align chapters.")
-    st.stop()
-elif not alignment_map:
-    st.warning("⚠️ No alignment map found for this novel. Create one by aligning chapters.")
-    st.stop()
+# Validate alignment map exists - if not, show directory selection UI
+if not alignment_map:
+    st.header("🔨 Build Alignment Map")
+    
+    if novel_info.get('alignment_map'):
+        st.error(f"❌ Could not load alignment map: {novel_alignment_file}")
+        st.info("💡 The alignment map file exists but could not be loaded. Try rebuilding it below.")
+    else:
+        st.info(f"⚠️ No alignment map found for **{selected_novel}**. Build one by selecting source directories below.")
+    
+    st.divider()
+    
+    # --- Directory Selection Interface ---
+    st.subheader("📂 Source Directory Selection")
+    st.caption("Select the directories containing Chinese and English chapter files to build alignment map")
+    
+    # Quick directory suggestions based on existing novels
+    if os.path.exists("data/novels"):
+        available_novels = [d for d in os.listdir("data/novels") if os.path.isdir(os.path.join("data/novels", d))]
+        if available_novels:
+            st.info(f"💡 **Quick suggestion**: Found {len(available_novels)} existing novels in `data/novels/`. You can manually type paths like:")
+            for novel in available_novels:
+                chinese_example = f"data/novels/{novel}/raw_chapters"
+                if os.path.exists(chinese_example):
+                    st.markdown(f"   - **{novel}**: `{chinese_example}`")
+    
+    # Directory selection columns
+    dir_col1, dir_col2 = st.columns(2)
+    
+    with dir_col1:
+        st.markdown("**🇨🇳 Chinese Chapters Directory**")
+        
+        # Directory suggestions dropdown
+        suggested_dirs = []
+        
+        # Scan for potential Chinese directories
+        if os.path.exists("data/novels"):
+            for novel_dir in os.listdir("data/novels"):
+                novel_path = os.path.join("data/novels", novel_dir)
+                if os.path.isdir(novel_path):
+                    # Check common Chinese directory names
+                    potential_dirs = [
+                        os.path.join(novel_path, "raw_chapters"),
+                        os.path.join(novel_path, "chinese_chapters"),
+                        os.path.join(novel_path, "原文章节"),
+                        novel_path  # Include the novel dir itself
+                    ]
+                    
+                    for dir_path in potential_dirs:
+                        if os.path.exists(dir_path) and os.path.isdir(dir_path):
+                            txt_files = [f for f in os.listdir(dir_path) if f.endswith('.txt')]
+                            if txt_files:
+                                suggested_dirs.append((dir_path, len(txt_files)))
+        
+        # Also check common legacy locations
+        legacy_dirs = [
+            "novel_content_dxmwx_complete",
+            "data/chinese_chapters",
+            "chinese_chapters"
+        ]
+        
+        for dir_path in legacy_dirs:
+            if os.path.exists(dir_path) and os.path.isdir(dir_path):
+                txt_files = [f for f in os.listdir(dir_path) if f.endswith('.txt')]
+                if txt_files:
+                    suggested_dirs.append((dir_path, len(txt_files)))
+        
+        if suggested_dirs:
+            st.write("**Available Chinese directories:**")
+            for i, (dir_path, file_count) in enumerate(suggested_dirs[:10]):  # Show max 10
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    if st.button(f"📁 {dir_path} ({file_count} files)", key=f"chinese_dir_{i}"):
+                        st.session_state.chinese_dir_input = dir_path
+                        st.rerun()
+                with col2:
+                    # Show relative path for easier copying
+                    st.code(dir_path, language=None)
+        else:
+            st.info("No directories with .txt files found. Please type the path manually below.")
+        
+        chinese_dir = st.text_input(
+            "Chinese Directory Path:",
+            placeholder="e.g., data/novels/my_novel/raw_chapters",
+            help="Path to directory containing Chinese chapter files (.txt)",
+            key="chinese_dir_input"
+        )
+        
+        if chinese_dir:
+            if os.path.exists(chinese_dir):
+                if os.path.isdir(chinese_dir):
+                    txt_files = len([f for f in os.listdir(chinese_dir) if f.endswith('.txt')])
+                    if txt_files > 0:
+                        st.success(f"✅ Found {txt_files} .txt files")
+                    else:
+                        st.warning("⚠️ No .txt files found in directory")
+                else:
+                    st.error("❌ Path is not a directory")
+            else:
+                st.error("❌ Directory does not exist")
+    
+    with dir_col2:
+        st.markdown("**🇺🇸 English Chapters Directory**")
+        
+        # Directory suggestions dropdown
+        suggested_dirs = []
+        
+        # Scan for potential English directories
+        if os.path.exists("data/novels"):
+            for novel_dir in os.listdir("data/novels"):
+                novel_path = os.path.join("data/novels", novel_dir)
+                if os.path.isdir(novel_path):
+                    # Check common English directory names
+                    potential_dirs = [
+                        os.path.join(novel_path, "official_english"),
+                        os.path.join(novel_path, "english_chapters"),
+                        os.path.join(novel_path, "translated"),
+                        os.path.join(novel_path, "english")
+                    ]
+                    
+                    for dir_path in potential_dirs:
+                        if os.path.exists(dir_path) and os.path.isdir(dir_path):
+                            txt_files = [f for f in os.listdir(dir_path) if f.endswith('.txt')]
+                            if txt_files:
+                                suggested_dirs.append((dir_path, len(txt_files)))
+        
+        # Also check common legacy locations
+        legacy_dirs = [
+            "english_chapters",
+            "data/english_chapters",
+            "official_english"
+        ]
+        
+        for dir_path in legacy_dirs:
+            if os.path.exists(dir_path) and os.path.isdir(dir_path):
+                txt_files = [f for f in os.listdir(dir_path) if f.endswith('.txt')]
+                if txt_files:
+                    suggested_dirs.append((dir_path, len(txt_files)))
+        
+        if suggested_dirs:
+            st.write("**Available English directories:**")
+            for i, (dir_path, file_count) in enumerate(suggested_dirs[:10]):  # Show max 10
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    if st.button(f"📁 {dir_path} ({file_count} files)", key=f"english_dir_{i}"):
+                        st.session_state.english_dir_input = dir_path
+                        st.rerun()
+                with col2:
+                    # Show relative path for easier copying
+                    st.code(dir_path, language=None)
+        else:
+            st.info("No directories with .txt files found. Please type the path manually below.")
+        
+        english_dir = st.text_input(
+            "English Directory Path:",
+            placeholder="e.g., data/novels/my_novel/official_english",
+            help="Path to directory containing English chapter files (.txt)",
+            key="english_dir_input"
+        )
+        
+        if english_dir:
+            if os.path.exists(english_dir):
+                if os.path.isdir(english_dir):
+                    txt_files = len([f for f in os.listdir(english_dir) if f.endswith('.txt')])
+                    if txt_files > 0:
+                        st.success(f"✅ Found {txt_files} .txt files")
+                    else:
+                        st.warning("⚠️ No .txt files found in directory")
+                else:
+                    st.error("❌ Path is not a directory")
+            else:
+                st.error("❌ Directory does not exist")
+    
+    # Preview and Build Section
+    if chinese_dir and english_dir:
+        st.divider()
+        st.subheader("📋 Preview Alignment")
+        
+        # Preview button
+        if st.button("🔍 Preview Alignment Map", type="secondary", use_container_width=True):
+            st.session_state.alignment_preview_active = True
+            st.rerun()
+        
+        # Show preview if active
+        if st.session_state.get('alignment_preview_active', False):
+            with st.spinner("🔍 Analyzing directories and validating files..."):
+                preview_result = preview_alignment_mapping(chinese_dir, english_dir)
+            
+            if preview_result["success"]:
+                st.success("✅ Preview generated successfully!")
+                
+                # Show statistics
+                stats = preview_result["stats"]
+                stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+                
+                with stat_col1:
+                    st.metric("Total Chapters", stats["total_mappings"])
+                with stat_col2:
+                    st.metric("Both Files", stats["both_files"])
+                with stat_col3:
+                    st.metric("Chinese Only", stats["chinese_only"])
+                with stat_col4:
+                    st.metric("English Only", stats["english_only"])
+                
+                # Show file issues if any
+                if preview_result.get("file_issues"):
+                    st.warning(f"⚠️ Found {len(preview_result['file_issues'])} file issues:")
+                    
+                    with st.expander("📋 File Issues Details"):
+                        for issue in preview_result["file_issues"]:
+                            st.markdown(f"**{issue['type'].title()} Chapter {issue['chapter']}**: `{issue['file']}`")
+                            for error in issue["errors"]:
+                                st.error(f"ERROR: {error}")
+                            for warning in issue["warnings"]:
+                                st.warning(f"WARNING: {warning}")
+                
+                # Show warnings if any
+                if preview_result.get("warnings"):
+                    for warning in preview_result["warnings"]:
+                        st.warning(f"⚠️ {warning}")
+                
+                # Build alignment map section
+                st.divider()
+                st.subheader("🔨 Build Alignment Map")
+                
+                # Show what will be built
+                output_path = get_alignment_map_path(selected_novel)
+                st.info(f"📁 **Output location**: `{output_path}`")
+                
+                # Build confirmation
+                build_confirmed = st.checkbox(
+                    f"I want to build alignment map for **{selected_novel}** with {stats['total_mappings']} chapters",
+                    help="This will create an alignment map file that can be used for data review and translation"
+                )
+                
+                if build_confirmed:
+                    build_col1, build_col2 = st.columns(2)
+                    
+                    with build_col1:
+                        if st.button("🔨 Build Alignment Map", type="primary", use_container_width=True):
+                            st.session_state.alignment_build_active = True
+                            st.rerun()
+                    
+                    with build_col2:
+                        if st.button("❌ Cancel", use_container_width=True):
+                            st.session_state.alignment_preview_active = False
+                            st.rerun()
+                
+                # Handle build process
+                if st.session_state.get('alignment_build_active', False):
+                    with st.spinner("🔨 Building alignment map..."):
+                        success, message, build_stats = build_and_save_alignment_map(
+                            chinese_dir, english_dir, selected_novel
+                        )
+                    
+                    if success:
+                        st.success(message)
+                        st.session_state.alignment_preview_active = False
+                        st.session_state.alignment_build_active = False
+                        st.info("🔄 Reloading page to show alignment data...")
+                        time.sleep(2)
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Build failed: {message}")
+                        
+                        # Show detailed build stats if available
+                        if build_stats.get("errors"):
+                            st.error("**Build Errors:**")
+                            for error in build_stats["errors"]:
+                                st.error(f"• {error}")
+                        
+                        if build_stats.get("file_issues"):
+                            st.warning("**File Issues:**")
+                            for issue in build_stats["file_issues"]:
+                                st.warning(f"• {issue['type'].title()} Chapter {issue['chapter']}: {issue['file']}")
+                        
+                        st.session_state.alignment_build_active = False
+                
+            else:
+                st.error("❌ Preview failed")
+                
+                # Show detailed errors
+                if preview_result.get("errors"):
+                    st.error("**Validation Errors:**")
+                    for error in preview_result["errors"]:
+                        st.error(f"• {error}")
+                
+                if preview_result.get("file_issues"):
+                    st.warning("**File Issues:**")
+                    for issue in preview_result["file_issues"]:
+                        st.warning(f"• {issue['type'].title()} Chapter {issue['chapter']}: {issue['file']}")
+                
+                st.session_state.alignment_preview_active = False
+    
+    else:
+        st.info("💡 Enter both Chinese and English directory paths above to preview alignment mapping")
+    
+    st.stop()  # Stop here if no alignment map exists
 
 # Create main content container for better organization
 main_content = st.container()
