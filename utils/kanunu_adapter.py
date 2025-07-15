@@ -42,30 +42,79 @@ class KanunuAdapter(BaseAdapter):
             
         return None
 
-    def parse_chapter_info(self, title):
+    def _normalize_chapter_numeral(self, numeral):
+        """Normalizes specific non-standard Chinese numerals.
+        This is only called as a fallback if the standard parser fails.
         """
-        Overrides the base parser to handle combined chapters from kanunu8.
-        Example: '永生 正文 第四十九~五十章 内门弟子'
-        """
-        match = re.search(r'第([一二三四五六七八九十百千万零\d~-]+)', title)
-        if not match:
-            logger.warning(f"Could not find a chapter number pattern in '{title}'.")
-            return None, None, None
+        # Fix for "一千一十" (1010) -> "一千零一十"
+        if re.fullmatch(r'一千[一二三四五六七八九]十', numeral):
+            logger.debug(f"Normalizing numeral '{numeral}' by adding '零'.")
+            return numeral[:2] + '零' + numeral[2:]
+        
+        # Add other normalization rules here if needed
+        
+        return numeral # Return original if no rule matches
 
-        numeral_part = match.group(1)
+    def parse_chapter_info(self, title, soup):
+        """Overrides the base parser to handle combined chapters from kanunu8.
+        It prioritizes the on-page H1/body text over the HTML title tag,
+        as the title tag is sometimes incorrect.
+        """
+        numeral_part = None
+        # 1. Try to find the chapter number from the on-page content first.
+        # This is more reliable than the <title> tag.
+        body_match_h1 = soup.find('h1', string=re.compile(r"第[一二三四五六七八九十百千万零\d~-]+章"))
+        body_match_p = soup.find('p', string=re.compile(r"第[一二三四五六七八九十百千万零\d~-]+章"))
+        
+        if body_match_h1:
+            match = re.search(r'第([一二三四五六七八九十百千万零\d~-]+)章', body_match_h1.text)
+            if match:
+                numeral_part = match.group(1)
+                logger.debug(f"Found chapter numeral '{numeral_part}' in H1 tag.")
+        
+        if not numeral_part and body_match_p:
+            match = re.search(r'第([一二三四五六七八九十百千万零\d~-]+)章', body_match_p.text)
+            if match:
+                numeral_part = match.group(1)
+                logger.debug(f"Found chapter numeral '{numeral_part}' in P tag.")
+
+        # 2. If not found in the body, fall back to the HTML title.
+        if not numeral_part:
+            logger.warning("Could not find chapter number in body, falling back to title tag.")
+            match = re.search(r'第([一二三四五六七八九十百千万零\d~-]+)', title)
+            if match:
+                numeral_part = match.group(1)
+
+        if not numeral_part:
+            logger.error(f"Could not find a chapter number pattern in either body or title: '{title}'.")
+            return None, None, None
         range_match = re.match(r'(.+?)[~-](.+)', numeral_part)
+
+        def convert_numeral(numeral_str):
+            """Tries standard conversion, then falls back to normalization."""
+            try:
+                # First attempt: standard conversion
+                return int(cn2an.cn2an(numeral_str, "smart"))
+            except (ValueError, TypeError):
+                logger.warning(f"Standard conversion failed for '{numeral_str}'. Trying normalization.")
+                # Second attempt: normalize and convert
+                normalized_numeral = self._normalize_chapter_numeral(numeral_str)
+                if normalized_numeral != numeral_str:
+                    return int(cn2an.cn2an(normalized_numeral, "smart"))
+                else:
+                    # If normalization didn't change anything, re-raise the error
+                    raise
 
         try:
             if range_match:
-                start_numeral = range_match.group(1)
-                end_numeral = range_match.group(2)
+                start_numeral_str = range_match.group(1)
+                end_numeral_str = range_match.group(2)
 
-                start_int = int(cn2an.cn2an(start_numeral, "smart"))
-                end_int = int(cn2an.cn2an(end_numeral, "smart"))
+                start_int = convert_numeral(start_numeral_str)
+                end_int = convert_numeral(end_numeral_str)
 
                 # If end_int is smaller than start_int, it's an abbreviated range (e.g., 620~21)
                 if end_int < start_int:
-                    # Find the correct base to add by using powers of 10
                     power = 1
                     while power <= end_int:
                         power *= 10
@@ -77,7 +126,7 @@ class KanunuAdapter(BaseAdapter):
 
                 return start_int, end_int, f"{start_int:04d}-{end_int:04d}"
             else:
-                number = int(cn2an.cn2an(numeral_part, "smart"))
+                number = convert_numeral(numeral_part)
                 return number, number, f"{number:04d}"
         except (ValueError, TypeError) as e:
             logger.error(f"Failed to convert numeral '{numeral_part}' from title '{title}'. Error: {e}")

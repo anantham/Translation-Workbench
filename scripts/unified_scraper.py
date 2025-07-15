@@ -300,7 +300,7 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
             logger.error(f"    [PARSE ERROR] Could not extract title from: {current_url}")
             break
             
-        current_chapter_num, end_chapter_num, filename_num = adapter.parse_chapter_info(title)
+        current_chapter_num, end_chapter_num, filename_num = adapter.parse_chapter_info(title, soup)
 
         if current_chapter_num is None:
             logger.error(f"    [PARSE ERROR] Could not read a number from: '{title}'")
