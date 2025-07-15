@@ -27,7 +27,7 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
         override_value = st.session_state.get('scraping_override')
         logger.debug(f"[BRIDGE] Override value: {override_value}")
         
-        conflict = st.session_state.get('scraping_conflict_data', {})
+        conflict = st.session_state.get('resume_from_conflict', {})
         logger.debug(f"[BRIDGE] Retrieved conflict data: {conflict}")
 
         if 'url' in conflict:
@@ -41,8 +41,8 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
             logger.debug(f"[BRIDGE] Prepared resume_info dictionary: {resume_info}")
             
             # Clear data now that it has been used
-            st.session_state.scraping_conflict_data = None
-            logger.debug("[BRIDGE] Cleared scraping_conflict_data from session state.")
+            st.session_state.resume_from_conflict = None
+            logger.debug("[BRIDGE] Cleared resume_from_conflict from session state.")
         else:
             logger.error("[BRIDGE] Conflict override was set, but no conflict URL found in session state.")
             status_callback("Error: Could not find conflict data to resume scraping.")

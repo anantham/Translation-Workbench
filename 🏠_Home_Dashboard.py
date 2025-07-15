@@ -1,3 +1,4 @@
+
 """
 🏠 Translation Framework Workbench
 Main entry point for the multi-page Streamlit application
@@ -10,6 +11,7 @@ from utils.config import load_api_config, show_config_status
 from utils.logging import logger
 from utils.web_scraping import validate_scraping_url, streamlit_scraper
 from utils.alignment_map_builder import get_alignment_map_path
+from utils.translation import translate_with_gemini
 
 # Page configuration
 st.set_page_config(
@@ -188,18 +190,60 @@ st.caption("Step 0: Scrape raw Chinese chapters from web novels before data alig
 if st.session_state.get('scraping_conflict_data'):
     conflict = st.session_state.scraping_conflict_data
     st.error("🕵️ User Intervention Required: Chapter Mismatch")
+
+    # --- Translation Logic ---
+    translated_prev = None
+    translated_curr = None
+    translation_error = None
+    try:
+        api_key, _ = load_api_config()
+        if not api_key:
+            raise ValueError("Gemini API key not found in config.")
+
+        with st.spinner("Translating chapter previews for context..."):
+            # Translate previous chapter's end
+            prev_prompt = f"Please provide a concise, high-quality English translation of the following excerpt, which is the END of a chapter:\n\n---\n{conflict['last_chapter_preview']}\n---\n"
+            translated_prev = translate_with_gemini(prev_prompt, api_key, use_cache=True, novel_name="preview_translation")
+
+            # Translate current chapter's start
+            curr_prompt = f"Please provide a concise, high-quality English translation of the following excerpt, which is the START of a new chapter:\n\n---\n{conflict['current_chapter_preview']}\n---\n"
+            translated_curr = translate_with_gemini(curr_prompt, api_key, use_cache=True, novel_name="preview_translation")
+
+    except Exception as e:
+        translation_error = f"Could not get translated previews: {e}"
+        logger.warning(translation_error)
+    # --- End Translation Logic ---
     
     with st.container(border=True):
         st.markdown(f"**Problematic URL:** `{conflict['url']}`")
         st.warning(f"The scraper expected to find **Chapter {conflict['expected_number']}**, but the page title says it is **Chapter {conflict['found_number']}**.")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader(f"End of Previous Chapter ({conflict['expected_number'] - 1})")
-            st.text_area("Previous Chapter Preview", f"...{conflict['last_chapter_preview']}", height=150, disabled=True)
-        with col2:
-            st.subheader(f"Start of Current Chapter ({conflict['found_number']})")
-            st.text_area("Current Chapter Preview", f"{conflict['current_chapter_preview']}...", height=150, disabled=True)
+        # Display translated previews if available
+        if translated_prev and translated_curr:
+            st.success("✅ English previews generated successfully.")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader(f"End of Previous Chapter ({conflict['expected_number'] - 1})")
+                st.text_area("Translated Preview", f"...{translated_prev.strip()}", height=150, disabled=True, key="prev_trans")
+                with st.expander("View Raw Chinese Text"):
+                    st.text_area("Raw Preview", f"...{conflict['last_chapter_preview']}", height=150, disabled=True, key="prev_raw")
+            with col2:
+                st.subheader(f"Start of Current Chapter ({conflict['found_number']})")
+                st.text_area("Translated Preview", f"{translated_curr.strip()}...", height=150, disabled=True, key="curr_trans")
+                with st.expander("View Raw Chinese Text"):
+                    st.text_area("Raw Preview", f"{conflict['current_chapter_preview']}...", height=150, disabled=True, key="curr_raw")
+        else:
+            # Fallback to raw text if translation failed
+            if translation_error:
+                st.warning(f"**Translation Failed:** {translation_error}. Displaying raw Chinese text instead.")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader(f"End of Previous Chapter ({conflict['expected_number'] - 1})")
+                st.text_area("Previous Chapter Preview", f"...{conflict['last_chapter_preview']}", height=150, disabled=True)
+            with col2:
+                st.subheader(f"Start of Current Chapter ({conflict['found_number']})")
+                st.text_area("Current Chapter Preview", f"{conflict['current_chapter_preview']}...", height=150, disabled=True)
 
         st.subheader("How should the scraper proceed?")
         btn_col1, btn_col2, btn_col3 = st.columns(3)

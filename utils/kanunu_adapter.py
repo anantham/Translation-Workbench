@@ -63,10 +63,17 @@ class KanunuAdapter(BaseAdapter):
                 start_int = int(cn2an.cn2an(start_numeral, "smart"))
                 end_int = int(cn2an.cn2an(end_numeral, "smart"))
 
-                if end_int < start_int and end_int < 10:
-                    base = (start_int // 10) * 10
-                    end_int = base + end_int
-                    logger.info(f"Interpreted abbreviated range: {start_int}~{end_numeral} as {start_int}-{end_int}")
+                # If end_int is smaller than start_int, it's an abbreviated range (e.g., 620~21)
+                if end_int < start_int:
+                    # Find the correct base to add by using powers of 10
+                    power = 1
+                    while power <= end_int:
+                        power *= 10
+                    base = (start_int // power) * power
+                    corrected_end_int = base + end_int
+                    
+                    logger.info(f"Interpreted abbreviated range: {start_int}~{end_int} as {start_int}-{corrected_end_int}")
+                    end_int = corrected_end_int
 
                 return start_int, end_int, f"{start_int:04d}-{end_int:04d}"
             else:

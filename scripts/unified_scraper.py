@@ -81,6 +81,25 @@ def get_url_for_chapter(chapter_num, metadata):
     chapter_info = metadata.get("chapters", {}).get(str(chapter_num))
     return chapter_info.get("url") if chapter_info else None
 
+def find_chapter_info_by_num(metadata, chapter_num):
+    """Finds chapter info in metadata, supporting both single and range keys."""
+    # First, try a direct lookup for single chapters
+    direct_hit = metadata.get("chapters", {}).get(str(chapter_num))
+    if direct_hit:
+        return direct_hit
+    
+    # If not found, iterate through all chapters to find a range that contains it
+    for key, chapter_info in metadata.get("chapters", {}).items():
+        try:
+            start = chapter_info.get("start_chapter_num")
+            end = chapter_info.get("end_chapter_num")
+            if start and end and start <= chapter_num <= end:
+                logger.debug(f"Found chapter {chapter_num} in range key {key}")
+                return chapter_info
+        except (ValueError, TypeError):
+            continue
+    return None
+
 def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction: str, max_chapters: int = 1000, delay_seconds: int = 1, progress_callback=None, status_callback=None, conflict_handler=None, resume_info=None):
     # --- RCA Logging ---
     logger.info("--- Scraper Function Entry Point ---")
@@ -107,15 +126,15 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
     last_known_good_num = None
     
     if "chapters" in metadata and metadata["chapters"]:
-        # New logic to handle integer and range keys
-        processed_keys = []
-        for k in metadata["chapters"].keys():
-            if '-' in k:
-                processed_keys.append(int(k.split('-')[1]))
-            else:
-                processed_keys.append(int(k))
-        if processed_keys:
-            last_known_good_num = max(processed_keys)
+        processed_nums = []
+        for chapter_info in metadata["chapters"].values():
+            # Prioritize the explicit end_chapter_num if it exists
+            end_num = chapter_info.get("end_chapter_num")
+            if isinstance(end_num, int):
+                processed_nums.append(end_num)
+        
+        if processed_nums:
+            last_known_good_num = max(processed_nums)
             logger.info(f"Resuming scrape. Last known good chapter is {last_known_good_num}")
 
     logger.info(f"🚀 Starting Scrape from: {start_url}")
@@ -316,9 +335,13 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
         # --- Mismatch Detection and Resolution ---
         if last_known_good_num is not None:
             expected_num = last_known_good_num - 1 if direction == "Backwards (newest to oldest)" else last_known_good_num + 1
-            # A sequence break occurs if the expected chapter is not within the range of the found chapter.
-            # This handles cases where a single chapter page (e.g., 49) has been replaced by a combined page (49-50).
-            if not (current_chapter_num <= expected_num <= end_chapter_num):
+            
+            # A sequence break occurs if the found chapter number is not the expected one.
+            # We make an exception for combined chapters, where the start of the range
+            # must match the expected number.
+            is_sequence_break = (current_chapter_num != expected_num)
+
+            if is_sequence_break:
                 logger.warning(f"[SEQUENCE BREAK] Expected Ch. {expected_num}, but found Ch. {current_chapter_num} (range: {current_chapter_num}-{end_chapter_num}) at {current_url}")
                 logger.info(f"    - Title: '{title}'")
                 
@@ -334,7 +357,9 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
 
                     last_chapter_preview = "Could not retrieve last chapter."
                     try:
-                        last_chapter_info = metadata.get("chapters", {}).get(str(last_known_good_num))
+                        # Use the new robust function to find the last chapter's info
+                        last_chapter_info = find_chapter_info_by_num(metadata, last_known_good_num)
+                        
                         if last_chapter_info:
                             last_title = last_chapter_info.get("title", f"Chapter {last_known_good_num}")
                             last_filename_num = last_chapter_info.get("filename_num", f"{last_known_good_num:04d}")
@@ -372,6 +397,39 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                     print(f"    Expected: Chapter {expected_num}")
                     print(f"    Found:    Chapter {current_chapter_num} ('{title}')")
                     print(f"    URL:      {current_url}")
+
+                    # --- Translated Preview for CLI ---
+                    try:
+                        from utils.translation import translate_with_gemini
+                        from utils.config import load_api_config
+                        api_key, _ = load_api_config()
+
+                        if api_key:
+                            print("\n    --- Translating previews for context... ---")
+                            
+                            # Translate previous chapter's end
+                            prev_prompt = f"Please provide a concise, high-quality English translation of the following excerpt, which is the END of a chapter:\n\n---\n{last_chapter_preview}\n---\n"
+                            translated_prev_preview = translate_with_gemini(prev_prompt, api_key, use_cache=True, novel_name="preview_translation")
+                            
+                            # Translate current chapter's start
+                            curr_prompt = f"Please provide a concise, high-quality English translation of the following excerpt, which is the START of a new chapter:\n\n---\n{current_chapter_preview}\n---\n"
+                            translated_curr_preview = translate_with_gemini(curr_prompt, api_key, use_cache=True, novel_name="preview_translation")
+
+                            print(f"\n    [End of Previous Chapter ({last_known_good_num}) - Translated Preview]")
+                            print(f"    ... {translated_prev_preview.strip()}\n")
+                            print(f"    [Start of Current Chapter ({current_chapter_num}) - Translated Preview]")
+                            print(f"    {translated_curr_preview.strip()} \n")
+                        else:
+                            raise ValueError("API key not found.")
+
+                    except Exception as e:
+                        logger.warning(f"Could not get translated previews: {e}. Falling back to raw text.")
+                        print("\n    --- Displaying raw text previews for context ---")
+                        print(f"\n    [End of Previous Chapter ({last_known_good_num}) - Raw Preview]")
+                        print(f"    ... {last_chapter_preview.strip()}\n")
+                        print(f"    [Start of Current Chapter ({current_chapter_num}) - Raw Preview]")
+                        print(f"    {current_chapter_preview.strip()} \n")
+                    # --- End Translated Preview ---
                     
                     while True:
                         choice = input(f"    Options: [1] Use expected ({expected_num}), [2] Use found ({current_chapter_num}), [3] Abort: ").strip()
@@ -471,6 +529,7 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
     logger.info("\n--- SCRAPING COMPLETED ---")
     # Final save is now handled after each chapter
     logger.info(f"🗂️  Total chapters in metadata: {len(metadata['chapters'])}")
+
 
 
 if __name__ == "__main__":

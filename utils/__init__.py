@@ -200,11 +200,11 @@ from .web_scraping import (
 )
 
 # Alignment map building (COMPLETED)
-from .alignment_builder import (
-    build_alignment_map,
-    streamlit_build_alignment_map,
-    detect_novel_structure,
-    save_alignment_map_with_backup,
+from .alignment_map_builder import (
+    build_and_save_alignment_map,
+    preview_alignment_mapping,
+    validate_chapter_directories,
+    get_alignment_map_path,
 )
 
 # All modules completed!
