@@ -1,14 +1,26 @@
 import logging
 import sys
+import os
+from logging.handlers import RotatingFileHandler
 
 def setup_logger():
-    """Sets up a logger that writes to both console and a file."""
+    """Sets up a logger that writes to both console and a file with rotation."""
     logger = logging.getLogger('wuxia_workbench')
     logger.setLevel(logging.DEBUG)
     
     if not logger.handlers:
-        # File handler
-        file_handler = logging.FileHandler('app.log', encoding='utf-8')
+        # Create logs directory if it doesn't exist
+        os.makedirs('logs', exist_ok=True)
+        
+        # Rotating file handler - keep logs under 64KB (~15k tokens)
+        file_handler = RotatingFileHandler(
+            'logs/app.log', 
+            mode='a',
+            maxBytes=64 * 1024,  # 64KB ≈ 15k GPT tokens
+            backupCount=10,      # Keep 10 old logs
+            encoding='utf-8',
+            delay=True
+        )
         file_handler.setLevel(logging.DEBUG)
         
         # Console handler

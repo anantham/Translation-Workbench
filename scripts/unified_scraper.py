@@ -13,6 +13,35 @@ from utils.debug_helpers import save_failed_html
 def sanitize_filename(filename):
     return re.sub(r'[\\/*?:"<>|]', "", filename).strip()
 
+def is_chapter_covered_by_range_file(chapter_num, metadata, output_dir):
+    """
+    Check if a chapter number is covered by any existing range file.
+    
+    For example, if we're looking for chapter 50 and there's a range file
+    "Chapter-0049-0050-..." covering chapters 49-50, this returns True.
+    """
+    for ch_num_str, chapter_info in metadata.get("chapters", {}).items():
+        try:
+            ch_num = int(ch_num_str)
+            end_chapter_num = chapter_info.get("end_chapter_num", ch_num)
+            
+            # Check if the target chapter_num falls within this range
+            if ch_num <= chapter_num <= end_chapter_num:
+                # Verify the range file actually exists
+                title = chapter_info.get("title", f"Chapter {ch_num}")
+                filename_num = chapter_info.get("filename_num", f"{ch_num:04d}")
+                filename = sanitize_filename(f"Chapter-{filename_num}-{title}.txt")
+                expected_filepath = os.path.join(output_dir, filename)
+                
+                if os.path.exists(expected_filepath):
+                    logger.debug(f"    [RANGE COVERAGE] Chapter {chapter_num} is covered by range file: {filename}")
+                    return True, expected_filepath, chapter_info
+                    
+        except (ValueError, TypeError):
+            continue
+            
+    return False, None, None
+
 def fetch_with_retry(url, headers, encoding, max_attempts=3):
     for attempt in range(1, max_attempts + 1):
         try:
@@ -194,6 +223,14 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                 metadata_says_exists = chapter_info.get("file_exists", False)
                 file_actually_exists = os.path.exists(expected_filepath)
                 
+                # NEW: Check if this chapter is covered by a range file
+                if not file_actually_exists:
+                    is_covered, range_filepath, range_info = is_chapter_covered_by_range_file(ch_num, metadata, output_dir)
+                    if is_covered:
+                        file_actually_exists = True
+                        expected_filepath = range_filepath
+                        logger.debug(f"    [RANGE FILE] Chapter {ch_num} covered by range file: {range_filepath}")
+                
                 logger.debug(f"    - Metadata 'file_exists': {metadata_says_exists}")
                 logger.debug(f"    - Filesystem check: {file_actually_exists} at '{expected_filepath}'")
 
@@ -221,7 +258,7 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                     metadata["chapters"][ch_num_str]["file_exists"] = True
                     save_metadata(metadata, metadata_file)
                     current_url = chapter_info.get("previous_url")
-                    last_known_good_num = ch_num
+                    last_known_good_num = chapter_info.get("end_chapter_num", ch_num)
                     cache_hit = True
                     break
         

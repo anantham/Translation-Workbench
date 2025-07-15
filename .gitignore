@@ -63,3 +63,4 @@ scripts/archive/
 
 # Log files
 *.log
+logs/

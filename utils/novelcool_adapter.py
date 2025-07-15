@@ -235,19 +235,41 @@ class NovelcoolAdapter(BaseAdapter):
 
     def parse_chapter_info(self, title):
         """
-        Overrides the base parser to handle English chapter titles.
-        Example: 'Chapter 10: A New Beginning'
+        Overrides the base parser to handle English chapter titles with ranges.
+        Examples: 
+        - 'Chapter 10: A New Beginning' → (10, 10, "0010")
+        - 'Eternal Life Chapter 49-50' → (49, 50, "0049-0050")
         """
         if not title:
             return None, None, None
             
-        match = re.search(r'Chapter\s+(\d+)', title, re.IGNORECASE)
-        if match:
-            try:
-                number = int(match.group(1))
-                return number, number, f"{number:04d}"
-            except (ValueError, TypeError) as e:
-                logger.error(f"Failed to convert number from title '{title}'. Error: {e}")
+        # Match chapter numbers with optional ranges (49-50, 49~50)
+        match = re.search(r'Chapter\s+(\d+(?:[-~]\d+)?)', title, re.IGNORECASE)
+        if not match:
+            logger.warning(f"Could not find a chapter number pattern in '{title}'.")
+            return None, None, None
+            
+        numeral_part = match.group(1)
+        range_match = re.match(r'(\d+)[-~](\d+)', numeral_part)
         
-        logger.warning(f"Could not find a chapter number pattern in '{title}'.")
-        return None, None, None
+        try:
+            if range_match:
+                # Combined chapter like "49-50"
+                start_int = int(range_match.group(1))
+                end_int = int(range_match.group(2))
+                
+                # Handle abbreviated ranges like "49~0" meaning "49-50"
+                if end_int < start_int and end_int < 10:
+                    base = (start_int // 10) * 10
+                    end_int = base + end_int
+                    logger.info(f"[NOVELCOOL] Interpreted abbreviated range: {start_int}~{range_match.group(2)} as {start_int}-{end_int}")
+                
+                logger.info(f"[NOVELCOOL] Parsed combined chapter: {start_int}-{end_int}")
+                return start_int, end_int, f"{start_int:04d}-{end_int:04d}"
+            else:
+                # Single chapter like "49"
+                number = int(numeral_part)
+                return number, number, f"{number:04d}"
+        except (ValueError, TypeError) as e:
+            logger.error(f"Failed to convert number from title '{title}'. Error: {e}")
+            return None, None, None
