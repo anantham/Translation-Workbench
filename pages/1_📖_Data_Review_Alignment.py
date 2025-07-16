@@ -106,170 +106,61 @@ if 'current_chapter' not in st.session_state:
 if 'selected_novel' not in st.session_state:
     st.session_state.selected_novel = None
 
-# --- Novel Selection ---
-st.sidebar.header("📚 Novel Selection")
+# --- Alignment Map Selection ---
+st.sidebar.header("📁 Alignment Map Selection")
 
-def get_available_novels():
-    """Get list of available novels from the new directory structure."""
-    novels = {}
+# Use unified alignment map system
+try:
+    from utils import list_alignment_maps, load_alignment_map_by_slug, parse_chapter_ranges
     
-    # Check the new novels directory structure
-    if os.path.exists(NOVELS_DIR):
-        for novel_name in os.listdir(NOVELS_DIR):
-            novel_path = os.path.join(NOVELS_DIR, novel_name)
-            if os.path.isdir(novel_path) and not novel_name.startswith('.'):
-                # Build novel info from directory structure
-                novel_info = {
-                    "name": novel_name.replace('_', ' '),  # Convert back to readable name
-                    "base_dir": novel_path
-                }
-                
-                # Check for raw chapters
-                raw_dir = get_novel_raw_chapters_dir(novel_name)
-                if os.path.exists(raw_dir) and os.listdir(raw_dir):
-                    novel_info["raw_dir"] = raw_dir
-                    novel_info["raw_chapter_count"] = len([f for f in os.listdir(raw_dir) if f.endswith('.txt')])
-                
-                # Check for official English
-                english_dir = get_novel_official_english_dir(novel_name)
-                if os.path.exists(english_dir) and os.listdir(english_dir):
-                    novel_info["english_dir"] = english_dir
-                    novel_info["english_chapter_count"] = len([f for f in os.listdir(english_dir) if f.endswith('.txt')])
-                
-                # Check for AI translations
-                ai_dir = get_novel_ai_translations_dir(novel_name)
-                if os.path.exists(ai_dir) and os.listdir(ai_dir):
-                    novel_info["ai_translations_dir"] = ai_dir
-                    novel_info["ai_translation_styles"] = len([d for d in os.listdir(ai_dir) if os.path.isdir(os.path.join(ai_dir, d))])
-                
-                # Check for alignment map
-                alignment_file = get_novel_alignment_map(novel_name)
-                if os.path.exists(alignment_file):
-                    novel_info["alignment_map"] = alignment_file
-                
-                novels[novel_info["name"]] = novel_info
+    # Get available alignment maps
+    available_maps = list_alignment_maps()
     
-    # Also check legacy structure for novels not yet migrated
-    legacy_novels = check_legacy_novels()
-    novels.update(legacy_novels)
-    
-    return novels
-
-def check_legacy_novels():
-    """Check for novels in legacy directory structure (novel_raws/, novels_english/)."""
-    legacy_novels = {}
-    
-    # Check novel_raws directory
-    if os.path.exists("novel_raws"):
-        for item in os.listdir("novel_raws"):
-            item_path = os.path.join("novel_raws", item)
-            if os.path.isdir(item_path) and not item.startswith('.'):
-                novel_name = item.replace('_', ' ')
-                legacy_novels[novel_name] = {
-                    "name": novel_name,
-                    "raw_dir": item_path,
-                    "raw_chapter_count": len([f for f in os.listdir(item_path) if f.endswith('.txt')]),
-                    "legacy": True
-                }
-    
-    # Check novels_english directory
-    if os.path.exists("novels_english"):
-        for item in os.listdir("novels_english"):
-            item_path = os.path.join("novels_english", item)
-            if os.path.isdir(item_path) and not item.startswith('.'):
-                novel_name = item.replace('_', ' ')
-                if novel_name not in legacy_novels:
-                    legacy_novels[novel_name] = {"name": novel_name, "legacy": True}
-                legacy_novels[novel_name]["english_dir"] = item_path
-                legacy_novels[novel_name]["english_chapter_count"] = len([f for f in os.listdir(item_path) if f.endswith('.txt')])
-    
-    return legacy_novels
-
-available_novels = get_available_novels()
-
-if not available_novels:
-    st.sidebar.error("❌ No novels found. Ensure novels are in data/novels/ directory structure.")
-    st.sidebar.info("Expected structure: data/novels/{novel_name}/raw_chapters/, official_english/, etc.")
-    st.stop()
-
-# Novel selection dropdown
-novel_options = list(available_novels.keys())
-default_novel = novel_options[0] if novel_options else None
-
-selected_novel = st.sidebar.selectbox(
-    "Select Novel to Review:",
-    options=novel_options,
-    index=0 if default_novel else None,
-    help="Choose which novel's alignment data to review and edit"
-)
-
-if selected_novel != st.session_state.get('selected_novel'):
-    st.session_state.selected_novel = selected_novel
-    st.session_state.current_chapter = 1  # Reset chapter when novel changes
-    st.rerun()
-
-# Display selected novel info
-if selected_novel:
-    novel_info = available_novels[selected_novel]
-    
-    # Build status display
-    status_parts = []
-    if novel_info.get('raw_chapter_count'):
-        status_parts.append(f"📜 {novel_info['raw_chapter_count']} raw chapters")
-    if novel_info.get('english_chapter_count'):
-        status_parts.append(f"🇺🇸 {novel_info['english_chapter_count']} English chapters")
-    if novel_info.get('ai_translation_styles'):
-        status_parts.append(f"🤖 {novel_info['ai_translation_styles']} AI translation styles")
-    
-    status = " | ".join(status_parts) if status_parts else "No content found"
-    
-    # Show legacy warning if applicable
-    legacy_warning = "⚠️ **Legacy Structure** - Consider migrating to new format" if novel_info.get('legacy') else ""
-    
-    st.sidebar.info(f"""
-    **📖 Selected Novel:** {selected_novel}
-    
-    **📊 Content:** {status}
-    
-    {legacy_warning}
-    """)
-    
-    # Get alignment map file path - try new central location first
-    central_alignment_file = get_alignment_map_path(selected_novel)
-    
-    if os.path.exists(central_alignment_file):
-        novel_alignment_file = central_alignment_file
-        st.sidebar.success(f"📁 Alignment map: `{os.path.basename(novel_alignment_file)}`")
-    elif novel_info.get('alignment_map'):
-        novel_alignment_file = novel_info['alignment_map']
-        st.sidebar.info(f"📁 Legacy alignment map: `{os.path.basename(novel_alignment_file)}`")
+    if not available_maps:
+        st.sidebar.error("❌ No alignment maps found. Please build an alignment map first.")
+        st.sidebar.info("Use the alignment map builder below to create an alignment map.")
+        alignment_map = None
+        selected_slug = None
     else:
-        # Try legacy fallback
-        novel_alignment_file = f"alignment_map_{selected_novel.replace(' ', '_').replace('/', '_')}.json"
-        if not os.path.exists(novel_alignment_file):
-            novel_alignment_file = "alignment_map.json"  # Last resort fallback
+        # Alignment map selection dropdown
+        selected_slug = st.sidebar.selectbox(
+            "Choose alignment map:",
+            options=sorted(available_maps.keys()),
+            help="Select which alignment map to use for data review"
+        )
         
-        if os.path.exists(novel_alignment_file):
-            st.sidebar.info(f"📁 Legacy alignment map: `{os.path.basename(novel_alignment_file)}`")
-        else:
-            st.sidebar.warning("📁 No alignment map found")
-else:
-    st.error("Please select a novel to continue")
-    st.stop()
+        # Optional: Chapter filtering
+        chapter_range = st.sidebar.text_input(
+            "Chapter Range (optional):",
+            placeholder="e.g. 1-100,102,105-110",
+            help="Filter to specific chapters. Leave empty to use all chapters."
+        )
+        
+        # Load alignment map
+        chapters = None
+        if chapter_range:
+            chapters = parse_chapter_ranges(chapter_range)
+            st.sidebar.info(f"📊 Filtered to {len(chapters)} chapters")
+        
+        alignment_map = load_alignment_map_by_slug(selected_slug, chapters)
+        st.sidebar.success(f"✅ Loaded: **{selected_slug}** ({len(alignment_map)} chapters)")
+        
+        # Store selected slug in session state
+        st.session_state.selected_novel = selected_slug
+        
+except Exception as e:
+    st.sidebar.error(f"❌ Error loading alignment map: {str(e)}")
+    alignment_map = None
+    selected_slug = None
 
-# Load alignment map for selected novel
-alignment_map = load_alignment_map(novel_alignment_file)
+# Check if alignment map was loaded successfully
+if not alignment_map:
+    selected_slug = None
 
 # Validate alignment map exists - if not, show directory selection UI
 if not alignment_map:
     st.header("🔨 Build Alignment Map")
-    
-    if novel_info.get('alignment_map'):
-        st.error(f"❌ Could not load alignment map: {novel_alignment_file}")
-        st.info("💡 The alignment map file exists but could not be loaded. Try rebuilding it below.")
-    else:
-        st.info(f"⚠️ No alignment map found for **{selected_novel}**. Build one by selecting source directories below.")
-    
+    st.info("⚠️ No alignment map found or could not load alignment map. Build one by selecting source directories below.")
     st.divider()
     
     # --- Directory Selection Interface ---
@@ -485,9 +376,29 @@ if not alignment_map:
                 st.divider()
                 st.subheader("🔨 Build Alignment Map")
                 
-                # Show what will be built
-                output_path = get_alignment_map_path(selected_novel)
-                st.info(f"📁 **Output location**: `{output_path}`")
+                # --- Custom Filename Input ---
+                st.markdown("#### 📂 Output File Configuration")
+                
+                # Generate a more descriptive default name
+                try:
+                    chinese_dir_name = os.path.basename(os.path.normpath(chinese_dir))
+                    english_dir_name = os.path.basename(os.path.normpath(english_dir))
+                    safe_novel_name = re.sub(r'[^\w\s-]', '', selected_novel).strip().replace(' ', '_')
+                    default_filename = f"{safe_novel_name}_{english_dir_name}_alignment_map.json"
+                except:
+                    default_filename = f"{selected_novel.replace(' ', '_')}_alignment_map.json"
+
+                # Get the full default path
+                default_output_path = os.path.join("data", "alignments", default_filename)
+
+                output_path = st.text_input(
+                    "Alignment Map Filename:",
+                    value=default_output_path,
+                    help="Enter the desired path for the new alignment map. It's recommended to use a descriptive name."
+                )
+                
+                st.info(f"💾 The new alignment map will be saved to: `{output_path}`")
+                # --- End Custom Filename Input ---
                 
                 # Build confirmation
                 build_confirmed = st.checkbox(
@@ -500,6 +411,7 @@ if not alignment_map:
                     
                     with build_col1:
                         if st.button("🔨 Build Alignment Map", type="primary", use_container_width=True):
+                            st.session_state.alignment_output_path = output_path  # Save path to session state
                             st.session_state.alignment_build_active = True
                             st.rerun()
                     
@@ -510,15 +422,19 @@ if not alignment_map:
                 
                 # Handle build process
                 if st.session_state.get('alignment_build_active', False):
-                    with st.spinner("🔨 Building alignment map..."):
+                    final_output_path = st.session_state.get('alignment_output_path', get_alignment_map_path(selected_novel))
+                    
+                    with st.spinner(f"🔨 Building alignment map and saving to `{final_output_path}`..."):
                         success, message, build_stats = build_and_save_alignment_map(
-                            chinese_dir, english_dir, selected_novel
+                            chinese_dir, english_dir, selected_novel, output_path=final_output_path
                         )
                     
                     if success:
                         st.success(message)
                         st.session_state.alignment_preview_active = False
                         st.session_state.alignment_build_active = False
+                        if 'alignment_output_path' in st.session_state:
+                            del st.session_state.alignment_output_path
                         st.info("🔄 Reloading page to show alignment data...")
                         time.sleep(2)
                         st.rerun()
@@ -537,6 +453,8 @@ if not alignment_map:
                                 st.warning(f"• {issue['type'].title()} Chapter {issue['chapter']}: {issue['file']}")
                         
                         st.session_state.alignment_build_active = False
+                        if 'alignment_output_path' in st.session_state:
+                            del st.session_state.alignment_output_path
                 
             else:
                 st.error("❌ Preview failed")
