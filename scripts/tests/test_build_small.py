@@ -49,13 +49,13 @@ def create_minimal_alignment_map():
     }
     
     # Save as test alignment map
-    with open("alignment_map_test.json", 'w', encoding='utf-8') as f:
+    with open("../../tests/data/alignment_map_test.json", 'w', encoding='utf-8') as f:
         json.dump(working_chapters, f, indent=2, ensure_ascii=False)
     
-    print("✅ Created alignment_map_test.json with 9 working chapters")
+    print("✅ Created tests/data/alignment_map_test.json with 9 working chapters")
     return working_chapters
 
 if __name__ == "__main__":
     create_minimal_alignment_map()
     print("\n🚀 Now run: python build_and_report.py")
-    print("📋 When it asks for alignment map, use 'alignment_map_test.json'")
+    print("📋 When it asks for alignment map, use 'tests/data/alignment_map_test.json'")

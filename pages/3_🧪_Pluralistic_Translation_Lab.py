@@ -922,14 +922,43 @@ with st.sidebar.expander("📁 Output Settings", expanded=True):
     )
 
 # --- Main Page ---
-# Load alignment map
+# Load alignment map with unified system
 try:
-    alignment_map = load_alignment_map("alignment_map.json")
-except:
-    alignment_map = {}
-
-if not alignment_map:
-    st.error("❌ `alignment_map.json` not found. Please run data curation on the **📖 Data Review & Alignment** page first.")
+    from utils import list_alignment_maps, load_alignment_map_by_slug, parse_chapter_ranges
+    
+    # Get available alignment maps
+    available_maps = list_alignment_maps()
+    
+    if not available_maps:
+        st.error("❌ No alignment maps found. Please build an alignment map in the **📖 Data Review & Alignment** page first.")
+        st.stop()
+    
+    # Sidebar: Alignment Map Selection
+    st.sidebar.header("📁 Alignment Map Selection")
+    selected_slug = st.sidebar.selectbox(
+        "Choose alignment map:",
+        options=sorted(available_maps.keys()),
+        help="Select which novel's alignment map to use for translation"
+    )
+    
+    # Optional: Chapter filtering
+    chapter_range = st.sidebar.text_input(
+        "Chapter Range (optional):",
+        placeholder="e.g. 1-100,102,105-110",
+        help="Filter to specific chapters. Leave empty to use all chapters."
+    )
+    
+    # Load alignment map
+    chapters = None
+    if chapter_range:
+        chapters = parse_chapter_ranges(chapter_range)
+        st.sidebar.info(f"📊 Filtered to {len(chapters)} chapters")
+    
+    alignment_map = load_alignment_map_by_slug(selected_slug, chapters)
+    st.sidebar.success(f"✅ Loaded: **{selected_slug}** ({len(alignment_map)} chapters)")
+    
+except Exception as e:
+    st.error(f"❌ Error loading alignment map: {str(e)}")
     st.stop()
 
 # --- Pre-flight Check ---

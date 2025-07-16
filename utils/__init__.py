@@ -199,27 +199,37 @@ from .web_scraping import (
     validate_scraping_url as web_validate_scraping_url,
 )
 
-# Alignment map building (COMPLETED)
+# ---------------- Alignment‑map public API ----------------
+# Import + rename in one line (avoids the undefined‑name issue)
 from .alignment_map_builder import (
-    build_and_save_alignment_map,
+    build_and_save_alignment_map as build_alignment_map,
     preview_alignment_mapping,
     validate_chapter_directories,
     get_alignment_map_path,
+    save_alignment_map_with_backup,
+    # New unified alignment map management functions
+    list_alignment_maps,
+    get_alignment_map_for_slug,
+    load_alignment_map_by_slug,
+    parse_chapter_ranges,
 )
+# ----------------------------------------------------------
 
-# All modules completed!
-# Configuration and setup - from .config import (...)
-# Core translation functions - from .translation import (...)
-# Fine-tuning capabilities - from .fine_tuning import (...)
-# Evaluation and quality assessment - from .evaluation import (...)
-# Data management - from .data_management import (...)
-# Caching system - from .caching import (...)
-# Export functionality - from .export import (...)
-# UI components - from .ui_components import (...)
-# AI source and prompt management - from .ai_source_management import (...)
-# Custom prompt management - from .prompt_management import (...)
-# Quality metrics calculation - from .quality_metrics import (...)
-# Web scraping - from .web_scraping import (...)
+# -------------------------------------------------------------
+#   Environment / configuration helpers
+# -------------------------------------------------------------
+from pathlib import Path
+import os
+
+try:
+    import openai  # noqa: F401
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
+DATA_DIR = Path(os.getenv("DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
+# -------------------------------------------------------------
+
 
 # Version info
 __version__ = "2.0.0"
@@ -299,7 +309,9 @@ __all__ = [
     'streamlit_scraper', 'web_validate_scraping_url',
     
     # Alignment map building (COMPLETED)
-    'build_alignment_map', 'streamlit_build_alignment_map', 'detect_novel_structure', 'save_alignment_map_with_backup',
-    
-    # ALL MODULES COMPLETED! 🎉
+    'build_alignment_map', 'preview_alignment_mapping', 'validate_chapter_directories', 'get_alignment_map_path', 'save_alignment_map_with_backup',
+
+    # Environment / configuration helpers
+    "OPENAI_AVAILABLE",
+    "DATA_DIR",
 ]

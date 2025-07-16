@@ -709,3 +709,146 @@ def build_and_save_alignment_map(chinese_dir: str, english_dir: str, novel_name:
         return True, success_msg, build_stats
     else:
         return False, save_message, build_stats
+
+
+# =============================================================================
+# UNIFIED ALIGNMENT MAP MANAGEMENT FUNCTIONS
+# =============================================================================
+
+def list_alignment_maps() -> Dict[str, str]:
+    """
+    Return {slug: path} for every *_alignment_map.json file in the central location.
+    
+    Returns:
+        Dictionary mapping slug names to alignment map file paths
+    """
+    logger.info("[ALIGNMENT MAPS] Scanning for available alignment maps")
+    
+    alignments_dir = os.path.join("data", "alignments")
+    alignment_maps = {}
+    
+    if not os.path.exists(alignments_dir):
+        logger.warning(f"[ALIGNMENT MAPS] Alignments directory not found: {alignments_dir}")
+        return alignment_maps
+    
+    # Scan for alignment map files
+    for filename in os.listdir(alignments_dir):
+        if filename.endswith('_alignment_map.json'):
+            # Extract slug from filename: "way_of_the_devil_alignment_map.json" -> "way_of_the_devil"
+            slug = filename.replace('_alignment_map.json', '')
+            full_path = os.path.join(alignments_dir, filename)
+            alignment_maps[slug] = full_path
+            logger.debug(f"[ALIGNMENT MAPS] Found: {slug} -> {full_path}")
+    
+    logger.info(f"[ALIGNMENT MAPS] Found {len(alignment_maps)} alignment maps")
+    return alignment_maps
+
+
+def get_alignment_map_for_slug(slug: str = None) -> str:
+    """
+    Get alignment map path by slug with smart fallback.
+    
+    Args:
+        slug: Optional slug name. If None, tries to find single available map.
+        
+    Returns:
+        Path to alignment map file
+        
+    Raises:
+        FileNotFoundError: If no alignment map found for slug
+        ValueError: If multiple maps exist but no slug specified
+    """
+    maps = list_alignment_maps()
+    
+    if slug is None:
+        if len(maps) == 0:
+            raise FileNotFoundError("No alignment maps found in data/alignments/")
+        elif len(maps) == 1:
+            slug = next(iter(maps.keys()))
+            logger.info(f"[ALIGNMENT MAPS] Auto-selected single available map: {slug}")
+            return maps[slug]
+        else:
+            available_slugs = ', '.join(maps.keys())
+            raise ValueError(f"Multiple alignment maps found: {available_slugs}. Please specify slug explicitly.")
+    
+    if slug not in maps:
+        available_slugs = ', '.join(maps.keys()) if maps else "none"
+        raise FileNotFoundError(f"No alignment map found for slug '{slug}'. Available: {available_slugs}")
+    
+    logger.info(f"[ALIGNMENT MAPS] Using alignment map for slug: {slug}")
+    return maps[slug]
+
+
+def load_alignment_map_by_slug(slug: str = None, chapters: List[int] = None) -> Dict[str, Dict]:
+    """
+    Load alignment map by slug with optional chapter filtering.
+    
+    Args:
+        slug: Optional slug name. If None, tries to find single available map.
+        chapters: Optional list of chapter numbers to filter by
+        
+    Returns:
+        Alignment map dictionary
+    """
+    logger.info(f"[ALIGNMENT MAPS] Loading alignment map for slug: {slug}")
+    
+    # Get the path for this slug
+    alignment_path = get_alignment_map_for_slug(slug)
+    
+    # Load the alignment map
+    with open(alignment_path, 'r', encoding='utf-8') as f:
+        alignment_map = json.load(f)
+    
+    logger.info(f"[ALIGNMENT MAPS] Loaded alignment map with {len(alignment_map)} chapters")
+    
+    # Filter by chapters if specified
+    if chapters is not None:
+        logger.info(f"[ALIGNMENT MAPS] Filtering to {len(chapters)} specified chapters")
+        chapter_strs = [str(ch) for ch in chapters]
+        filtered_map = {k: v for k, v in alignment_map.items() if k in chapter_strs}
+        logger.info(f"[ALIGNMENT MAPS] Filtered alignment map to {len(filtered_map)} chapters")
+        return filtered_map
+    
+    return alignment_map
+
+
+def parse_chapter_ranges(range_str: str) -> List[int]:
+    """
+    Parse chapter range string like "1-100,102,105-110" into list of integers.
+    
+    Args:
+        range_str: Range string (e.g. "1-100,102,105-110")
+        
+    Returns:
+        List of chapter numbers
+    """
+    if not range_str or not range_str.strip():
+        return []
+    
+    chapters = []
+    
+    # Split by comma and process each part
+    parts = [part.strip() for part in range_str.split(',')]
+    
+    for part in parts:
+        if '-' in part:
+            # Handle range like "1-100"
+            try:
+                start, end = part.split('-', 1)
+                start_num = int(start.strip())
+                end_num = int(end.strip())
+                chapters.extend(range(start_num, end_num + 1))
+            except ValueError:
+                logger.warning(f"[CHAPTER RANGES] Invalid range format: {part}")
+        else:
+            # Handle single number like "102"
+            try:
+                chapters.append(int(part))
+            except ValueError:
+                logger.warning(f"[CHAPTER RANGES] Invalid chapter number: {part}")
+    
+    # Remove duplicates and sort
+    chapters = sorted(list(set(chapters)))
+    logger.info(f"[CHAPTER RANGES] Parsed '{range_str}' into {len(chapters)} chapters")
+    
+    return chapters
