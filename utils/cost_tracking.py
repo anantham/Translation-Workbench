@@ -119,3 +119,33 @@ def calculate_gemini_cost(model_name, usage_metadata):
         "output_cost": 0.0,
         "error": f"Unknown Gemini model pricing: {model_key}"
     }
+
+def calculate_deepseek_cost(model_name, usage_data):
+    """Calculate precise DeepSeek API cost based on current pricing."""
+    pricing_config = load_pricing_config()
+    
+    # Look up pricing
+    if "deepseek_models" in pricing_config and model_name in pricing_config["deepseek_models"]:
+        rates = pricing_config["deepseek_models"][model_name]
+        
+        input_cost = (usage_data['prompt_tokens'] / 1_000_000) * rates["input_per_1m"]
+        output_cost = (usage_data['completion_tokens'] / 1_000_000) * rates["output_per_1m"]
+        total_cost = input_cost + output_cost
+        
+        return {
+            "total_cost": round(total_cost, 6),
+            "input_cost": round(input_cost, 6),
+            "output_cost": round(output_cost, 6),
+            "input_rate": rates["input_per_1m"],
+            "output_rate": rates["output_per_1m"]
+        }
+    
+    # Fallback for unknown models
+    return {
+        "total_cost": 0.0,
+        "input_cost": 0.0,
+        "output_cost": 0.0,
+        "input_rate": 0.0,
+        "output_rate": 0.0,
+        "error": f"Unknown model pricing: {model_name}"
+    }

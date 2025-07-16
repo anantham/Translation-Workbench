@@ -9,11 +9,28 @@
     "project_version": "v2.1.0",
     "license": "MIT License",
     "maintainer_email": "contact@example.com",
-    "framework_name": "Pluralistic Translation Workbench",
-    "novel_title": "极道天魔 (Way of the Devil)",
-    "original_author": "王雨 (Wang Yu)",
-    "source_language": "Chinese (Simplified)",
-    "target_language": "English"
+    "github_url": "https://github.com/your-username/translation-workbench",
+    "feature_requests_url": "https://github.com/your-username/translation-workbench/issues",
+    "documentation_url": "https://docs.example.com/translation-workbench",
+    "github_discussions_url": "https://github.com/your-username/translation-workbench/discussions",
+    "license_url": "https://github.com/your-username/translation-workbench/blob/main/LICENSE"
+  },
+  "branding": {
+    "framework_name": "The Lexicon Forge",
+    "tagline": "Where meaning transcends language barriers",
+    "philosophy": "Through thousand-fold refinement, we transform mere words into immortal prose that bridges Eastern wisdom with Western understanding.",
+    "brand_images": {
+      "logo": "data/images/common/lexicon_forge_logo.png",
+      "seal": "data/images/common/artisan_seal.png",
+      "process_diagram": "data/images/common/cultivation_process.jpg",
+      "background": "data/images/common/meridian_background.jpg"
+    },
+    "quality_terms": {
+      "certification": "Artisan's Seal",
+      "process": "Meridian Weaving",
+      "refinement": "Thousand-Fold Refinement",
+      "mastery": "Lexicon Mastery"
+    }
   },
   "comments": {
     "gemini_api_key": "Get your API key from https://aistudio.google.com/app/apikey",
@@ -22,6 +39,7 @@
     "api_delay": "Delay between API calls in seconds to avoid rate limiting",
     "max_tokens": "Maximum tokens for translation output (8000 handles longest chapters ~4714 tokens)",
     "temperature": "Creativity/randomness level (0.0-1.0)",
-    "epub_metadata": "Configuration for EPUB generation metadata and project information"
+    "epub_metadata": "Global framework settings and contact information for all novels",
+    "branding": "Framework branding applied to all EPUBs - images, terminology, philosophy"
   }
 }

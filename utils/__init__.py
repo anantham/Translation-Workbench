@@ -45,6 +45,9 @@ from .config import (
     get_novel_official_english_dir,
     NOVELS_DIR,
     SHARED_DIR,
+    load_novel_config,
+    load_novel_images_config,
+    get_available_novels,
 )
 
 # Cost tracking (COMPLETED)
@@ -144,6 +147,9 @@ from .export import (
     create_dataset_report,
     export_dataset_with_metadata,
 )
+
+# EPUB creation (COMPLETED)
+from .epub_builder import build_epub
 
 # Fine-tuning and model training (COMPLETED)
 from .fine_tuning import (
@@ -285,6 +291,9 @@ __all__ = [
     'export_training_data_to_jsonl', 'create_translation_jsonl', 'prepare_training_data_for_api',
     'chunk_chapter_for_training', 'chunk_by_characters', 'create_dataset_report',
     'export_dataset_with_metadata',
+    
+    # EPUB creation (COMPLETED)
+    'build_epub',
     
     # Fine-tuning and model training (COMPLETED)
     'load_dataset_for_tuning', 'get_max_available_chapters', 'start_finetuning_job',

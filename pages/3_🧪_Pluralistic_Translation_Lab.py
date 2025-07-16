@@ -33,6 +33,32 @@ from utils import (
 )
 
 # --- Helper Functions ---
+def detect_novel_slug_from_alignment_maps():
+    """Detect novel slug from available alignment maps.
+    
+    Returns:
+        str: Novel slug (e.g., 'way_of_the_devil') or None if not found
+    """
+    try:
+        from utils import list_alignment_maps
+        alignment_maps = list_alignment_maps()
+        
+        # For now, default to 'way_of_the_devil' if available
+        # This can be enhanced later with UI selection
+        for slug, info in alignment_maps.items():
+            if slug == 'way_of_the_devil':
+                return slug
+        
+        # Return first available if way_of_the_devil not found
+        if alignment_maps:
+            return list(alignment_maps.keys())[0]
+        
+        # Fallback to way_of_the_devil for backward compatibility
+        return 'way_of_the_devil'
+    except Exception as e:
+        print(f"Warning: Could not detect novel slug: {e}")
+        return 'way_of_the_devil'  # Default fallback
+
 def get_model_abbreviation(platform, model_name):
     """Generate short model abbreviation for run naming.
     
@@ -129,13 +155,16 @@ class InsufficientHistoryError(Exception):
     """Raised when not enough history chapters are available for examples."""
     pass
 
-def get_official_examples(alignment_map, current_chapter_num, count):
-    """Get examples from official EPUB translations."""
+def get_official_examples(alignment_map, current_chapter_num, count, direction="past"):
+    """Get examples from official EPUB translations with bidirectional search."""
     examples = []
     available_history = sorted([
         int(k) for k, v in alignment_map.items() 
-        if int(k) < current_chapter_num and v.get("raw_file") and v.get("english_file")
-    ], reverse=True)
+        if (
+            (direction == "past" and int(k) < current_chapter_num) or
+            (direction == "future" and int(k) > current_chapter_num)
+        ) and v.get("raw_file") and v.get("english_file")
+    ], reverse=(direction == "past"))
     
     chapters_to_use = available_history[:count]
     
@@ -153,8 +182,8 @@ def get_official_examples(alignment_map, current_chapter_num, count):
                 })
     return examples
 
-def get_custom_run_examples(alignment_map, current_chapter_num, count, custom_run_name):
-    """Get examples from a specific custom translation run."""
+def get_custom_run_examples(alignment_map, current_chapter_num, count, custom_run_name, direction="past"):
+    """Get examples from a specific custom translation run with bidirectional search."""
     examples = []
     custom_run_dir = os.path.join(DATA_DIR, "custom_translations", custom_run_name)
     
@@ -168,13 +197,16 @@ def get_custom_run_examples(alignment_map, current_chapter_num, count, custom_ru
             # Extract chapter number from filename like "Chapter-0695-translated.txt"
             try:
                 chapter_num = int(filename.split('-')[1])
-                if chapter_num < current_chapter_num:
+                if (
+                    (direction == "past" and chapter_num < current_chapter_num) or
+                    (direction == "future" and chapter_num > current_chapter_num)
+                ):
                     available_chapters.append(chapter_num)
             except (IndexError, ValueError):
                 continue
     
-    # Sort by chapter number (most recent first) and take requested count
-    available_chapters.sort(reverse=True)
+    # Sort by chapter number (most recent first for past, earliest first for future) and take requested count
+    available_chapters.sort(reverse=(direction == "past"))
     chapters_to_use = available_chapters[:count]
     
     # Load examples in chronological order
@@ -200,8 +232,8 @@ def get_custom_run_examples(alignment_map, current_chapter_num, count, custom_ru
     
     return examples
 
-def get_current_run_examples(alignment_map, current_chapter_num, count, current_run_dir):
-    """Get examples from the current translation run (fresh translations)."""
+def get_current_run_examples(alignment_map, current_chapter_num, count, current_run_dir, direction="past", processing_order="forward"):
+    """Get examples from the current translation run (fresh translations) with bidirectional search and sliding context."""
     examples = []
     
     if not os.path.exists(current_run_dir):
@@ -213,13 +245,28 @@ def get_current_run_examples(alignment_map, current_chapter_num, count, current_
         if filename.endswith('-translated.txt'):
             try:
                 chapter_num = int(filename.split('-')[1])
-                if chapter_num < current_chapter_num:
-                    available_chapters.append(chapter_num)
+                
+                # Sliding context logic: In reverse processing, use freshly translated chapters
+                if processing_order == "reverse" and direction == "future":
+                    # For reverse processing: use chapters that were already translated (higher numbers)
+                    if chapter_num > current_chapter_num:
+                        available_chapters.append(chapter_num)
+                elif processing_order == "forward" and direction == "past":
+                    # For forward processing: use chapters that were already translated (lower numbers)
+                    if chapter_num < current_chapter_num:
+                        available_chapters.append(chapter_num)
+                else:
+                    # Standard bidirectional logic
+                    if (
+                        (direction == "past" and chapter_num < current_chapter_num) or
+                        (direction == "future" and chapter_num > current_chapter_num)
+                    ):
+                        available_chapters.append(chapter_num)
             except (IndexError, ValueError):
                 continue
     
-    # Sort by chapter number (most recent first) and take requested count
-    available_chapters.sort(reverse=True)
+    # Sort by chapter number (most recent first for past, earliest first for future) and take requested count
+    available_chapters.sort(reverse=(direction == "past"))
     chapters_to_use = available_chapters[:count]
     
     # Load examples in chronological order
@@ -246,16 +293,16 @@ def get_current_run_examples(alignment_map, current_chapter_num, count, current_
     return examples
 
 @st.cache_data
-def get_smart_fallback_examples(alignment_map, current_chapter_num, count, selected_custom_run, current_run_dir):
+def get_smart_fallback_examples(alignment_map, current_chapter_num, count, selected_custom_run, current_run_dir, direction="past", processing_order="forward"):
     """
-    Smart fallback system for getting translation examples.
+    Smart fallback system for getting translation examples with bidirectional search and sliding context.
     Priority: Official > Selected Custom > Current Run > Error
     """
     examples = []
     sources_used = []
     
     # Priority 1: Official translations
-    official_examples = get_official_examples(alignment_map, current_chapter_num, count)
+    official_examples = get_official_examples(alignment_map, current_chapter_num, count, direction)
     examples.extend(official_examples)
     if official_examples:
         sources_used.append(f"Official ({len(official_examples)})")
@@ -263,23 +310,24 @@ def get_smart_fallback_examples(alignment_map, current_chapter_num, count, selec
     # Priority 2: Selected custom run (if specified and still need more)
     if len(examples) < count and selected_custom_run:
         remaining_count = count - len(examples)
-        custom_examples = get_custom_run_examples(alignment_map, current_chapter_num, remaining_count, selected_custom_run)
+        custom_examples = get_custom_run_examples(alignment_map, current_chapter_num, remaining_count, selected_custom_run, direction)
         examples.extend(custom_examples)
         if custom_examples:
             sources_used.append(f"Custom ({len(custom_examples)})")
     
-    # Priority 3: Current run (if still need more)
+    # Priority 3: Current run (if still need more) - with sliding context support
     if len(examples) < count:
         remaining_count = count - len(examples)
-        fresh_examples = get_current_run_examples(alignment_map, current_chapter_num, remaining_count, current_run_dir)
+        fresh_examples = get_current_run_examples(alignment_map, current_chapter_num, remaining_count, current_run_dir, direction, processing_order)
         examples.extend(fresh_examples)
         if fresh_examples:
             sources_used.append(f"Fresh ({len(fresh_examples)})")
     
     # Error handling: insufficient examples
     if len(examples) == 0:
+        direction_word = "before" if direction == "past" else "after"
         raise InsufficientHistoryError(
-            f"No history chapters found before chapter {current_chapter_num}. "
+            f"No history chapters found {direction_word} chapter {current_chapter_num}. "
             f"Translation cannot proceed without context examples."
         )
     
@@ -452,18 +500,378 @@ def load_and_format_metadata_template(job_metadata, translation_dir):
     
     return formatted_template
 
-def create_epub_from_translations(translation_dir, output_path, book_title, author="Unknown", translator="AI Translation"):
-    """Create an EPUB file from translated text files."""
+
+def load_novel_images(novel_slug):
+    """Load all images for a novel with their metadata and captions.
+    
+    Args:
+        novel_slug (str): Novel identifier
+        
+    Returns:
+        dict: Dictionary with image information and file paths
+    """
+    from utils import load_novel_images_config
+    
+    images_config = load_novel_images_config(novel_slug)
+    images_path = images_config['images_path']
+    manifest = images_config['manifest']
+    
+    loaded_images = {
+        'cover': None,
+        'chapter_illustrations': {},
+        'appendix_illustrations': {},
+        'common_branding': {}
+    }
+    
+    # Load cover image
+    cover_info = manifest.get('cover', {})
+    if cover_info:
+        cover_file = os.path.join(images_path, cover_info['file'])
+        if os.path.exists(cover_file):
+            loaded_images['cover'] = {
+                'file_path': cover_file,
+                'title': cover_info.get('title', 'Cover'),
+                'description': cover_info.get('description', ''),
+                'artist': cover_info.get('artist', 'Unknown')
+            }
+    
+    # Load chapter illustrations
+    chapter_illustrations = manifest.get('chapter_illustrations', {})
+    for chapter_num, illustration_info in chapter_illustrations.items():
+        image_file = os.path.join(images_path, illustration_info['file'])
+        if os.path.exists(image_file):
+            loaded_images['chapter_illustrations'][chapter_num] = {
+                'file_path': image_file,
+                'title': illustration_info.get('title', f'Chapter {chapter_num} Illustration'),
+                'description': illustration_info.get('description', ''),
+                'caption': illustration_info.get('caption', ''),
+                'placement': illustration_info.get('placement', 'beginning')
+            }
+    
+    # Load appendix illustrations
+    appendix_illustrations = manifest.get('appendix_illustrations', {})
+    for key, illustration_info in appendix_illustrations.items():
+        image_file = os.path.join(images_path, illustration_info['file'])
+        if os.path.exists(image_file):
+            loaded_images['appendix_illustrations'][key] = {
+                'file_path': image_file,
+                'title': illustration_info.get('title', key.replace('_', ' ').title()),
+                'description': illustration_info.get('description', ''),
+                'caption': illustration_info.get('caption', '')
+            }
+    
+    # Load common branding images
+    from utils import get_config_value
+    branding_config = get_config_value('branding', {})
+    brand_images = branding_config.get('brand_images', {})
+    
+    for key, image_path in brand_images.items():
+        if os.path.exists(image_path):
+            loaded_images['common_branding'][key] = {
+                'file_path': image_path,
+                'title': f'Framework {key.replace("_", " ").title()}',
+                'description': f'Framework branding: {key}'
+            }
+    
+    return loaded_images
+
+
+def create_gallery_sections(book, novel_images, nav_css):
+    """Create dedicated gallery sections for images in EPUB.
+    
+    Args:
+        book: EPUB book object
+        novel_images: Dictionary of novel images
+        nav_css: CSS style item
+        
+    Returns:
+        list: List of created gallery chapters
+    """
+    gallery_chapters = []
+    
+    # 1. Cover Gallery
+    if novel_images.get('cover'):
+        cover_info = novel_images['cover']
+        cover_html = f'''
+        <div style="font-family: Times, serif; line-height: 1.6; margin: 2em;">
+            <h1>📸 Cover Gallery</h1>
+            <div class="gallery-item">
+                <img src="images/cover" alt="{cover_info['title']}" style="max-width: 100%; height: auto; margin: 2em 0;" />
+                <h3>{cover_info['title']}</h3>
+                <p><strong>Description:</strong> {cover_info.get('description', '')}</p>
+                <p><strong>Artist:</strong> {cover_info.get('artist', 'Unknown')}</p>
+            </div>
+        </div>
+        '''
+        
+        cover_chapter = epub.EpubHtml(
+            title="Cover Gallery",
+            file_name="gallery_cover.xhtml",
+            content=cover_html
+        )
+        cover_chapter.add_item(nav_css)
+        book.add_item(cover_chapter)
+        gallery_chapters.append(cover_chapter)
+    
+    # 2. Chapter Illustrations Gallery
+    if novel_images.get('chapter_illustrations'):
+        chapter_illustrations_html = f'''
+        <div style="font-family: Times, serif; line-height: 1.6; margin: 2em;">
+            <h1>📖 Chapter Illustrations</h1>
+            <p>Visual highlights from key moments in the story.</p>
+        '''
+        
+        # Sort chapters by number
+        sorted_chapters = sorted(novel_images['chapter_illustrations'].items(), key=lambda x: int(x[0]))
+        
+        for chapter_num, image_info in sorted_chapters:
+            chapter_illustrations_html += f'''
+            <div class="gallery-item" style="margin: 3em 0; border-bottom: 1px solid #eee; padding-bottom: 2em;">
+                <h3>Chapter {chapter_num}: {image_info['title']}</h3>
+                <img src="images/chapter_{chapter_num}" alt="{image_info['title']}" style="max-width: 100%; height: auto; margin: 1em 0;" />
+                <p><strong>Description:</strong> {image_info.get('description', '')}</p>
+                <p><em>"{image_info.get('caption', '')}"</em></p>
+            </div>
+            '''
+        
+        chapter_illustrations_html += '</div>'
+        
+        chapter_illustrations_chapter = epub.EpubHtml(
+            title="Chapter Illustrations",
+            file_name="gallery_chapters.xhtml",
+            content=chapter_illustrations_html
+        )
+        chapter_illustrations_chapter.add_item(nav_css)
+        book.add_item(chapter_illustrations_chapter)
+        gallery_chapters.append(chapter_illustrations_chapter)
+    
+    # 3. Character References Gallery
+    if novel_images.get('appendix_illustrations'):
+        appendix_items = novel_images['appendix_illustrations']
+        character_items = {k: v for k, v in appendix_items.items() if 'character' in k}
+        
+        if character_items:
+            character_html = f'''
+            <div style="font-family: Times, serif; line-height: 1.6; margin: 2em;">
+                <h1>👥 Character References</h1>
+                <p>Visual guides to the characters and their relationships.</p>
+            '''
+            
+            for key, image_info in character_items.items():
+                character_html += f'''
+                <div class="gallery-item" style="margin: 3em 0; border-bottom: 1px solid #eee; padding-bottom: 2em;">
+                    <h3>{image_info['title']}</h3>
+                    <img src="images/appendix_{key}" alt="{image_info['title']}" style="max-width: 100%; height: auto; margin: 1em 0;" />
+                    <p><strong>Description:</strong> {image_info.get('description', '')}</p>
+                    <p><em>"{image_info.get('caption', '')}"</em></p>
+                </div>
+                '''
+            
+            character_html += '</div>'
+            
+            character_chapter = epub.EpubHtml(
+                title="Character References",
+                file_name="gallery_characters.xhtml",
+                content=character_html
+            )
+            character_chapter.add_item(nav_css)
+            book.add_item(character_chapter)
+            gallery_chapters.append(character_chapter)
+    
+    # 4. World Building Gallery
+    world_html = f'''
+    <div style="font-family: Times, serif; line-height: 1.6; margin: 2em;">
+        <h1>🌍 World Building</h1>
+        <p>Maps, diagrams, and reference materials for the novel's world.</p>
+    '''
+    
+    # Add framework branding section
+    if novel_images.get('common_branding'):
+        world_html += f'''
+        <h2>🏭 Translation Framework</h2>
+        <p>The tools and process behind this translation.</p>
+        '''
+        
+        branding_items = novel_images['common_branding']
+        for key, image_info in branding_items.items():
+            world_html += f'''
+            <div class="gallery-item" style="margin: 3em 0; border-bottom: 1px solid #eee; padding-bottom: 2em;">
+                <h3>{image_info['title']}</h3>
+                <img src="images/branding_{key}" alt="{image_info['title']}" style="max-width: 100%; height: auto; margin: 1em 0;" />
+                <p><strong>Description:</strong> {image_info.get('description', '')}</p>
+            </div>
+            '''
+    
+    # Add novel-specific world building items
+    if novel_images.get('appendix_illustrations'):
+        appendix_items = novel_images['appendix_illustrations']
+        world_items = {k: v for k, v in appendix_items.items() if 'character' not in k}
+        
+        if world_items:
+            world_html += f'''
+            <h2>🗺️ Novel World</h2>
+            <p>The setting and systems of the story.</p>
+            '''
+            
+            for key, image_info in world_items.items():
+                world_html += f'''
+                <div class="gallery-item" style="margin: 3em 0; border-bottom: 1px solid #eee; padding-bottom: 2em;">
+                    <h3>{image_info['title']}</h3>
+                    <img src="images/appendix_{key}" alt="{image_info['title']}" style="max-width: 100%; height: auto; margin: 1em 0;" />
+                    <p><strong>Description:</strong> {image_info.get('description', '')}</p>
+                    <p><em>"{image_info.get('caption', '')}"</em></p>
+                </div>
+                '''
+    
+    world_html += '</div>'
+    
+    # Only create the world building chapter if we have content
+    if novel_images.get('common_branding') or (novel_images.get('appendix_illustrations') and any('character' not in k for k in novel_images['appendix_illustrations'].keys())):
+        world_chapter = epub.EpubHtml(
+            title="World Building",
+            file_name="gallery_world.xhtml",
+            content=world_html
+        )
+        world_chapter.add_item(nav_css)
+        book.add_item(world_chapter)
+        gallery_chapters.append(world_chapter)
+    
+    return gallery_chapters
+
+def add_image_to_epub(book, image_path, image_id, media_type=None):
+    """Add an image to the EPUB book.
+    
+    Args:
+        book: EPUB book object
+        image_path (str): Path to the image file
+        image_id (str): Unique identifier for the image
+        media_type (str): MIME type of the image
+        
+    Returns:
+        EpubImage: The created image item
+    """
+    if not os.path.exists(image_path):
+        return None
+    
+    # Determine media type if not provided
+    if media_type is None:
+        ext = os.path.splitext(image_path)[1].lower()
+        media_type_map = {
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.svg': 'image/svg+xml',
+            '.webp': 'image/webp'
+        }
+        media_type = media_type_map.get(ext, 'image/jpeg')
+    
+    # Read image data
+    with open(image_path, 'rb') as f:
+        image_data = f.read()
+    
+    # Create EPUB image item
+    from ebooklib import epub
+    image_item = epub.EpubImage(
+        uid=image_id,
+        file_name=f"images/{image_id}{os.path.splitext(image_path)[1]}",
+        media_type=media_type,
+        content=image_data
+    )
+    
+    book.add_item(image_item)
+    return image_item
+
+
+def convert_markdown_to_html(text):
+    """Convert basic markdown formatting to HTML for EPUB compatibility.
+    
+    Supported markdown features:
+    - **bold** → <strong>bold</strong>
+    - *italic* → <em>italic</em>
+    - __underline__ → <u>underline</u>
+    - ~~strikethrough~~ → <s>strikethrough</s>
+    - `code` → <code>code</code>
+    - "quotes" → <q>quotes</q>
+    - \\n → <br/> (explicit line breaks)
+    - -- → — (em dash)
+    - ... → … (ellipsis)
+    
+    Args:
+        text (str): Raw text with markdown formatting
+        
+    Returns:
+        str: HTML formatted text
+    """
+    import re
+    
+    # Bold: **text** -> <strong>text</strong>
+    text = re.sub(r'\*\*([^*]+?)\*\*', r'<strong>\1</strong>', text)
+    
+    # Italics: *text* -> <em>text</em> (after bold to avoid conflicts)
+    text = re.sub(r'\*([^*]+?)\*', r'<em>\1</em>', text)
+    
+    # Underline: __text__ -> <u>text</u>
+    text = re.sub(r'__([^_]+?)__', r'<u>\1</u>', text)
+    
+    # Strikethrough: ~~text~~ -> <s>text</s>
+    text = re.sub(r'~~([^~]+?)~~', r'<s>\1</s>', text)
+    
+    # Code: `text` -> <code>text</code>
+    text = re.sub(r'`([^`]+?)`', r'<code>\1</code>', text)
+    
+    # Quotes: "text" -> <q>text</q> (optional - for proper typography)
+    text = re.sub(r'"([^"]+?)"', r'<q>\1</q>', text)
+    
+    # Line breaks: explicit \n -> <br/> (for poetry or dialogue)
+    text = re.sub(r'(?<!\\)\\n', '<br/>', text)
+    
+    # Em dash: -- -> —
+    text = re.sub(r'--', '—', text)
+    
+    # Ellipsis: ... -> …
+    text = re.sub(r'\.\.\.', '…', text)
+    
+    return text
+
+def create_epub_from_translations(translation_dir, output_path, book_title, author="Unknown", translator="AI Translation", novel_slug=None):
+    """Create an EPUB file from translated text files with markdown formatting support and novel-specific branding."""
     try:
         # Create EPUB book
         book = epub.EpubBook()
         
-        # Set basic metadata
-        book.set_identifier('way-of-devil-translation')
+        # Load novel-specific configuration
+        novel_config = {}
+        novel_images = {}
+        branding_config = {}
+        
+        if novel_slug:
+            from utils import load_novel_config, get_config_value
+            full_config = load_novel_config(novel_slug)
+            novel_config = full_config.get('novel', {})
+            branding_config = full_config.get('branding', {})
+            
+            # Load images for this novel
+            novel_images = load_novel_images(novel_slug)
+        
+        # Set basic metadata with novel-specific information
+        novel_info = novel_config.get('novel_info', {})
+        book_id = f"{novel_slug}-translation" if novel_slug else "translation"
+        book.set_identifier(book_id)
         book.set_title(book_title)
         book.set_language('en')
         book.add_author(author)
         book.add_metadata('DC', 'contributor', translator)
+        
+        # Add genre information
+        genres = novel_info.get('genre', [])
+        for genre in genres:
+            book.add_metadata('DC', 'subject', genre)
+        
+        # Add description
+        description = novel_info.get('description', '')
+        if description:
+            book.add_metadata('DC', 'description', description)
         
         # Add enhanced metadata from job_metadata.json if available
         try:
@@ -497,11 +905,52 @@ def create_epub_from_translations(translation_dir, output_path, book_title, auth
         except Exception as metadata_error:
             print(f"Warning: Could not add enhanced metadata: {metadata_error}")
         
-        # Add CSS style
+        # Add cover image if available
+        cover_item = None
+        if novel_images.get('cover'):
+            cover_info = novel_images['cover']
+            cover_item = add_image_to_epub(book, cover_info['file_path'], 'cover')
+            if cover_item:
+                book.set_cover(cover_item.file_name, cover_item.content)
+        
+        # Add branding images to book
+        branding_images = {}
+        for key, image_info in novel_images.get('common_branding', {}).items():
+            image_item = add_image_to_epub(book, image_info['file_path'], f'branding_{key}')
+            if image_item:
+                branding_images[key] = image_item
+        
+        # Add chapter illustrations to book
+        chapter_image_items = {}
+        for chapter_num, image_info in novel_images.get('chapter_illustrations', {}).items():
+            image_item = add_image_to_epub(book, image_info['file_path'], f'chapter_{chapter_num}')
+            if image_item:
+                chapter_image_items[chapter_num] = image_item
+        
+        # Add appendix illustrations to book
+        appendix_image_items = {}
+        for key, image_info in novel_images.get('appendix_illustrations', {}).items():
+            image_item = add_image_to_epub(book, image_info['file_path'], f'appendix_{key}')
+            if image_item:
+                appendix_image_items[key] = image_item
+        
+        # Add CSS style with markdown formatting support
         style = '''
         body { font-family: Times, serif; line-height: 1.6; margin: 2em; }
         h1 { text-align: center; margin-bottom: 2em; }
         p { text-indent: 2em; margin-bottom: 1em; }
+        em { font-style: italic; }
+        strong { font-weight: bold; }
+        u { text-decoration: underline; }
+        s { text-decoration: line-through; }
+        code { font-family: monospace; background-color: #f0f0f0; padding: 2px 4px; border-radius: 3px; }
+        q { quotes: """ """ "'" "'"; }
+        q:before { content: open-quote; }
+        q:after { content: close-quote; }
+        .illustration { text-align: center; margin: 2em 0; }
+        .illustration img { max-width: 100%; height: auto; }
+        .illustration-caption { font-style: italic; margin-top: 1em; text-align: center; }
+        .branding-seal { float: right; margin: 1em; max-width: 100px; }
         '''
         nav_css = epub.EpubItem(
             uid="nav_css",
@@ -511,21 +960,76 @@ def create_epub_from_translations(translation_dir, output_path, book_title, auth
         )
         book.add_item(nav_css)
         
-        # Get all translation files
+        # Get all translation files (flexible file pattern matching)
         translation_files = []
         for filename in os.listdir(translation_dir):
-            if filename.endswith('-translated.txt'):
-                try:
-                    chapter_num = int(filename.split('-')[1])
+            if filename.endswith('.txt'):
+                # Try different naming patterns to extract chapter number
+                chapter_num = None
+                
+                # Pattern 1: Chapter-0001-translated.txt, Chapter-0044-translated.txt
+                if 'Chapter-' in filename:
+                    try:
+                        chapter_num = int(filename.split('-')[1])
+                    except (IndexError, ValueError):
+                        pass
+                
+                # Pattern 2: Ch001.txt, Ch44.txt
+                elif filename.startswith('Ch') and filename.endswith('.txt'):
+                    try:
+                        import re
+                        match = re.search(r'Ch(\d+)', filename)
+                        if match:
+                            chapter_num = int(match.group(1))
+                    except (IndexError, ValueError):
+                        pass
+                
+                # Pattern 3: 001.txt, 044.txt
+                elif filename.replace('.txt', '').isdigit():
+                    try:
+                        chapter_num = int(filename.replace('.txt', ''))
+                    except (IndexError, ValueError):
+                        pass
+                
+                # Pattern 4: Any other .txt file - use filename as fallback
+                if chapter_num is None:
+                    # Try to extract any number from filename
+                    import re
+                    numbers = re.findall(r'\d+', filename)
+                    if numbers:
+                        try:
+                            chapter_num = int(numbers[0])  # Use first number found
+                        except ValueError:
+                            pass
+                    
+                    # If still no number found, use file position as chapter number
+                    if chapter_num is None:
+                        # We'll assign numbers later based on alphabetical order
+                        chapter_num = 0
+                
+                if chapter_num is not None:
                     translation_files.append((chapter_num, filename))
-                except (IndexError, ValueError):
-                    continue
+        
+        # Handle files with no detectable chapter numbers
+        # Sort by filename and assign sequential numbers
+        files_with_zero = [(num, name) for num, name in translation_files if num == 0]
+        files_with_numbers = [(num, name) for num, name in translation_files if num != 0]
+        
+        if files_with_zero:
+            files_with_zero.sort(key=lambda x: x[1])  # Sort by filename
+            # Assign sequential numbers starting from the highest numbered file + 1
+            next_num = max([num for num, _ in files_with_numbers], default=0) + 1
+            for i, (_, filename) in enumerate(files_with_zero):
+                files_with_numbers.append((next_num + i, filename))
+        
+        translation_files = files_with_numbers
         
         # Sort by chapter number
         translation_files.sort(key=lambda x: x[0])
         
         chapters = []
         spine = ['nav']
+        total_markdown_chapters = 0
         
         # Create chapters
         for chapter_num, filename in translation_files:
@@ -538,12 +1042,28 @@ def create_epub_from_translations(translation_dir, output_path, book_title, auth
             chapter_id = f"chapter_{chapter_num:04d}"
             chapter_title = f"Chapter {chapter_num}"
             
-            # Format content as HTML
+            # Format content as HTML with markdown support
             paragraphs = content.split('\n\n')
             html_content = f'<h1>{chapter_title}</h1>\n'
+            
+            # Add branding seal if available
+            seal_image = branding_images.get('seal')
+            if seal_image:
+                html_content += f'<img src="{seal_image.file_name}" class="branding-seal" alt="Artisan\'s Seal" />\n'
+            
+            # Chapter illustrations are now handled in dedicated gallery sections
+            # No inline images in chapter content to maintain reading flow
+            
+            # Track markdown formatting usage
+            has_markdown = any('*' in p or '_' in p or '`' in p or '~' in p for p in paragraphs)
+            if has_markdown:
+                total_markdown_chapters += 1
+            
             for paragraph in paragraphs:
                 if paragraph.strip():
-                    html_content += f'<p>{paragraph.strip()}</p>\n'
+                    # Convert markdown formatting to HTML
+                    formatted_paragraph = convert_markdown_to_html(paragraph.strip())
+                    html_content += f'<p>{formatted_paragraph}</p>\n'
             
             chapter = epub.EpubHtml(
                 title=chapter_title,
@@ -601,13 +1121,40 @@ def create_epub_from_translations(translation_dir, output_path, book_title, auth
         except Exception as appendix_error:
             print(f"Warning: Could not add metadata appendix: {appendix_error}")
         
-        # Create table of contents (updated to include appendix)
-        toc_chapters = chapters[:-1] if chapters and chapters[-1].title == "About This Translation" else chapters
-        appendix_chapters = [chapters[-1]] if chapters and chapters[-1].title == "About This Translation" else []
+        # Add gallery sections
+        gallery_chapters = []
+        try:
+            gallery_chapters = create_gallery_sections(book, novel_images, nav_css)
+            for gallery_chapter in gallery_chapters:
+                chapters.append(gallery_chapter)
+                spine.append(gallery_chapter)
+        except Exception as gallery_error:
+            print(f"Warning: Could not add gallery sections: {gallery_error}")
         
-        toc_sections = [(epub.Section('Chapters'), toc_chapters)]
+        # Create table of contents (updated to include gallery and appendix)
+        # Separate different section types
+        story_chapters = []
+        appendix_chapters = []
+        
+        for chapter in chapters:
+            if chapter.title == "About This Translation":
+                appendix_chapters.append(chapter)
+            elif chapter.title in ["Cover Gallery", "Chapter Illustrations", "Character References", "World Building"]:
+                # Gallery chapters will be added to their own section
+                pass
+            else:
+                story_chapters.append(chapter)
+        
+        # Build TOC sections
+        toc_sections = [(epub.Section('Chapters'), story_chapters)]
+        
+        # Add Gallery section if we have gallery chapters
+        if gallery_chapters:
+            toc_sections.append((epub.Section('📷 Image Gallery'), gallery_chapters))
+        
+        # Add Appendix section if we have appendix chapters
         if appendix_chapters:
-            toc_sections.append((epub.Section('Appendix'), appendix_chapters))
+            toc_sections.append((epub.Section('📚 Appendix'), appendix_chapters))
         
         book.toc = toc_sections
         
@@ -621,7 +1168,12 @@ def create_epub_from_translations(translation_dir, output_path, book_title, auth
         # Write EPUB
         epub.write_epub(output_path, book, {})
         
-        return True, f"Successfully created EPUB with {len(chapters)} chapters"
+        # Create success message with markdown info
+        success_msg = f"Successfully created EPUB with {len(chapters)} chapters"
+        if total_markdown_chapters > 0:
+            success_msg += f" (markdown formatting processed in {total_markdown_chapters} chapters)"
+        
+        return True, success_msg
         
     except Exception as e:
         return False, f"Error creating EPUB: {str(e)}"
@@ -630,6 +1182,45 @@ def create_epub_from_translations(translation_dir, output_path, book_title, auth
 
 # --- UI Sidebar ---
 st.sidebar.header("🔬 Experiment Controls")
+
+# Novel Selection
+with st.sidebar.expander("📚 Novel Selection", expanded=True):
+    try:
+        from utils import get_available_novels
+        available_novels = get_available_novels()
+        
+        if available_novels:
+            novel_options = [f"{novel['title']} ({novel['slug']})" for novel in available_novels]
+            selected_novel_display = st.selectbox(
+                "📖 Novel:", 
+                novel_options, 
+                help="Choose which novel to work with"
+            )
+            
+            # Extract novel slug from selection
+            selected_novel_slug = None
+            for novel in available_novels:
+                if f"{novel['title']} ({novel['slug']})" == selected_novel_display:
+                    selected_novel_slug = novel['slug']
+                    break
+            
+            if selected_novel_slug:
+                # Store in session state for use in EPUB creation
+                st.session_state['selected_novel_slug'] = selected_novel_slug
+                
+                # Show novel configuration status
+                selected_novel_info = next(n for n in available_novels if n['slug'] == selected_novel_slug)
+                if selected_novel_info['has_config']:
+                    st.success(f"✅ Configuration loaded")
+                else:
+                    st.warning(f"⚠️ No novel config found")
+        else:
+            st.info("No novels configured yet")
+            st.session_state['selected_novel_slug'] = 'way_of_the_devil'  # Default fallback
+            
+    except Exception as e:
+        st.error(f"Error loading novels: {e}")
+        st.session_state['selected_novel_slug'] = 'way_of_the_devil'  # Default fallback
 
 # API Configuration - check availability but don't display status (shown on Home Dashboard)
 api_key, api_source = load_api_config()
@@ -795,7 +1386,25 @@ with st.sidebar.expander("🎯 Translation Task", expanded=True):
         min_value=0, 
         max_value=50, 
         value=default_history, 
-        help="Number of preceding chapters to use as in-context examples"
+        help="Number of chapters to use as in-context examples"
+    )
+    
+    # Direction control for history examples
+    direction = st.radio(
+        "📚 History Direction",
+        options=["past", "future"],
+        index=0,  # Default to "past"
+        help="Use chapters before (past) or after (future) current chapter as examples. Future examples useful for translating early chapters using polished later chapters.",
+        horizontal=True
+    )
+    
+    # Processing order control for temporal consistency
+    processing_order = st.radio(
+        "⏳ Processing Order",
+        options=["forward", "reverse"],
+        index=0,  # Default to "forward"
+        help="Forward: Process 1→30 (normal). Reverse: Process 30→1 (temporal consistency - fresh translations feed into sliding window context).",
+        horizontal=True
     )
 
 with st.sidebar.expander("📚 History Source", expanded=True):
@@ -1026,7 +1635,9 @@ if st.button("🚀 Start Translation Job", disabled=start_button_disabled, type=
         "api_delay": api_delay,
         "output_dir": output_dir,
         "selected_custom_run": selected_custom_run,
-        "platform": selected_platform
+        "platform": selected_platform,
+        "direction": direction,
+        "processing_order": processing_order
     }
 
 if start_button_disabled:
@@ -1132,7 +1743,15 @@ if st.session_state.get("run_job", False):
 
     total_chapters = len(params["chapters_to_translate"])
     
-    for i, chapter_num_str in enumerate(params["chapters_to_translate"]):
+    # Process chapters in specified order
+    chapters_to_process = params["chapters_to_translate"]
+    if params["processing_order"] == "reverse":
+        chapters_to_process = list(reversed(chapters_to_process))
+        log_messages.append(f"⏳ **Processing Order**: Reverse (temporal consistency mode)")
+    else:
+        log_messages.append(f"⏳ **Processing Order**: Forward (standard mode)")
+    
+    for i, chapter_num_str in enumerate(chapters_to_process):
         chapter_num = int(chapter_num_str)
         
         # Check if file already exists (resume capability)
@@ -1150,14 +1769,20 @@ if st.session_state.get("run_job", False):
             
             try:
                 # 1. Build Context
-                log_messages.append("  └─ Building few-shot context...")
+                direction_text = "previous" if params["direction"] == "past" else "subsequent"
+                sliding_context_note = ""
+                if params["processing_order"] == "reverse" and params["direction"] == "future":
+                    sliding_context_note = " + sliding fresh context"
+                log_messages.append(f"  └─ Building few-shot context ({direction_text} chapters{sliding_context_note})...")
                 try:
                     history_examples, sources_used = get_smart_fallback_examples(
                         alignment_map, 
                         chapter_num, 
                         params["history_count"],
                         params["selected_custom_run"],
-                        params["output_dir"]
+                        params["output_dir"],
+                        params["direction"],
+                        params["processing_order"]
                     )
                     log_messages.append(f"  └─ Found {len(history_examples)} context examples from: {', '.join(sources_used)}")
                 except InsufficientHistoryError as e:
@@ -1390,7 +2015,7 @@ if st.session_state.get("run_job", False):
 # --- EPUB Creation Section ---
 st.divider()
 st.header("📖 EPUB Package Creator")
-st.caption("Convert any custom translation run into a downloadable EPUB book")
+st.caption("Convert any folder containing chapter files into a downloadable EPUB book")
 
 # Scan for available custom translation runs
 epub_col1, epub_col2 = st.columns([2, 1])
@@ -1479,13 +2104,19 @@ if available_epub_runs and 'selected_run_info' in locals():
                 epub_filename = f"{safe_title.replace(' ', '_')}.epub"
             epub_output_path = os.path.join(epub_output_dir, epub_filename)
             
-            # Create EPUB
-            success, message = create_epub_from_translations(
+            # Get novel slug from session state or detect from alignment maps
+            novel_slug = st.session_state.get('selected_novel_slug') or detect_novel_slug_from_alignment_maps()
+            
+            # Create EPUB using new builder
+            from utils.epub_builder import build_epub
+            
+            success, message = build_epub(
                 selected_run_info['path'],
                 epub_output_path,
-                epub_title,
-                epub_author,
-                epub_translator
+                title=epub_title,
+                author=epub_author,
+                translator=epub_translator,
+                novel_slug=novel_slug
             )
             
             if success:

@@ -225,3 +225,109 @@ def show_deepseek_config_status():
         return f"✅ DeepSeek API Key loaded from {source} ({masked_key})"
     else:
         return "❌ DeepSeek API Key not configured"
+
+
+def load_novel_config(novel_slug):
+    """Load novel-specific configuration with global fallback.
+    
+    Args:
+        novel_slug (str): Novel identifier (e.g., "way_of_the_devil")
+        
+    Returns:
+        dict: Novel configuration with global fallback values
+    """
+    # Load global configuration for fallback
+    global_config = get_config_value('epub_metadata', {})
+    branding_config = get_config_value('branding', {})
+    
+    # Try to load novel-specific config
+    novel_config_path = os.path.join(get_novel_dir(novel_slug), "novel_config.json")
+    novel_config = {}
+    
+    if os.path.exists(novel_config_path):
+        try:
+            with open(novel_config_path, 'r', encoding='utf-8') as f:
+                novel_config = json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not read novel config for {novel_slug}: {e}")
+    
+    # Merge configurations (novel-specific overrides global)
+    merged_config = {
+        'global': global_config,
+        'branding': branding_config,
+        'novel': novel_config
+    }
+    
+    return merged_config
+
+
+def load_novel_images_config(novel_slug):
+    """Load novel-specific image configuration and manifest.
+    
+    Args:
+        novel_slug (str): Novel identifier
+        
+    Returns:
+        dict: Image configuration with manifest data
+    """
+    novel_config = load_novel_config(novel_slug)
+    images_config = novel_config.get('novel', {}).get('images', {})
+    
+    # Get images path
+    images_path = images_config.get('images_path', f"data/images/{novel_slug}/")
+    
+    # Load illustrations manifest
+    manifest_file = images_config.get('manifest_file', 'illustrations_manifest.json')
+    manifest_path = os.path.join(images_path, manifest_file)
+    
+    illustrations_manifest = {}
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path, 'r', encoding='utf-8') as f:
+                illustrations_manifest = json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not read illustrations manifest for {novel_slug}: {e}")
+    
+    return {
+        'images_path': images_path,
+        'config': images_config,
+        'manifest': illustrations_manifest
+    }
+
+
+def get_available_novels():
+    """Get list of available novels with their configuration status.
+    
+    Returns:
+        list: List of dictionaries with novel information
+    """
+    novels = []
+    
+    if not os.path.exists(NOVELS_DIR):
+        return novels
+    
+    for novel_dir in os.listdir(NOVELS_DIR):
+        novel_path = os.path.join(NOVELS_DIR, novel_dir)
+        if os.path.isdir(novel_path):
+            # Check if novel has config file
+            config_path = os.path.join(novel_path, "novel_config.json")
+            has_config = os.path.exists(config_path)
+            
+            # Try to load basic info
+            title = novel_dir
+            if has_config:
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        config = json.load(f)
+                        title = config.get('novel_info', {}).get('title', novel_dir)
+                except:
+                    pass
+            
+            novels.append({
+                'slug': novel_dir,
+                'title': title,
+                'has_config': has_config,
+                'path': novel_path
+            })
+    
+    return novels

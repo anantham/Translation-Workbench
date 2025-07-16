@@ -159,8 +159,8 @@ st.sidebar.subheader("📚 Dataset Settings")
 max_training_examples = st.sidebar.number_input(
     "Max Training Examples", 
     min_value=10, 
-    max_value=max_available_chapters if max_available_chapters > 0 else 5000,
-    value=min(max_available_chapters, 773) if max_available_chapters > 0 else 500,
+    max_value=max(max_available_chapters, 10) if max_available_chapters > 0 else 5000,
+    value=max(min(max_available_chapters, 773), 10) if max_available_chapters > 0 else 500,
     help=f"Maximum chapters to use for training (Available: {max_available_chapters})"
 )
 
@@ -819,7 +819,7 @@ with tab4:
         st.subheader("📚 Model Library")
         
         # Load saved model metadata
-        model_metadata = load_model_metadata()
+        model_metadata = list_trained_models()
         
         if model_metadata:
             for i, metadata in enumerate(model_metadata):
@@ -872,7 +872,7 @@ with tab4:
         # Model export options
         st.subheader("📤 Export Options")
         if st.button("💾 Export Model Metadata", help="Download all model metadata as JSON"):
-            model_metadata = load_model_metadata()
+            model_metadata = list_trained_models()
             if model_metadata:
                 export_data = json.dumps(model_metadata, indent=2, default=str)
                 st.download_button(

@@ -146,7 +146,7 @@ if not available_styles:
 st.sidebar.subheader("🎨 Select Styles to Visualize")
 style_options = {}
 for style in available_styles:
-    label = f"{style['name']} ({style['chapter_count']} chapters)"
+    label = f"{style.get('name', 'Unknown Style')} ({style.get('chapter_count', 0)} chapters)"
     style_options[label] = style
 
 selected_style_labels = st.sidebar.multiselect(
@@ -194,7 +194,7 @@ with tab1:
     for style in available_styles:
         # Get model name from metadata if available, otherwise use default
         model_name = style.get('metadata', {}).get('model_name', 'Unknown Model')
-        label = f"{style['name']} ({style['chapter_count']} chapters, {model_name})"
+        label = f"{style.get('name', 'Unknown Style')} ({style.get('chapter_count', 0)} chapters, {model_name})"
         style_options[label] = style
     
     selected_styles = st.multiselect(
@@ -223,7 +223,7 @@ with tab1:
     
     for style_label in selected_styles:
         style = style_options[style_label]
-        style_name = style['name']
+        style_name = style.get('name', 'Unknown Style')
         
         # Initialize metrics
         bert_scores = load_bert_scores(style_name) if show_bert else {}
@@ -269,7 +269,7 @@ with tab1:
         
         leaderboard_data.append({
             'Style': style_name,
-            'Model': style['model_name'],
+            'Model': style.get('metadata', {}).get('model_name', 'Unknown Model'),
             'Chapters': len(bert_scores) + len(human_scores),
             'BERT Score': bert_avg,
             'Human Score': human_avg,
@@ -371,7 +371,7 @@ with tab2:
     for style in available_styles:
         # Get model name from metadata if available, otherwise use default
         model_name = style.get('metadata', {}).get('model_name', 'Unknown Model')
-        label = f"{style['name']} ({style['chapter_count']} chapters, {model_name})"
+        label = f"{style.get('name', 'Unknown Style')} ({style.get('chapter_count', 0)} chapters, {model_name})"
         style_options[label] = style
     
     selected_style_label = st.selectbox(
@@ -383,16 +383,17 @@ with tab2:
     eval_style = style_options[selected_style_label]
     
     # Get chapters available for this style
-    style_path = eval_style['path']
+    style_path = eval_style.get('path', '')
     available_chapters = []
     
-    for filename in os.listdir(style_path):
-        if filename.endswith('-translated.txt'):
-            try:
-                chapter_num = int(filename.split('-')[1])
-                available_chapters.append(chapter_num)
-            except (ValueError, IndexError):
-                continue
+    if style_path and os.path.exists(style_path):
+        for filename in os.listdir(style_path):
+            if filename.endswith('-translated.txt'):
+                try:
+                    chapter_num = int(filename.split('-')[1])
+                    available_chapters.append(chapter_num)
+                except (ValueError, IndexError):
+                    continue
     
     available_chapters.sort()
     
@@ -413,7 +414,7 @@ with tab2:
     
     with col2:
         # Show evaluation progress
-        human_scores = load_human_scores(eval_style['name'])
+        human_scores = load_human_scores(eval_style.get('name', 'Unknown Style'))
         human_completion = len(human_scores) / len(available_chapters) if available_chapters else 0
         
         st.metric(
@@ -653,10 +654,10 @@ with tab2:
     st.subheader("📊 Quality Assessment")
     
     # Load existing human scores for this style and chapter
-    existing_human_scores = load_human_scores(eval_style['name'])
+    existing_human_scores = load_human_scores(eval_style.get('name', 'Unknown Style'))
     chapter_scores = existing_human_scores.get(str(selected_chapter), {})
     
-    with st.form(f"human_eval_{eval_style['name']}_{selected_chapter}"):
+    with st.form(f"human_eval_{eval_style.get('name', 'Unknown Style')}_{selected_chapter}"):
         st.write("**Current Human Evaluation Metrics (4 Dimensions)**")
         st.write("Rate this translation on core quality dimensions (1-100):")
         
@@ -807,7 +808,7 @@ with tab2:
             existing_human_scores[str(selected_chapter)].update(evaluation_data)
             
             # Save to file
-            save_human_scores(eval_style['name'], existing_human_scores)
+            save_human_scores(eval_style.get('name', 'Unknown Style'), existing_human_scores)
             st.success(f"✅ Evaluation saved for Chapter {selected_chapter}!")
             st.rerun()
     
@@ -911,6 +912,373 @@ with tab2:
             if with_justifications > 0:
                 st.caption(f"💭 **With Justifications:** {with_justifications}/{len(all_scores)} chapters")
 
+
+# ==============================================================================
+#                              STANDALONE EPUB CREATOR
+# ==============================================================================
+
+st.divider()
+st.header("📖 Standalone EPUB Creator")
+st.caption("Create EPUB books from any folder containing chapter files - custom translations, merged styles, raw chapters, or any text content")
+
+# Import necessary functions
+from ebooklib import epub
+import zipfile
+
+def detect_novel_slug_from_alignment_maps():
+    """Detect novel slug from available alignment maps."""
+    try:
+        alignment_maps = list_alignment_maps()
+        
+        # For now, default to 'way_of_the_devil' if available
+        for slug, info in alignment_maps.items():
+            if slug == 'way_of_the_devil':
+                return slug
+        
+        # Return first available if way_of_the_devil not found
+        if alignment_maps:
+            return list(alignment_maps.keys())[0]
+        
+        # Fallback to way_of_the_devil for backward compatibility
+        return 'way_of_the_devil'
+    except Exception as e:
+        print(f"Warning: Could not detect novel slug: {e}")
+        return 'way_of_the_devil'
+
+# Novel selection
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("📚 Source Selection")
+    
+    # EPUB source options
+    epub_source = st.selectbox(
+        "📖 EPUB Source:",
+        ["Custom Translations", "Raw Chapters", "Custom Folder", "Mixed Sources"],
+        help="Choose what content to include in your EPUB"
+    )
+    
+    if epub_source == "Custom Translations":
+        # List available custom translation runs
+        custom_runs_dir = os.path.join(DATA_DIR, "custom_translations")
+        available_runs = []
+        
+        if os.path.exists(custom_runs_dir):
+            for run_name in os.listdir(custom_runs_dir):
+                run_path = os.path.join(custom_runs_dir, run_name)
+                if os.path.isdir(run_path):
+                    # Check if run has translated files
+                    txt_files = [f for f in os.listdir(run_path) if f.endswith('-translated.txt')]
+                    if txt_files:
+                        # Get chapter range
+                        chapter_nums = []
+                        for f in txt_files:
+                            try:
+                                chapter_num = int(f.split('-')[1])
+                                chapter_nums.append(chapter_num)
+                            except (IndexError, ValueError):
+                                continue
+                        
+                        if chapter_nums:
+                            chapter_nums.sort()
+                            chapter_range = f"Ch.{min(chapter_nums)}-{max(chapter_nums)}"
+                            available_runs.append({
+                                "name": run_name,
+                                "path": run_path,
+                                "files": len(txt_files),
+                                "range": chapter_range
+                            })
+        
+        if available_runs:
+            run_options = [f"{run['name']} ({run['files']} chapters, {run['range']})" for run in available_runs]
+            selected_run = st.selectbox("Translation Run:", run_options)
+            
+            # Get selected run info
+            selected_run_index = run_options.index(selected_run)
+            selected_source_info = available_runs[selected_run_index]
+            
+        else:
+            st.warning("No custom translation runs found. Run some translations first.")
+            selected_source_info = None
+    
+    elif epub_source == "Raw Chapters":
+        # Select from novel directories
+        try:
+            available_novels = get_available_novels()
+            if available_novels:
+                novel_options = [f"{novel['title']} ({novel['slug']})" for novel in available_novels]
+                selected_novel = st.selectbox("Novel:", novel_options)
+                
+                # Extract novel slug
+                for novel in available_novels:
+                    if f"{novel['title']} ({novel['slug']})" == selected_novel:
+                        novel_slug = novel['slug']
+                        break
+                
+                # Check for raw chapters
+                raw_chapters_dir = get_novel_raw_chapters_dir(novel_slug)
+                if os.path.exists(raw_chapters_dir):
+                    chapter_files = [f for f in os.listdir(raw_chapters_dir) if f.endswith('.txt')]
+                    if chapter_files:
+                        selected_source_info = {
+                            "name": f"{novel_slug}_raw_chapters",
+                            "path": raw_chapters_dir,
+                            "files": len(chapter_files),
+                            "range": f"Ch.1-{len(chapter_files)}",
+                            "type": "raw_chapters"
+                        }
+                    else:
+                        st.warning(f"No raw chapters found for {novel_slug}")
+                        selected_source_info = None
+                else:
+                    st.warning(f"Raw chapters directory not found for {novel_slug}")
+                    selected_source_info = None
+            else:
+                st.warning("No novels configured")
+                selected_source_info = None
+        except Exception as e:
+            st.error(f"Error loading novels: {e}")
+            selected_source_info = None
+    
+    elif epub_source == "Custom Folder":
+        # Allow user to specify any folder path
+        st.info("💡 **Perfect for merged styles!** Point to any folder containing chapter files (.txt)")
+        
+        # Usage examples
+        with st.expander("📚 Usage Examples"):
+            st.markdown("""
+            **Perfect for:**
+            - 📝 **Merged translation styles** (combining different AI outputs)
+            - 🔄 **Manually edited chapters** (post-processed translations)
+            - 📁 **Custom chapter collections** (hand-picked chapters)
+            - 🎯 **Curated content** (specific chapter ranges)
+            
+            **Supported file patterns:**
+            - `Chapter-0001.txt`, `Chapter-0044-translated.txt`
+            - `Ch001.txt`, `Ch44.txt`
+            - `001.txt`, `044.txt`
+            - Any `.txt` files with chapter content
+            """)
+        
+        # Folder path input
+        folder_path = st.text_input(
+            "📁 Folder Path:",
+            placeholder="e.g., /path/to/your/merged/chapters or data/my_custom_translation",
+            help="Enter the full path to the folder containing your chapter files"
+        )
+        
+        # Quick suggestions
+        st.caption("💡 **Quick suggestions:**")
+        suggestion_col1, suggestion_col2 = st.columns(2)
+        with suggestion_col1:
+            if st.button("📁 Browse Custom Translations", help="Use existing translation runs"):
+                custom_runs_dir = os.path.join(DATA_DIR, "custom_translations")
+                if os.path.exists(custom_runs_dir):
+                    st.session_state['suggested_folder'] = custom_runs_dir
+        with suggestion_col2:
+            if st.button("📁 Browse Data Directory", help="Browse the data folder"):
+                st.session_state['suggested_folder'] = DATA_DIR
+        
+        # Show suggested folder if available
+        if 'suggested_folder' in st.session_state:
+            suggested_path = st.session_state['suggested_folder']
+            st.caption(f"💡 **Suggested:** `{suggested_path}`")
+            if st.button("📋 Use Suggested Path"):
+                folder_path = suggested_path
+                st.session_state['folder_path'] = folder_path
+                st.rerun()
+        
+        # Use session state folder path if available
+        if 'folder_path' in st.session_state:
+            folder_path = st.session_state['folder_path']
+        
+        if folder_path:
+            # Expand relative paths
+            if not os.path.isabs(folder_path):
+                # Try relative to project root
+                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                folder_path = os.path.join(project_root, folder_path)
+            
+            if os.path.exists(folder_path) and os.path.isdir(folder_path):
+                # Scan for chapter files
+                chapter_files = []
+                for filename in os.listdir(folder_path):
+                    if filename.endswith('.txt'):
+                        chapter_files.append(filename)
+                
+                if chapter_files:
+                    # Try to extract chapter numbers for range display
+                    chapter_nums = []
+                    for f in chapter_files:
+                        # Try different naming patterns
+                        import re
+                        # Pattern 1: Chapter-0001.txt, Chapter-0044-translated.txt
+                        match = re.search(r'Chapter-(\d+)', f)
+                        if match:
+                            chapter_nums.append(int(match.group(1)))
+                        # Pattern 2: Ch001.txt, Ch44.txt
+                        elif re.search(r'Ch(\d+)', f):
+                            match = re.search(r'Ch(\d+)', f)
+                            chapter_nums.append(int(match.group(1)))
+                        # Pattern 3: 001.txt, 44.txt
+                        elif re.search(r'^(\d+)\.txt$', f):
+                            match = re.search(r'^(\d+)\.txt$', f)
+                            chapter_nums.append(int(match.group(1)))
+                    
+                    # Determine range
+                    if chapter_nums:
+                        chapter_nums.sort()
+                        chapter_range = f"Ch.{min(chapter_nums)}-{max(chapter_nums)}"
+                    else:
+                        chapter_range = f"{len(chapter_files)} files"
+                    
+                    selected_source_info = {
+                        "name": f"custom_folder_{os.path.basename(folder_path)}",
+                        "path": folder_path,
+                        "files": len(chapter_files),
+                        "range": chapter_range,
+                        "type": "custom_folder"
+                    }
+                    
+                    st.success(f"✅ Found {len(chapter_files)} chapter files!")
+                    
+                    # Show preview of detected files
+                    with st.expander("📄 Preview Chapter Files"):
+                        for i, filename in enumerate(sorted(chapter_files)[:10]):  # Show first 10
+                            st.text(f"• {filename}")
+                        if len(chapter_files) > 10:
+                            st.text(f"... and {len(chapter_files) - 10} more files")
+                
+                else:
+                    st.warning("⚠️ No .txt files found in this folder")
+                    selected_source_info = None
+                    
+            else:
+                st.error("❌ Folder not found or invalid path")
+                selected_source_info = None
+                
+        else:
+            selected_source_info = None
+    
+    else:  # Mixed Sources
+        st.info("Mixed sources feature coming soon!")
+        selected_source_info = None
+
+with col2:
+    st.subheader("📊 EPUB Preview")
+    if selected_source_info:
+        st.metric("Source", selected_source_info["name"])
+        st.metric("Chapters", selected_source_info["files"])
+        st.metric("Range", selected_source_info["range"])
+        
+        # Estimate file size
+        estimated_mb = selected_source_info["files"] * 0.05
+        st.metric("Est. Size", f"{estimated_mb:.1f} MB")
+
+# EPUB Creation
+if selected_source_info:
+    st.subheader("📖 EPUB Configuration")
+    
+    # EPUB metadata
+    col1, col2 = st.columns(2)
+    with col1:
+        epub_title = st.text_input(
+            "Book Title:", 
+            f"Way of the Devil - {selected_source_info['name']}", 
+            help="Title for the EPUB book"
+        )
+        epub_author = st.text_input("Author:", "Wang Yu", help="Original author name")
+    
+    with col2:
+        epub_translator = st.text_input("Translator:", "AI Translation", help="Translator credit")
+        
+        # Novel selection for branding
+        try:
+            available_novels = get_available_novels()
+            if available_novels:
+                # Create options for novel selection
+                novel_options = [f"{novel['title']} ({novel['slug']})" for novel in available_novels]
+                selected_novel_display = st.selectbox(
+                    "📚 Novel Config:",
+                    novel_options,
+                    help="Choose which novel configuration to use for branding and metadata"
+                )
+                
+                # Extract novel slug from selection
+                novel_slug = None
+                for novel in available_novels:
+                    if f"{novel['title']} ({novel['slug']})" == selected_novel_display:
+                        novel_slug = novel['slug']
+                        break
+                
+                if not novel_slug:
+                    novel_slug = detect_novel_slug_from_alignment_maps()
+                    st.caption(f"⚠️ Fallback to: {novel_slug}")
+                else:
+                    # Show configuration status
+                    selected_novel_info = next(n for n in available_novels if n['slug'] == novel_slug)
+                    if selected_novel_info['has_config']:
+                        st.success(f"✅ Config loaded: {novel_slug}")
+                    else:
+                        st.warning(f"⚠️ No config found for {novel_slug}")
+            else:
+                novel_slug = detect_novel_slug_from_alignment_maps()
+                st.caption(f"🔄 Auto-detected: {novel_slug}")
+        except Exception as e:
+            novel_slug = detect_novel_slug_from_alignment_maps()
+            st.caption(f"⚠️ Error loading novels, using: {novel_slug}")
+    
+    # Create EPUB button
+    if st.button("📖 Create EPUB Book", type="primary", use_container_width=True):
+        with st.spinner("Creating EPUB book..."):
+            # Create output directory
+            epub_output_dir = os.path.join(DATA_DIR, "epub_exports")
+            os.makedirs(epub_output_dir, exist_ok=True)
+            
+            # Generate output filename
+            safe_title = "".join(c for c in epub_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            epub_filename = f"{safe_title.replace(' ', '_')}.epub"
+            epub_output_path = os.path.join(epub_output_dir, epub_filename)
+            
+            # Create EPUB using the new builder module
+            try:
+                from utils.epub_builder import build_epub
+                
+                success, message = build_epub(
+                    selected_source_info['path'],
+                    epub_output_path,
+                    title=epub_title,
+                    author=epub_author,
+                    translator=epub_translator,
+                    novel_slug=novel_slug
+                )
+                
+                if success:
+                    st.success(f"✅ **EPUB Created Successfully!**")
+                    st.info(f"📁 **Location:** `{epub_output_path}`")
+                    
+                    # Provide download button
+                    with open(epub_output_path, 'rb') as f:
+                        epub_data = f.read()
+                    
+                    st.download_button(
+                        label="📥 Download EPUB",
+                        data=epub_data,
+                        file_name=epub_filename,
+                        mime="application/epub+zip",
+                        use_container_width=True
+                    )
+                    
+                    # Show file info
+                    file_size_mb = len(epub_data) / 1024 / 1024
+                    st.caption(f"📊 **File size:** {file_size_mb:.2f} MB | **Format:** EPUB 3.0")
+                    
+                else:
+                    st.error(f"❌ **EPUB Creation Failed:** {message}")
+                    
+            except Exception as e:
+                st.error(f"❌ **EPUB Creation Error:** {str(e)}")
+                st.info("💡 Make sure you have completed some translations first or check that the source files exist.")
 
 # --- Footer ---
 st.divider()
