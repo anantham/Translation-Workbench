@@ -24,7 +24,7 @@ from .caching import get_cached_translation, store_translation_in_cache
 from .config import load_deepseek_api_config, get_config_value
 
 # Import cost calculation functions
-from .cost_tracking import calculate_openai_cost, calculate_gemini_cost
+from .cost_tracking import calculate_openai_cost, calculate_gemini_cost, calculate_deepseek_cost
 
 # Import logging
 from .logging import logger
@@ -253,7 +253,10 @@ def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_pr
             logger.info(f"[OPENAI API] Usage metrics - Prompt: {prompt_tokens} tokens, Completion: {completion_tokens} tokens, Total: {total_tokens} tokens")
             
             # Calculate costs
-            cost_info = calculate_openai_cost(model_name, usage_data)
+            if model_name.startswith("deepseek"):
+                cost_info = calculate_deepseek_cost(model_name, usage_data)
+            else:
+                cost_info = calculate_openai_cost(model_name, usage_data)
             logger.debug(f"[OPENAI API] Cost calculation: {cost_info}")
             
             usage_metrics.update({
