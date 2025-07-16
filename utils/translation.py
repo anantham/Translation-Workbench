@@ -21,7 +21,7 @@ from datetime import datetime
 from .caching import get_cached_translation, store_translation_in_cache
 
 # Import config functions for API keys
-from .config import load_deepseek_api_config
+from .config import load_deepseek_api_config, get_config_value
 
 # Import cost calculation functions
 from .cost_tracking import calculate_openai_cost, calculate_gemini_cost
@@ -107,14 +107,19 @@ def translate_with_gemini(raw_text: str, api_key: str, use_cache=True, novel_nam
         return f"API Request Failed: {e}"
 
 
-def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_prompt=None, history_examples=None, use_cache=True):
+def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_prompt=None, history_examples=None, use_cache=True, max_tokens=None):
     """Translate text using OpenAI-compatible API (OpenAI, DeepSeek) with optional history context."""
     start_time = time.time()
     timestamp = datetime.now().isoformat()
     
+    # Get max_tokens from config if not provided
+    if max_tokens is None:
+        max_tokens = get_config_value("max_tokens", 8000)
+    
     logger.info(f"[OPENAI API] Starting translation request")
     logger.debug(f"[OPENAI API] Input text length: {len(raw_text)} characters")
     logger.debug(f"[OPENAI API] Model: {model_name}")
+    logger.debug(f"[OPENAI API] Max tokens: {max_tokens}")
     logger.debug(f"[OPENAI API] System prompt provided: {system_prompt is not None}")
     logger.debug(f"[OPENAI API] History examples provided: {len(history_examples) if history_examples else 0}")
     logger.debug(f"[OPENAI API] Cache enabled: {use_cache}")
@@ -207,7 +212,7 @@ def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_pr
             "model": model_name,
             "messages": f"[{len(messages)} messages]",
             "temperature": 0.3,
-            "max_tokens": 4000
+            "max_tokens": max_tokens
         }
         logger.info(f"[OPENAI API] Making API call with parameters: {api_params}")
         
@@ -216,7 +221,7 @@ def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_pr
             model=model_name,
             messages=messages,
             temperature=0.3,
-            max_tokens=4000
+            max_tokens=max_tokens
         )
         
         request_time = time.time() - start_time
@@ -446,7 +451,7 @@ def translate_with_gemini_history(api_key, model_name, system_prompt, history, c
         }
 
 
-def generate_translation_unified(api_key, model_name, system_prompt, history, current_raw_text, platform="Gemini"):
+def generate_translation_unified(api_key, model_name, system_prompt, history, current_raw_text, platform="Gemini", max_tokens=None):
     """Unified translation function supporting both Gemini and OpenAI.
     
     Returns:
@@ -471,7 +476,7 @@ def generate_translation_unified(api_key, model_name, system_prompt, history, cu
     if platform == "Gemini":
         return translate_with_gemini_history(api_key, model_name, system_prompt, history, current_raw_text)
     elif platform == "OpenAI":
-        return translate_with_openai(current_raw_text, api_key, model_name, system_prompt, history)
+        return translate_with_openai(current_raw_text, api_key, model_name, system_prompt, history, max_tokens=max_tokens)
     else:
         return {
             'translation': '',
@@ -493,6 +498,6 @@ def generate_translation_unified(api_key, model_name, system_prompt, history, cu
 
 
 # Alias for backward compatibility with DeepSeek
-def translate_with_deepseek(raw_text, api_key, model_name="deepseek-chat", system_prompt=None, history_examples=None, use_cache=True):
+def translate_with_deepseek(raw_text, api_key, model_name="deepseek-chat", system_prompt=None, history_examples=None, use_cache=True, max_tokens=None):
     """DeepSeek translation - wrapper around translate_with_openai."""
-    return translate_with_openai(raw_text, api_key, model_name, system_prompt, history_examples, use_cache)
+    return translate_with_openai(raw_text, api_key, model_name, system_prompt, history_examples, use_cache, max_tokens)

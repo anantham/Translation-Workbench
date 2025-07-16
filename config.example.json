@@ -3,7 +3,7 @@
   "default_model": "gemini-2.5-pro",
   "default_history_count": 5,
   "api_delay": 1.0,
-  "max_tokens": 8192,
+  "max_tokens": 8000,
   "temperature": 0.7,
   "epub_metadata": {
     "project_version": "v2.1.0",
@@ -20,7 +20,7 @@
     "default_model": "Model to use for translation generation",
     "default_history_count": "Default number of context chapters for few-shot learning",
     "api_delay": "Delay between API calls in seconds to avoid rate limiting",
-    "max_tokens": "Maximum tokens for translation output",
+    "max_tokens": "Maximum tokens for translation output (8000 handles longest chapters ~4714 tokens)",
     "temperature": "Creativity/randomness level (0.0-1.0)",
     "epub_metadata": "Configuration for EPUB generation metadata and project information"
   }
