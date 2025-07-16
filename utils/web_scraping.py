@@ -22,36 +22,48 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
     current_url = start_url
 
     # Check if resuming from a conflict
-    if st.session_state.get('scraping_override'):
-        logger.debug("[BRIDGE] Detected 'scraping_override' in session state.")
-        override_value = st.session_state.get('scraping_override')
-        logger.debug(f"[BRIDGE] Override value: {override_value}")
+    if st.session_state.get('resume_payload'):
+        logger.debug("[BRIDGE] Detected a resume_payload, indicating a conflict resolution.")
         
-        conflict = st.session_state.get('resume_from_conflict', {})
-        logger.debug(f"[BRIDGE] Retrieved conflict data: {conflict}")
+        override_info = st.session_state.get('scraping_override', {})
+        conflict_data = st.session_state.get('resume_payload', {})
+        
+        logger.info(f"[BRIDGE] Override info: {override_info}")
+        logger.info(f"[BRIDGE] Conflict payload: {conflict_data}")
 
-        if 'url' in conflict:
+        if 'url' in conflict_data:
+            # Build the resume_info dictionary based on the override type
             resume_info = {
-                'override': override_value,
-                'url': conflict['url'],
-                'expected_number': conflict.get('expected_number'),
-                'found_number': conflict.get('found_number')
+                'override': override_info.get('type'),
+                'url': conflict_data.get('url'),
+                'expected_number': conflict_data.get('expected_number'),
+                'found_number': conflict_data.get('found_number')
             }
-            current_url = conflict['url']
-            logger.debug(f"[BRIDGE] Prepared resume_info dictionary: {resume_info}")
             
-            # Clear data now that it has been used
-            st.session_state.resume_from_conflict = None
-            logger.debug("[BRIDGE] Cleared resume_from_conflict from session state.")
+            # If it's a custom override, add the custom number
+            if override_info.get('type') == 'custom':
+                resume_info['custom_number'] = override_info.get('number')
+
+            current_url = conflict_data['url']
+            
+            # --- Diagnostic Logging ---
+            logger.info("="*50)
+            logger.info("[BRIDGE LOG] Passing resume_info to core scraper:")
+            logger.info(f"[BRIDGE LOG] Data: {resume_info}")
+            logger.info("="*50)
+            # --- End Diagnostic Logging ---
+            
+            # Clear session state variables now that they have been used
+            st.session_state.resume_payload = None
+            st.session_state.scraping_override = None
+            
         else:
-            logger.error("[BRIDGE] Conflict override was set, but no conflict URL found in session state.")
-            status_callback("Error: Could not find conflict data to resume scraping.")
-            return
-
-        # Clear the override to prevent re-triggering
-        logger.debug("[BRIDGE] Clearing scraping_override from session state.")
-        st.session_state.scraping_override = None
-
+            logger.error("[BRIDGE] Resume payload was found, but it was missing a URL.")
+            if status_callback:
+                status_callback("Error: Could not find conflict data to resume scraping.")
+            return {"status": "error", "message": "Missing conflict URL for resume."}
+    
+    # Call the core scraper
     try:
         result = scrape_novel(
             start_url=current_url,
@@ -62,9 +74,15 @@ def streamlit_scraper(start_url, output_dir, max_chapters, delay_seconds,
             delay_seconds=delay_seconds,
             progress_callback=progress_callback,
             status_callback=status_callback,
-            conflict_handler=conflict_handler, # Still passed for CLI mode
+            conflict_handler=conflict_handler,
             resume_info=resume_info
         )
+        
+        # After the scraper runs, clear any lingering conflict data
+        if st.session_state.get('scraping_conflict_data'):
+            logger.debug("[BRIDGE] Scraper run finished, clearing old conflict data.")
+            st.session_state.scraping_conflict_data = None
+
         return result
     except Exception as e:
         logger.critical(f"💥 Scraping failed with a critical error: {str(e)}")

@@ -163,7 +163,7 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                     break
 
                 logger.debug(f"  [RESUME] Successfully extracted title: '{title}'")
-                _, _, filename_num_temp = adapter.parse_chapter_info(title, soup)
+                _, _, filename_num_temp = adapter.parse_chapter_info(title, soup, resume_info.get('expected_number'))
 
                 if override_decision == 'expected':
                     current_chapter_num = resume_info['expected_number']
@@ -175,6 +175,13 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                     end_chapter_num = current_chapter_num
                     filename_num = filename_num_temp
                     logger.info(f"  [RESUME] Overriding to FOUND chapter number: {current_chapter_num}")
+                    last_known_good_num = current_chapter_num + 1 if direction == "Backwards (newest to oldest)" else current_chapter_num - 1
+                elif override_decision == 'custom':
+                    current_chapter_num = resume_info['custom_number']
+                    end_chapter_num = current_chapter_num
+                    filename_num = f"{current_chapter_num:04d}"
+                    logger.info(f"  [RESUME] Overriding to CUSTOM chapter number: {current_chapter_num}")
+                    # Adjust last_known_good_num as if we found this number
                     last_known_good_num = current_chapter_num + 1 if direction == "Backwards (newest to oldest)" else current_chapter_num - 1
                 
                 logger.debug(f"  [RESUME] Final chapter number: {current_chapter_num}, filename number: {filename_num}")
@@ -300,18 +307,37 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
             logger.error(f"    [PARSE ERROR] Could not extract title from: {current_url}")
             break
             
+        # Calculate expected chapter number for intelligent parsing
+        expected_num = None
+        if last_known_good_num is not None:
+            expected_num = last_known_good_num - 1 if direction == "Backwards (newest to oldest)" else last_known_good_num + 1
+            
         current_chapter_num, end_chapter_num, filename_num = adapter.parse_chapter_info(title, soup)
 
         if current_chapter_num is None:
             logger.error(f"    [PARSE ERROR] Could not read a number from: '{title}'")
             if conflict_handler:
-                resolution = conflict_handler(
-                    url=current_url,
-                    expected_number=None,
-                    found_number=None,
-                    title=title,
-                    is_parse_error=True
-                )
+                # This logic mirrors the sequence_break handler to ensure consistency.
+                # It pauses the scraper and returns control to the UI for resolution.
+                try:
+                    preview = adapter.extract_content(soup)
+                    current_chapter_preview = preview[:300].strip() if preview else "Content extraction returned empty."
+                except Exception as e:
+                    logger.error(f"Failed to extract preview for parse error: {e}")
+                    current_chapter_preview = "Could not extract preview."
+
+                conflict_data = {
+                    'type': 'parse_error',
+                    'url': current_url,
+                    'expected_number': expected_num,
+                    'found_number': None,
+                    'title': title,
+                    'last_chapter_preview': 'N/A', # Not relevant for a simple parse error
+                    'current_chapter_preview': current_chapter_preview
+                }
+                logger.info("    [DEFER] Parse error detected. Returning data to UI for resolution.")
+                return {"status": "conflict", "data": conflict_data}
+
             else:
                 # CLI fallback for parse error
                 while True:
@@ -323,13 +349,15 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                         break
                     elif manual_num.lower() == 's':
                         current_url = adapter.get_next_link(soup, direction)
-                        continue
+                        # We will 'continue' below, so this is fine
+                        break
                     elif manual_num.lower() == 'a':
                         current_url = None
                         break
                 if current_url is None:
                     break
-            if current_chapter_num is None: # If user chose to skip or abort
+            
+            if current_chapter_num is None: # If user chose to skip or abort via CLI
                 continue
 
         # --- Mismatch Detection and Resolution ---

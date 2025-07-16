@@ -233,7 +233,7 @@ class NovelcoolAdapter(BaseAdapter):
         logger.warning(f"[NOVELCOOL] No suitable {direction} navigation link found")
         return None
 
-    def parse_chapter_info(self, title):
+    def parse_chapter_info(self, title, soup=None):
         """
         Overrides the base parser to handle English chapter titles with ranges.
         Examples: 

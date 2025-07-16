@@ -51,11 +51,17 @@ class KanunuAdapter(BaseAdapter):
             logger.debug(f"Normalizing numeral '{numeral}' by adding '零'.")
             return numeral[:2] + '零' + numeral[2:]
         
+        # Fix for missing "一" in tens place - core bug fix
+        # "百十二" -> "百一十二", "千十" -> "千一十"
+        numeral = re.sub(r'([百千])十([一二三四五六七八九])', r'\1一十\2', numeral)
+        # "百十" at end -> "百一十"
+        numeral = re.sub(r'([百千])十$', r'\1一十', numeral)
+        
         # Add other normalization rules here if needed
         
         return numeral # Return original if no rule matches
 
-    def parse_chapter_info(self, title, soup):
+    def parse_chapter_info(self, title, soup=None):
         """Overrides the base parser to handle combined chapters from kanunu8.
         It prioritizes the on-page content text over the H1 or HTML title tag,
         as those are sometimes incorrect.
@@ -63,16 +69,17 @@ class KanunuAdapter(BaseAdapter):
         numeral_part = None
         
         # 1. Prioritize the main content div, as it's the most reliable source.
-        content_div = soup.find('div', id='neirong')
-        if content_div:
-            content_text = content_div.get_text(separator="\n", strip=True)
-            match = re.search(r'第([一二三四五六七八九十百千万零\d~-]+)章', content_text)
-            if match:
-                numeral_part = match.group(1)
-                logger.debug(f"Found chapter numeral '{numeral_part}' in content div.")
+        if soup:
+            content_div = soup.find('div', id='neirong')
+            if content_div:
+                content_text = content_div.get_text(separator="\n", strip=True)
+                match = re.search(r'第([一二三四五六七八九十百千万零\d~-]+)章', content_text)
+                if match:
+                    numeral_part = match.group(1)
+                    logger.debug(f"Found chapter numeral '{numeral_part}' in content div.")
 
         # 2. If not in content, check the H1 tag as a fallback.
-        if not numeral_part:
+        if not numeral_part and soup:
             body_match_h1 = soup.find('h1', string=re.compile(r"第[一二三四五六七八九十百千万零\d~-]+章"))
             if body_match_h1:
                 match = re.search(r'第([一二三四五六七八九十百千万零\d~-]+)章', body_match_h1.text)
@@ -93,19 +100,12 @@ class KanunuAdapter(BaseAdapter):
         range_match = re.match(r'(.+?)[~-](.+)', numeral_part)
 
         def convert_numeral(numeral_str):
-            """Tries standard conversion, then falls back to normalization."""
-            try:
-                # First attempt: standard conversion
-                return int(cn2an.cn2an(numeral_str, "smart"))
-            except (ValueError, TypeError):
-                logger.warning(f"Standard conversion failed for '{numeral_str}'. Trying normalization.")
-                # Second attempt: normalize and convert
-                normalized_numeral = self._normalize_chapter_numeral(numeral_str)
-                if normalized_numeral != numeral_str:
-                    return int(cn2an.cn2an(normalized_numeral, "smart"))
-                else:
-                    # If normalization didn't change anything, re-raise the error
-                    raise
+            """Normalizes numeral first, then converts."""
+            # Always normalize first to fix cn2an bugs
+            normalized_numeral = self._normalize_chapter_numeral(numeral_str)
+            if normalized_numeral != numeral_str:
+                logger.debug(f"Normalized '{numeral_str}' to '{normalized_numeral}'")
+            return int(cn2an.cn2an(normalized_numeral, "smart"))
 
         try:
             if range_match:

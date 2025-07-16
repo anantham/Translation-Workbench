@@ -27,16 +27,18 @@ class BaseAdapter:
         """Gets the URL for the next chapter."""
         raise NotImplementedError
 
-    def parse_chapter_info(self, title):
+    def parse_chapter_info(self, title, soup=None):
         """
         Parses the chapter title to extract numbering information.
 
-        This base implementation handles simple cases with a single chapter number.
-        Adapters for sites with more complex titles (like combined chapters)
-        should override this method.
+        This base implementation handles simple cases with a single chapter number
+        by only using the title. Adapters for sites with more complex titles 
+        (like combined chapters or numbers in the body) should override this 
+        method and can optionally use the 'soup' object for more context.
 
         Args:
             title (str): The chapter title string.
+            soup (BeautifulSoup, optional): The full page soup. Defaults to None.
 
         Returns:
             tuple[int, int, str] | tuple[None, None, None]: A tuple containing:

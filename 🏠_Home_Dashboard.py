@@ -246,29 +246,58 @@ if st.session_state.get('scraping_conflict_data'):
                 st.text_area("Current Chapter Preview", f"{conflict['current_chapter_preview']}...", height=150, disabled=True)
 
         st.subheader("How should the scraper proceed?")
+        
+        # --- Resolution Options ---
         btn_col1, btn_col2, btn_col3 = st.columns(3)
+        
+        # Option 1: Use Expected Number
         with btn_col1:
-            if st.button(f"✅ Use Expected Number ({conflict['expected_number']})", type="primary"):
-                logger.debug(f"[UI] User chose 'expected'. Setting override and rerunning.")
-                st.session_state.scraping_override = 'expected'
-                st.session_state.resume_from_conflict = st.session_state.scraping_conflict_data
+            if st.button(f"✅ Use Expected ({conflict['expected_number']})", type="primary", use_container_width=True):
+                st.session_state.resume_payload = conflict
+                st.session_state.scraping_override = {'type': 'expected'}
                 st.session_state.scraping_conflict_data = None
                 st.session_state.scraping_active = True
                 st.rerun()
+
+        # Option 2: Use Title's Number
         with btn_col2:
-            if st.button(f"⚠️ Use Title's Number ({conflict['found_number']})"):
-                logger.debug(f"[UI] User chose 'title'. Setting override and rerunning.")
-                st.session_state.scraping_override = 'title'
-                st.session_state.resume_from_conflict = st.session_state.scraping_conflict_data
-                st.session_state.scraping_conflict_data = None
-                st.session_state.scraping_active = True
-                st.rerun()
+            if conflict.get('found_number') is not None:
+                if st.button(f"⚠️ Use Title ({conflict['found_number']})", use_container_width=True):
+                    st.session_state.resume_payload = conflict
+                    st.session_state.scraping_override = {'type': 'title'}
+                    st.session_state.scraping_conflict_data = None
+                    st.session_state.scraping_active = True
+                    st.rerun()
+            else:
+                st.button("Use Title (N/A)", disabled=True, use_container_width=True)
+
+        # Option 3: Abort
         with btn_col3:
-            if st.button("🛑 Abort Scraping"):
-                logger.debug("[UI] User chose 'abort'. Clearing conflict and stopping.")
+            if st.button("🛑 Abort Scraping", use_container_width=True):
                 st.session_state.scraping_conflict_data = None
                 st.session_state.scraping_active = False
                 st.warning("Scraping aborted by user.")
+                st.rerun()
+
+        # Option 4: Custom Number Input Form
+        with st.form("custom_number_form"):
+            st.write("**Or, enter a custom chapter number:**")
+            custom_chapter_num = st.number_input(
+                "Custom Chapter #", 
+                min_value=1, 
+                step=1, 
+                value=conflict.get('expected_number'),
+                label_visibility="collapsed"
+            )
+            
+            if st.form_submit_button("➡️ Use Custom Number", use_container_width=True):
+                st.session_state.resume_payload = conflict
+                st.session_state.scraping_override = {
+                    'type': 'custom',
+                    'number': custom_chapter_num
+                }
+                st.session_state.scraping_conflict_data = None
+                st.session_state.scraping_active = True
                 st.rerun()
 
 # --- ACTIVE SCRAPING UI ---
