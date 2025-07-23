@@ -2,7 +2,7 @@
 
 ## 📊 Performance Analytics
 - **Total Time**: {total_time}
-- **API Cost**: ${estimated_cost_usd} ({total_tokens} tokens)
+- **API Cost**: ${estimated_cost_usd} ({total_tokens_used} tokens)
 - **Processing Speed**: {chapters_per_minute} chapters/minute
 - **Average Time per Chapter**: {avg_time_per_chapter}
 - **API Calls Made**: {api_calls_made}

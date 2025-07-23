@@ -2,6 +2,38 @@
 
 A comprehensive framework to scrape, align, and prepare parallel text datasets from web novels for fine-tuning machine translation models. This project provides a full suite of tools, from a resilient, metadata-driven scraper to a sophisticated UI with **binary search alignment detection** and **surgical correction capabilities**.
 
+## 🚀 Quick Start - How to Run
+
+### 1. Setup Environment
+```bash
+cd "/path/to/project"
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 2. Get API Key
+- Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
+- Get your Gemini API key
+- Set environment variable: `export GEMINI_API_KEY="your-key-here"`
+- Or create `config.json` from `config.example.json`
+
+### 3. Launch the Workbench
+```bash
+streamlit run 🏠_Home_Dashboard.py
+```
+
+### 4. Access the Application
+- Open browser to `http://localhost:8501`
+- Use sidebar navigation to access all tools:
+  - **🏠 Home**: Web scraping + system status
+  - **📖 Data Review**: Build alignment maps, chapter curation
+  - **🤖 Fine-tuning**: Model training with Google AI SDK
+  - **🧪 Translation Lab**: Multi-style translation generation  
+  - **📈 Experimentation**: Model comparison and evaluation
+
+That's it! The system creates needed directories automatically.
+
 ## 🎯 What This Framework Does
 
 - **Scrapes** Chinese web novels with resilient, resumable scraping
@@ -282,13 +314,13 @@ python -m streamlit run pages/4_📈_Experimentation_Lab.py
 - **Prompt Engineers**: Share effective translation templates
 - **Researchers**: Validate approaches on new language pairs
 
-## 🚀 Quick Start Guide
+## 📖 Detailed Setup Guide
 
 ### Prerequisites
 
 - **Python 3.8+** (Check with `python --version`)
 - **Git** for cloning the repository
-- **Google AI Studio Account** for Gemini API key ([Get yours here](https://makersuite.google.com/))
+- **Google AI Studio Account** for Gemini API key ([Get yours here](https://aistudio.google.com/app/apikey))
 
 ### Stage 1: Environment Setup ⚙️
 
@@ -353,13 +385,13 @@ This creates `alignment_map.json` mapping Chinese chapters to English chapters.
 
 ### Stage 4: AI-Powered Review & Correction 🧠
 
-**Launch the Master Review Tool:**
+**Launch the Translation Workbench:**
 ```bash
-# CRITICAL: Use python -m to ensure correct environment
-python -m streamlit run master_review_tool.py
+# Main application entry point
+streamlit run 🏠_Home_Dashboard.py
 ```
 
-**Never use:** `streamlit run master_review_tool.py` (may use wrong Python/packages)
+Navigate to the **📖 Data Review & Alignment** page in the sidebar.
 
 #### In the Web UI:
 
@@ -384,10 +416,9 @@ python -m streamlit run master_review_tool.py
 
 ### Stage 5: Translation Workbench 🧪
 
-**Launch the Pluralistic Translation Lab:**
-```bash
-python -m streamlit run "pages/3_🧪_Pluralistic_Translation_Lab.py"
-```
+**Access the Pluralistic Translation Lab:**
+- Launch main application: `streamlit run 🏠_Home_Dashboard.py`
+- Navigate to **🧪 Pluralistic Translation Lab** in the sidebar
 
 #### Advanced Translation Features:
 
@@ -796,10 +827,10 @@ This feature represents the evolution from manual translation evaluation to **AI
 
 ### **Core Application (Multi-Page Streamlit App)**
 ```
-├── 📄 master_review_tool.py          # Entry point / Home page
-├── 📄 utils.py                       # Shared utilities & API functions
+├── 📄 🏠_Home_Dashboard.py            # Main entry point with web scraping + system status
+├── 📂 utils/                         # Shared utilities & API functions (modular architecture)
 ├── 📄 requirements.txt               # All dependencies (Gemini + OpenAI)
-├── 📄 alignment_map.json             # Perfect chapter alignment mapping
+├── 📄 alignment_map.json             # Perfect chapter alignment mapping (legacy location)
 └── 📂 pages/                         # Four-page application architecture
     ├── 1_📖_Data_Review_Alignment.py     # 📖 The Curator's Desk
     ├── 2_🤖_Fine-tuning_Workbench.py     # 🤖 The Factory  
@@ -854,14 +885,14 @@ This feature represents the evolution from manual translation evaluation to **AI
 
 #### **🔬 Research Workflow**
 ```bash
-# Full application suite
-python -m streamlit run master_review_tool.py
+# Main application entry point (all tools in one interface)
+streamlit run 🏠_Home_Dashboard.py
 
-# Individual specialized tools  
-python -m streamlit run pages/1_📖_Data_Review_Alignment.py
-python -m streamlit run pages/2_🤖_Fine-tuning_Workbench.py
-python -m streamlit run pages/3_🧪_Pluralistic_Translation_Lab.py
-python -m streamlit run pages/4_📈_Experimentation_Lab.py
+# Individual pages also work directly (optional)
+streamlit run pages/1_📖_Data_Review_Alignment.py
+streamlit run pages/2_🤖_Fine-tuning_Workbench.py
+streamlit run pages/3_🧪_Pluralistic_Translation_Lab.py
+streamlit run pages/4_📈_Experimentation_Lab.py
 ```
 
 #### **📊 Data Pipeline (Command Line)**
@@ -903,10 +934,10 @@ python scripts/build_and_report.py
 **Solution:**
 ```bash
 # ✅ CORRECT way to launch
-python -m streamlit run master_review_tool.py
+streamlit run 🏠_Home_Dashboard.py
 
-# ❌ WRONG - may use system Python
-streamlit run master_review_tool.py
+# Alternative: More explicit path specification
+python -m streamlit run 🏠_Home_Dashboard.py
 ```
 
 ### ❌ ModuleNotFoundError

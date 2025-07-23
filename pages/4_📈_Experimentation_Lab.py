@@ -1250,7 +1250,8 @@ if selected_source_info:
                     title=epub_title,
                     author=epub_author,
                     translator=epub_translator,
-                    novel_slug=novel_slug
+                    novel_slug=novel_slug,
+                    include_images=True
                 )
                 
                 if success:

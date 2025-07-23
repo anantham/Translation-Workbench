@@ -1031,7 +1031,7 @@ def _calculate_performance_metrics(job_metadata, chapter_count):
     
     if api_usage:
         metrics['estimated_cost_usd'] = f"{api_usage.get('estimated_cost_usd', 0):.4f}"
-        metrics['api_calls_made'] = api_usage.get('total_api_calls', 'Unknown')
+        metrics['api_calls_made'] = api_usage.get('api_calls_made', chapter_count)  # Use chapter_count as fallback
     
     return metrics
 
@@ -1115,6 +1115,22 @@ def _format_metadata_template(template, job_metadata, novel_config, chapter_coun
         'example_strategy': ai_config.get('example_strategy', 'rolling_context_window'),
         'example_count': job_metadata.get('history_count', 0),
         'api_delay': job_metadata.get('api_delay', 'Unknown'),
+        'api_calls_made': api_usage.get('api_calls_made', chapter_count),
+        'model_version': ai_config.get('model_version', job_metadata.get('model_name', 'Unknown')),
+        'system_prompt_hash': ai_config.get('system_prompt_hash', 'Unknown'),
+        
+        # Content metrics
+        'word_count_chinese': 'Not yet measured',
+        'word_count_english': 'Not yet measured',
+        
+        # Quality metrics
+        'bleu_score_avg': 'Not yet measured',
+        'semantic_similarity_avg': 'Not yet measured', 
+        'human_eval_sample': 'Not yet measured',
+        
+        # Cost breakdown
+        'input_cost': api_usage.get('cost_breakdown', {}).get('input_cost', api_usage.get('estimated_cost_usd', 0) * 0.75 if api_usage.get('estimated_cost_usd') else 0),
+        'output_cost': api_usage.get('cost_breakdown', {}).get('output_cost', api_usage.get('estimated_cost_usd', 0) * 0.25 if api_usage.get('estimated_cost_usd') else 0),
         
         # Framework information
         'framework_name': branding.get('framework_name', 'The Lexicon Forge'),
@@ -1125,6 +1141,10 @@ def _format_metadata_template(template, job_metadata, novel_config, chapter_coun
         'feature_requests_url': epub_config.get('feature_requests_url', 'https://github.com/anantham/Translation-Workbench/issues'),
         'github_discussions_url': epub_config.get('github_discussions_url', 'https://t.me/webnovels'),
         'translation_philosophy': epub_config.get('translation_philosophy', 'AI-powered framework for consistent, high-quality translation'),
+        'maintainer_name': epub_config.get('maintainer_name', 'Anantham'),
+        'maintainer_email': epub_config.get('maintainer_email', 'anantham@example.com'),
+        'license_url': epub_config.get('license_url', 'https://www.gnu.org/licenses/gpl-3.0.html'),
+        'project_version': epub_config.get('project_version', 'v2.2.0'),
         
         # Technical details
         'start_timestamp': metrics['start_timestamp'],

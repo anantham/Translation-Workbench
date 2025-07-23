@@ -2116,7 +2116,8 @@ if available_epub_runs and 'selected_run_info' in locals():
                 title=epub_title,
                 author=epub_author,
                 translator=epub_translator,
-                novel_slug=novel_slug
+                novel_slug=novel_slug,
+                include_images=True
             )
             
             if success:
