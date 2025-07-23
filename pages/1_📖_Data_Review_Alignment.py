@@ -1470,7 +1470,7 @@ streamlit run master_review_tool.py
             st.subheader("🤖 AI Translation")
             
             # AI Translation Source Selector - only show sources with current chapter available
-            available_ai_sources = get_available_ai_sources(selected_chapter, selected_novel)
+            available_ai_sources = get_available_ai_sources(selected_chapter, st.session_state.selected_novel)
             selected_ai_source = st.selectbox(
                 "🎯 AI Source:",
                 options=available_ai_sources,
