@@ -180,13 +180,7 @@ from .ui_components import (
     load_inline_comments,
     add_inline_comment,
     generate_existing_comments_html,
-)
-
-# New clean feedback UI (replaces sync_display)
-from .feedback_ui import (
-    render_feedback_reader,
-    save_feedback_to_storage,
-    create_synchronized_text_display,  # Backward compatibility
+    create_synchronized_text_display,
 )
 
 # Miscellaneous utilities (COMPLETED)
@@ -312,9 +306,7 @@ __all__ = [
     # UI components and Streamlit interface (COMPLETED)
     'escape_html', 'apply_comment_highlighting', 'save_inline_comments',
     'load_inline_comments', 'add_inline_comment', 'generate_existing_comments_html',
-    
-    # New feedback UI (replaces sync_display)
-    'render_feedback_reader', 'save_feedback_to_storage', 'create_synchronized_text_display',
+    'create_synchronized_text_display',
     
     # Miscellaneous utilities (COMPLETED)
     'get_text_stats', 'save_alignment_map_safely', 'format_example',
