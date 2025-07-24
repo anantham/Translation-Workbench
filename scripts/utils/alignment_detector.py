@@ -100,7 +100,7 @@ def detect_alignment_pattern(alignment_map, api_key=None, sample_size=10):
         most_common_offset = max(set(offsets), key=offsets.count)
         confidence = offsets.count(most_common_offset) / len(offsets)
         
-        print(f"\n🎯 DETECTED PATTERN:")
+        print("\n🎯 DETECTED PATTERN:")
         print(f"   Most common offset: {most_common_offset:+d}")
         print(f"   Confidence: {confidence:.1%}")
         print(f"   Recommendation: {'Apply systematic correction' if confidence > 0.7 else 'Manual review needed'}")

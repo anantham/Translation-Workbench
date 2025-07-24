@@ -10,8 +10,7 @@ import json
 import re
 import shutil
 from datetime import datetime
-from typing import Dict, Tuple, Optional, List, Set
-from pathlib import Path
+from typing import Dict, Tuple, Optional, List
 
 from .logging import logger
 
@@ -218,10 +217,10 @@ def scan_directory_for_chapters(directory_path: str, file_pattern: Optional[str]
     except PermissionError:
         scan_stats["permission_errors"] += 1
         logger.error(f"[DIRECTORY SCAN] CRITICAL: Permission denied accessing directory: {directory_path}")
-        logger.error(f"[DIRECTORY SCAN] This is a system-level issue. Check directory permissions.")
+        logger.error("[DIRECTORY SCAN] This is a system-level issue. Check directory permissions.")
     except Exception as e:
         logger.error(f"[DIRECTORY SCAN] CRITICAL: Unexpected error scanning directory {directory_path}: {e}")
-        logger.error(f"[DIRECTORY SCAN] This indicates a serious problem. Check directory structure and permissions.")
+        logger.error("[DIRECTORY SCAN] This indicates a serious problem. Check directory structure and permissions.")
     
     # Log final statistics
     logger.info(f"[DIRECTORY SCAN] Scan complete for: {directory_path}")
@@ -243,7 +242,7 @@ def validate_chapter_directories(chinese_dir: str, english_dir: str) -> Dict[str
     Returns:
         Dictionary with validation results and statistics
     """
-    logger.info(f"[DIRECTORY VALIDATION] Starting validation")
+    logger.info("[DIRECTORY VALIDATION] Starting validation")
     logger.info(f"[DIRECTORY VALIDATION] Chinese directory: {chinese_dir}")
     logger.info(f"[DIRECTORY VALIDATION] English directory: {english_dir}")
     
@@ -261,7 +260,7 @@ def validate_chapter_directories(chinese_dir: str, english_dir: str) -> Dict[str
     if not chinese_dir or not chinese_dir.strip():
         validation_result["valid"] = False
         validation_result["errors"].append("Chinese directory path is empty")
-        logger.error(f"[DIRECTORY VALIDATION] FAILURE: Chinese directory path is empty")
+        logger.error("[DIRECTORY VALIDATION] FAILURE: Chinese directory path is empty")
     else:
         chinese_dir = chinese_dir.strip()
         validation_result["chinese_stats"]["exists"] = os.path.exists(chinese_dir)
@@ -309,7 +308,7 @@ def validate_chapter_directories(chinese_dir: str, english_dir: str) -> Dict[str
     if not english_dir or not english_dir.strip():
         validation_result["valid"] = False
         validation_result["errors"].append("English directory path is empty")
-        logger.error(f"[DIRECTORY VALIDATION] FAILURE: English directory path is empty")
+        logger.error("[DIRECTORY VALIDATION] FAILURE: English directory path is empty")
     else:
         english_dir = english_dir.strip()
         validation_result["english_stats"]["exists"] = os.path.exists(english_dir)
@@ -366,7 +365,7 @@ def validate_chapter_directories(chinese_dir: str, english_dir: str) -> Dict[str
         
         if len(overlap) == 0:
             validation_result["warnings"].append("No overlapping chapter numbers found between directories")
-            logger.warning(f"[DIRECTORY VALIDATION] No overlapping chapter numbers found between directories")
+            logger.warning("[DIRECTORY VALIDATION] No overlapping chapter numbers found between directories")
     
     # Log file issues summary
     if validation_result["file_issues"]:
@@ -393,7 +392,7 @@ def preview_alignment_mapping(chinese_dir: str, english_dir: str) -> Dict[str, a
     Returns:
         Dictionary with preview information
     """
-    logger.info(f"[ALIGNMENT PREVIEW] Starting alignment preview")
+    logger.info("[ALIGNMENT PREVIEW] Starting alignment preview")
     logger.info(f"[ALIGNMENT PREVIEW] Chinese directory: {chinese_dir}")
     logger.info(f"[ALIGNMENT PREVIEW] English directory: {english_dir}")
     
@@ -465,7 +464,7 @@ def preview_alignment_mapping(chinese_dir: str, english_dir: str) -> Dict[str, a
         "problematic_files": len(validation.get("file_issues", []))
     }
     
-    logger.info(f"[ALIGNMENT PREVIEW] Preview complete:")
+    logger.info("[ALIGNMENT PREVIEW] Preview complete:")
     logger.info(f"[ALIGNMENT PREVIEW] Total mappings: {stats['total_mappings']}")
     logger.info(f"[ALIGNMENT PREVIEW] Both files: {stats['both_files']}")
     logger.info(f"[ALIGNMENT PREVIEW] Chinese only: {stats['chinese_only']}")
@@ -492,7 +491,7 @@ def build_alignment_map_from_directories(chinese_dir: str, english_dir: str, out
     Returns:
         Tuple of (alignment_map, build_stats)
     """
-    logger.info(f"[ALIGNMENT BUILD] Starting alignment map build")
+    logger.info("[ALIGNMENT BUILD] Starting alignment map build")
     logger.info(f"[ALIGNMENT BUILD] Chinese directory: {chinese_dir}")
     logger.info(f"[ALIGNMENT BUILD] English directory: {english_dir}")
     logger.info(f"[ALIGNMENT BUILD] Output path: {output_path}")
@@ -592,7 +591,7 @@ def build_alignment_map_from_directories(chinese_dir: str, english_dir: str, out
         build_stats["total_mapped"] = len(alignment_map)
         build_stats["success"] = True
         
-        logger.info(f"[ALIGNMENT BUILD] Alignment map built successfully!")
+        logger.info("[ALIGNMENT BUILD] Alignment map built successfully!")
         logger.info(f"[ALIGNMENT BUILD] Total mapped: {build_stats['total_mapped']} chapters")
         logger.info(f"[ALIGNMENT BUILD] Both files: {build_stats['both_files']}")
         logger.info(f"[ALIGNMENT BUILD] Chinese only: {build_stats['chinese_only']}")
@@ -604,7 +603,7 @@ def build_alignment_map_from_directories(chinese_dir: str, english_dir: str, out
     except Exception as e:
         error_msg = f"Critical error building alignment map: {str(e)}"
         logger.error(f"[ALIGNMENT BUILD] CRITICAL ERROR: {error_msg}")
-        logger.error(f"[ALIGNMENT BUILD] This is a serious issue - check directory structure and file permissions")
+        logger.error("[ALIGNMENT BUILD] This is a serious issue - check directory structure and file permissions")
         build_stats["errors"].append(error_msg)
         return {}, build_stats
 
@@ -699,7 +698,7 @@ def build_and_save_alignment_map(chinese_dir: str, english_dir: str, novel_name:
     save_success, save_message = save_alignment_map_with_backup(alignment_map, output_path)
     
     if save_success:
-        success_msg = f"✅ Alignment map built and saved successfully!\n"
+        success_msg = "✅ Alignment map built and saved successfully!\n"
         success_msg += f"📊 Total mapped: {build_stats['total_mapped']} chapters\n"
         success_msg += f"🔍 Both files: {build_stats['both_files']} chapters\n"
         success_msg += f"🇨🇳 Chinese only: {build_stats['chinese_only']} chapters\n"

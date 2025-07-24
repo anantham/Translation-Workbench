@@ -39,7 +39,7 @@ def test_production_epub_creation():
     
     print(f'📂 Source: {source_path}')
     print(f'📖 Output: {output_path}')
-    print(f'🎯 Novel Slug: 永生_kanunu')
+    print('🎯 Novel Slug: 永生_kanunu')
     print()
     
     # Simulate the exact call that the fixed Experimentation Lab now makes

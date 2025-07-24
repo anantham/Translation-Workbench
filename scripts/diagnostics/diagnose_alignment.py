@@ -101,8 +101,8 @@ def main():
     mapped_but_no_chinese = mapped_chapters - all_chinese_chapters
     mapped_but_no_english = mapped_chapters - all_english_chapters
     
-    print(f"\n🎯 Diagnostic Results:")
-    print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("\n🎯 Diagnostic Results:")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
     if chinese_not_mapped:
         print(f"📝 Chinese files NOT in alignment map: {sorted(chinese_not_mapped)}")
@@ -125,7 +125,7 @@ def main():
         print(f"\n❌ Mapped chapters with MISSING English files: {sorted(mapped_but_no_english)}")
     
     # Show alignment for first few chapters
-    print(f"\n📊 Sample Alignment (first 10 mapped chapters):")
+    print("\n📊 Sample Alignment (first 10 mapped chapters):")
     print(f"{'Ch':<3} {'Chinese File':<50} {'English File':<30} {'Status'}")
     print("─" * 90)
     
@@ -149,8 +149,8 @@ def main():
         print(f"{ch:<3} {os.path.basename(chinese_path):<50} {os.path.basename(english_path):<30} {status}")
     
     # Summary and recommendations
-    print(f"\n💡 Recommendations:")
-    print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("\n💡 Recommendations:")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
     total_fixable = len(chinese_not_mapped & all_english_chapters)
     if total_fixable > 0:
@@ -161,9 +161,9 @@ def main():
         print(f"🔧 {total_broken} entries in alignment map need file path corrections")
     
     if chinese_not_mapped:
-        print(f"\n🛠️  Next step: Run alignment repair script to add missing chapters")
+        print("\n🛠️  Next step: Run alignment repair script to add missing chapters")
     
-    print(f"\n📈 Overall Status:")
+    print("\n📈 Overall Status:")
     working_chapters = len(mapped_chapters - mapped_but_no_chinese - mapped_but_no_english)
     print(f"   • Working alignments: {working_chapters}")
     print(f"   • Broken alignments: {total_broken}")

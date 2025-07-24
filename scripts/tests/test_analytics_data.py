@@ -86,7 +86,7 @@ def test_analytics_data():
                         print(f'❌ Missing metrics: {missing}')
                         return False
                     else:
-                        print(f'✅ All required analytics data found!')
+                        print('✅ All required analytics data found!')
                         return True
                         
                 else:

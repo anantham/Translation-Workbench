@@ -36,7 +36,7 @@ def test_template_fix():
     
     print(f'📂 Source: {source_path}')
     print(f'📖 Output: {output_path}')
-    print(f'🎯 Novel Slug: 永生_kanunu')
+    print('🎯 Novel Slug: 永生_kanunu')
     print()
     
     # Create EPUB with the fixed template

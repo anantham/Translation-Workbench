@@ -11,7 +11,6 @@ import json
 import tempfile
 import logging
 from pathlib import Path
-from datetime import datetime
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -204,7 +203,7 @@ def test_directory_validation(functions):
         validation = validate_func(chinese_dir, english_dir)
         
         if validation["valid"]:
-            logger.info(f"  ✅ Directory validation passed")
+            logger.info("  ✅ Directory validation passed")
             logger.info(f"  Chinese chapters: {validation['chinese_stats']['chapter_count']}")
             logger.info(f"  English chapters: {validation['english_stats']['chapter_count']}")
             logger.info(f"  Overlap: {validation['overlap_count']}")
@@ -255,7 +254,7 @@ def test_preview_functionality(functions):
         
         if preview["success"]:
             stats = preview["stats"]
-            logger.info(f"  ✅ Preview successful")
+            logger.info("  ✅ Preview successful")
             logger.info(f"  Total mappings: {stats['total_mappings']}")
             logger.info(f"  Both files: {stats['both_files']}")
             logger.info(f"  Chinese only: {stats['chinese_only']}")
@@ -265,7 +264,7 @@ def test_preview_functionality(functions):
             if stats['both_files'] == 3 and stats['chinese_only'] == 1 and stats['english_only'] == 1:
                 logger.info("  ✅ Preview statistics correct")
             else:
-                logger.error(f"  ❌ Preview statistics unexpected")
+                logger.error("  ❌ Preview statistics unexpected")
                 return False
         else:
             logger.error(f"  ❌ Preview failed: {preview['errors']}")
@@ -377,7 +376,7 @@ def test_real_data(functions):
     try:
         preview = preview_func(str(chinese_dir), str(english_dir))
         if preview["success"]:
-            logger.info(f"✅ Real data preview successful")
+            logger.info("✅ Real data preview successful")
             logger.info(f"Real data stats: {preview['stats']}")
         else:
             logger.error(f"❌ Real data preview failed: {preview['errors']}")

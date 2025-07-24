@@ -22,7 +22,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 # Import configuration and other modules
-from .config import DATA_DIR, EXPORT_DIR, EVALUATIONS_DIR
+from .config import DATA_DIR, EVALUATIONS_DIR
 from .evaluation import load_semantic_model, calculate_similarity
 from .data_management import load_chapter_content
 

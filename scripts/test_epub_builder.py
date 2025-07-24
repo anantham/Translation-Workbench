@@ -14,7 +14,6 @@ import sys
 import json
 import logging
 import zipfile
-import tempfile
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -43,7 +42,7 @@ class EPUBTestSuite:
         self.temp_dir = self.project_root / "data" / "temp" / "test_outputs"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         
-        logger.info(f"📚 EPUB Test Suite initialized")
+        logger.info("📚 EPUB Test Suite initialized")
         logger.info(f"📁 Project root: {self.project_root}")
         logger.info(f"📂 Temp directory: {self.temp_dir}")
     
@@ -228,7 +227,7 @@ class EPUBTestSuite:
             logger.info(f"✅ Correctly handled non-existent directory: {message}")
             return True
         else:
-            logger.error(f"❌ Should have failed for non-existent directory")
+            logger.error("❌ Should have failed for non-existent directory")
             return False
     
     def test_all_phases_integration(self):

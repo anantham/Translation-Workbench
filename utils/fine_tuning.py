@@ -17,7 +17,6 @@ This module handles:
 import os
 import json
 import time
-import random
 from datetime import datetime
 
 # Import data management functions
@@ -27,7 +26,7 @@ from .data_management import load_chapter_content, get_text_statistics
 from .evaluation import load_bert_scores_from_reports
 
 # Import configuration
-from .config import DATA_DIR, MODELS_DIR
+from .config import MODELS_DIR
 
 # AI SDK availability detection
 GOOGLE_AI_AVAILABLE = False

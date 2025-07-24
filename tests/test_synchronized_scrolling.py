@@ -9,7 +9,7 @@ Tests the create_synchronized_text_display function for:
 """
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import sys
 import os
 

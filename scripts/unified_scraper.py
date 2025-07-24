@@ -5,7 +5,6 @@ import json
 import requests
 import argparse
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
 from utils.logging import logger
 from utils.adapter_factory import get_adapter
 from utils.debug_helpers import save_failed_html
@@ -152,14 +151,14 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                 soup = fetch_with_retry(current_url, headers, adapter.get_encoding())
                 if not soup:
                     logger.critical(f"    [FATAL] Could not fetch content for resumed URL {current_url}. Stopping.")
-                    status_callback(f"    [FATAL] Resume failed: Could not fetch content.")
+                    status_callback("    [FATAL] Resume failed: Could not fetch content.")
                     break
 
                 logger.debug("  [RESUME] Successfully fetched content, extracting title.")
                 title = adapter.extract_title(soup)
                 if not title:
                     logger.error(f"    [PARSE ERROR] Could not extract title from resumed URL: {current_url}")
-                    status_callback(f"    [FATAL] Resume failed: Could not parse title.")
+                    status_callback("    [FATAL] Resume failed: Could not parse title.")
                     break
 
                 logger.debug(f"  [RESUME] Successfully extracted title: '{title}'")
@@ -208,7 +207,7 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                         if saved_file:
                             logger.error(f"    [PARSE ERROR] Resume failed HTML saved to: {saved_file}")
                         
-                        status_callback(f"    [FATAL] Resume failed: Could not parse content.")
+                        status_callback("    [FATAL] Resume failed: Could not parse content.")
                         break
                 else:
                     status_callback(f"    [SKIP] File already exists for Chapter {current_chapter_num}.")
@@ -279,13 +278,13 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                     break
                 elif metadata_says_exists and not file_actually_exists:
                     logger.warning(f"    [STALE CACHE] Chapter(s) {ch_key} marked as existing but file is missing.")
-                    logger.info(f"    [FIXING] Updating metadata and re-scraping chapter.")
+                    logger.info("    [FIXING] Updating metadata and re-scraping chapter.")
                     metadata["chapters"][ch_key]["file_exists"] = False
                     save_metadata(metadata, metadata_file)
                     break 
                 elif not metadata_says_exists and file_actually_exists:
                     logger.info(f"    [ORPHANED FILE] File for chapter(s) {ch_key} exists but metadata is not updated.")
-                    logger.info(f"    [FIXING] Updating metadata to reflect existing file.")
+                    logger.info("    [FIXING] Updating metadata to reflect existing file.")
                     metadata["chapters"][ch_key]["file_exists"] = True
                     save_metadata(metadata, metadata_file)
                     current_url = chapter_info.get("previous_url")
@@ -421,7 +420,7 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
                         return {"status": "conflict", "data": conflict_data}
 
                     # Fallback to CLI if no handler
-                    print(f"    [SEQUENCE BREAK] Chapter number mismatch detected!")
+                    print("    [SEQUENCE BREAK] Chapter number mismatch detected!")
                     print(f"    Expected: Chapter {expected_num}")
                     print(f"    Found:    Chapter {current_chapter_num} ('{title}')")
                     print(f"    URL:      {current_url}")

@@ -4,9 +4,7 @@ Pytest configuration and fixtures for alignment map builder tests.
 
 import pytest
 import tempfile
-import shutil
 from pathlib import Path
-import os
 
 @pytest.fixture
 def temp_test_dir():

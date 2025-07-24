@@ -7,17 +7,15 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+import json
 import numpy as np
-import logging
+
 
 # Import our shared utilities
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import *
-
-# Initialize logger
-logger = logging.getLogger('wuxia_workbench')
 
 # Page configuration
 st.set_page_config(
@@ -26,19 +24,69 @@ st.set_page_config(
     layout="wide"
 )
 
-# Process any comment event from the previous run
-if 'last_comment_event' in st.session_state and st.session_state.last_comment_event:
-    selection_event = st.session_state.last_comment_event
-    # Clear the event so it's not processed again
-    st.session_state.last_comment_event = None
-    
-    # Now you can process the event, e.g., save the comment
-    # (This part of the logic seems to be handled further down, which is fine)
-
 st.title("📈 Translation Style Analytics")
 st.caption("**Performance Visualization Dashboard** | Analyze translation quality trends across chapters and compare style effectiveness")
 
+# ==============================================================================
+#                    INLINE COMMENT EVENT BUS PROCESSOR
+# ==============================================================================
+# Process any pending comment events from session state before rendering the rest of the page
 
+if 'last_comment_event' in st.session_state and st.session_state.last_comment_event is not None:
+    print("🎉 EVENT BUS: Detected comment event in session state")
+    event_data_str = st.session_state.last_comment_event
+    
+    # Clear the event immediately to prevent reprocessing
+    st.session_state.last_comment_event = None
+    print("🎉 EVENT BUS: Cleared event from session state")
+    
+    try:
+        event_data = json.loads(event_data_str)
+        print(f"🎉 EVENT BUS: Parsed event data: {event_data.get('type')}")
+        
+        if event_data.get('type') == 'comment_saved':
+            print("🎉 EVENT BUS: Processing comment_saved event")
+            
+            # Extract and clean style name
+            raw_style_name = event_data.get('style_name', 'unknown')
+            processed_style_name = raw_style_name.replace("Custom: ", "") if raw_style_name.startswith("Custom: ") else "official"
+            print(f"🎉 EVENT BUS: Style '{raw_style_name}' -> '{processed_style_name}'")
+            
+            # Prepare comment data
+            comment_data = {
+                'start_offset': event_data['start_char'],
+                'end_offset': event_data['end_char'],
+                'selected_text': event_data['text'],
+                'dimension': event_data['dimension'],
+                'comment': event_data['comment'],
+                'evaluator_name': 'User',
+                'timestamp': event_data['timestamp']
+            }
+            
+            print(f"🎉 EVENT BUS: Saving comment for chapter {event_data['chapter_id']}")
+            
+            # Save the comment
+            from utils import add_inline_comment
+            comment_id = add_inline_comment(
+                processed_style_name,
+                event_data['chapter_id'],
+                comment_data
+            )
+            
+            if comment_id:
+                st.toast(f"💬 Comment saved for Ch. {event_data['chapter_id']}!", icon="✅")
+                print(f"🎉 EVENT BUS: SUCCESS - Comment saved with ID {comment_id}")
+            else:
+                st.toast("❌ Failed to save comment", icon="🔥")
+                print("🎉 EVENT BUS: FAILURE - add_inline_comment returned None")
+                
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"🎉 EVENT BUS: ERROR - Could not process event: {e}")
+        print(f"🎉 EVENT BUS: Raw event data: {event_data_str}")
+
+# ==============================================================================
+#                         END EVENT BUS PROCESSOR
+# ==============================================================================
 
 # Load alignment map with unified system
 try:
@@ -446,43 +494,74 @@ with tab2:
     left_content = get_translation_content(left_style)
     right_content = get_translation_content(right_style)
     
-    # Log content loading status
-    condition_met = left_content and right_content and "not available" not in left_content and "not found" not in right_content
-    logger.debug(f"[EXPERIMENT_LAB] Content check - left: {bool(left_content)}, right: {bool(right_content)}, will_show_display: {condition_met}")
-    
     # Display content with enhanced synchronized scrolling - FULL WIDTH
     if left_content and right_content and "not available" not in left_content and "not found" not in right_content:
         # Calculate dynamic height based on content length
         total_chars = len(left_content) + len(right_content)
         dynamic_height = min(800, max(500, total_chars // 25))
         
-        # Use clean feedback reader (replaces old sync_display)
-        selection_event = render_feedback_reader(
+        # Use enhanced synchronized scrolling with full width and automatic inline commenting
+        selection_event = create_synchronized_text_display(
             left_text=left_content,
             right_text=right_content,
-            left_title=left_style,
-            right_title=right_style,
+            left_title=f"📖 {left_style}",
+            right_title=f"📖 {right_style} (Select text to comment)",
+            height=dynamic_height,
+            enable_comments=True,
             chapter_id=str(selected_chapter),
-            style_name=processed_style_name,
-            height=dynamic_height
+            style_name=right_style.replace("Custom: ", "") if right_style.startswith("Custom: ") else "official",
+            key=f"text_display_{selected_chapter}_{right_style}"
         )
         
-        # Handle feedback from new UI (simple and clean)
-        if isinstance(selection_event, dict) and selection_event:
-            logger.info(f"[EXPERIMENT_LAB] Feedback received: {selection_event}")
-            
-            # Save feedback using new storage system
-            success = save_feedback_to_storage(selection_event, str(selected_chapter), processed_style_name)
-            
-            if success:
-                st.toast(f"💬 Feedback saved for Chapter {selected_chapter}!", icon="✅")
-                logger.info("[EXPERIMENT_LAB] Feedback saved successfully")
-            else:
-                st.toast("❌ Failed to save feedback", icon="🔥") 
-                logger.error("[EXPERIMENT_LAB] Failed to save feedback")
+        # Handle automatic inline commenting
+        print("="*80)
+        print("🔍 EVENT RECEIVED: Inline comment event processing started")
+        print(f"🔍 EVENT TYPE: {type(selection_event)}")
+        print(f"🔍 EVENT DATA: {str(selection_event)[:200]}...")
+        print(f"🔍 CURRENT CHAPTER: {selected_chapter}")
+        print(f"🔍 RIGHT STYLE (raw): '{right_style}'")
+        
+        # Check for session state comment data as alternative
+        import hashlib
+        component_id = f"sync_scroll_{hashlib.md5(f'text_display_{selected_chapter}_{right_style}'.encode()).hexdigest()[:8]}"
+        session_key = f'comment_data_{component_id}'
+        print(f"🔍 CHECKING SESSION STATE: key='{session_key}'")
+        
+        if session_key in st.session_state:
+            print(f"🔍 SESSION STATE FOUND: {st.session_state[session_key]}")
+            try:
+                session_data = json.loads(st.session_state[session_key])
+                print(f"🔍 SESSION DATA PARSED: {session_data}")
+                selection_event = st.session_state[session_key]  # Use session state data
+                # Clear the session state to prevent reprocessing
+                del st.session_state[session_key]
+                print("🔍 SESSION STATE: Cleared after processing")
+            except Exception as e:
+                print(f"❌ SESSION STATE ERROR: {e}")
         else:
-            # Show instructions when no feedback
-            st.info("💡 **How to give feedback:** Select any text in the right panel and click an emoji reaction.")
+            print("🔍 SESSION STATE: No data found")
+        
+        # NEW SIMPLIFIED APPROACH - Check what we actually get from the component
+        print(f"🔍 COMPONENT RETURN TYPE: {type(selection_event)}")
+        print(f"🔍 COMPONENT RETURN VALUE: {str(selection_event)[:100]}...")
+        
+        # Check if we EVER get string data from the component
+        if isinstance(selection_event, str) and selection_event.strip():
+            print("🔍 STRING DATA RECEIVED!")
+            print(f"🔍 STRING CONTENT: {selection_event}")
+        elif selection_event is None:
+            print("🔍 NONE: Component returned None")
+        else:
+            print("🔍 OTHER TYPE: Component returned non-string, non-None value")
+            print(f"🔍 IS DELTAGENERATOR: {type(selection_event).__name__ == 'DeltaGenerator'}")
+            
+        # NEW APPROACH: Use session state as event bus
+        if selection_event and isinstance(selection_event, str):
+            print("🔍 STORING EVENT: Moving event to session state for safe processing")
+            st.session_state['last_comment_event'] = selection_event
+            st.rerun()
+        else:
+            print("🔍 NO STRING EVENT: Component did not return string data")
         
         # Show comparison stats
         col1, col2, col3 = st.columns(3)
@@ -543,8 +622,7 @@ with tab2:
         else:
             st.info("💡 No inline comments yet. Select text in the translation above to add the first comment!")
     else:
-        # Log why text display failed and show fallback
-        logger.warning(f"[EXPERIMENT_LAB] Text display failed - left_empty: {not bool(left_content)}, right_empty: {not bool(right_content)}")
+        # Fallback display for unavailable content
         if "not available" in left_content or "not found" in left_content:
             st.warning(f"⚠️ {left_style}: {left_content}")
         else:

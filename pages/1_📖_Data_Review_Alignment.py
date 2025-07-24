@@ -1,25 +1,17 @@
 import streamlit as st
-import json
 import os
-import requests
-import shutil
 import time
 import re
-from datetime import datetime
 import pandas as pd
 from collections import Counter
-import numpy as np
-import hashlib
 
 # Import shared utilities for modular architecture
 from utils import *
-from utils import get_ai_translation_content  # Explicit import for Streamlit caching
 from utils import SEMANTIC_AVAILABLE, SEMANTIC_ERROR_MESSAGE  # Explicit import for availability checks
 from utils.alignment_map_builder import (
     preview_alignment_mapping, 
     build_and_save_alignment_map,
-    get_alignment_map_path,
-    validate_chapter_directories
+    get_alignment_map_path
 )
 
 # All shared functions now imported from utils.py
@@ -884,7 +876,7 @@ streamlit run master_review_tool.py
                 
                 if correction_confirmed:
                     if st.sidebar.button(
-                        f"✅ Apply Correction", 
+                        "✅ Apply Correction", 
                         use_container_width=True,
                         type="primary"
                     ):
