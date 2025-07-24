@@ -30,3 +30,4 @@ ebooklib
 # For styling and linting
 black
 flake8
+
