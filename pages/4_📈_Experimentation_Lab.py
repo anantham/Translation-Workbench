@@ -15,6 +15,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import *
+from utils.selection_feedback import feedback_widget, save_inline_feedback
 
 # Initialize logger
 logger = logging.getLogger('wuxia_workbench')
@@ -456,23 +457,34 @@ with tab2:
         total_chars = len(left_content) + len(right_content)
         dynamic_height = min(800, max(500, total_chars // 25))
         
-        # Use clean feedback reader (replaces old sync_display)
-        selection_event = render_feedback_reader(
-            left_text=left_content,
-            right_text=right_content,
-            left_title=left_style,
-            right_title=right_style,
-            chapter_id=str(selected_chapter),
-            style_name=processed_style_name,
-            height=dynamic_height
-        )
+        # Define processed style name for feedback storage
+        processed_style_name = right_style.replace("Custom: ", "") if right_style.startswith("Custom: ") else "official"
         
-        # Handle feedback from new UI (simple and clean)
-        if isinstance(selection_event, dict) and selection_event:
-            logger.info(f"[EXPERIMENT_LAB] Feedback received: {selection_event}")
+        # Create two-column layout for comparison
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader(f"📖 {left_style}")
+            st.markdown(f'<div style="height: {dynamic_height}px; overflow-y: auto; padding: 16px; background: #f8f9fa; border-radius: 8px; line-height: 1.6;">{left_content.replace(chr(10), "<br>")}</div>', unsafe_allow_html=True)
+        
+        with col2:
+            st.subheader(f"🤖 {right_style} (Select text to give feedback)")
+            
+            # Convert text to HTML and use feedback widget
+            right_html = right_content.replace('\n', '<br>').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            feedback_payload = feedback_widget(
+                html_text=right_html,
+                chapter_id=str(selected_chapter),
+                style_name=processed_style_name,
+                height=dynamic_height
+            )
+        
+        # Handle feedback from new selection popup
+        if feedback_payload:
+            logger.info(f"[EXPERIMENT_LAB] Feedback received: {feedback_payload}")
             
             # Save feedback using new storage system
-            success = save_feedback_to_storage(selection_event, str(selected_chapter), processed_style_name)
+            success = save_inline_feedback(feedback_payload)
             
             if success:
                 st.toast(f"💬 Feedback saved for Chapter {selected_chapter}!", icon="✅")
@@ -480,9 +492,6 @@ with tab2:
             else:
                 st.toast("❌ Failed to save feedback", icon="🔥") 
                 logger.error("[EXPERIMENT_LAB] Failed to save feedback")
-        else:
-            # Show instructions when no feedback
-            st.info("💡 **How to give feedback:** Select any text in the right panel and click an emoji reaction.")
         
         # Show comparison stats
         col1, col2, col3 = st.columns(3)

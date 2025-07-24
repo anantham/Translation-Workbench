@@ -1,0 +1,8 @@
+.emoji-bar   { background:#fff;border:1px solid #ccc;border-radius:6px;
+               padding:6px 8px;box-shadow:0 2px 6px rgba(0,0,0,.15);
+               display:flex;gap:6px;position:absolute;z-index:1000; }
+.emoji-bar span { cursor:pointer;font-size:20px;line-height:1; }
+.fb-panel    { margin-top:4px;display:flex;flex-direction:column;gap:4px; }
+.fb-panel textarea { width:240px;height:60px; }
+.fb-panel button   { padding:4px 8px;border-radius:4px;border:1px solid #888;
+                     background:#f5f5f5;cursor:pointer; }
