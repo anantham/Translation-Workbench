@@ -16,9 +16,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import *
 from utils.selection_feedback import feedback_widget, save_inline_feedback
-
-# Initialize logger
-logger = logging.getLogger('wuxia_workbench')
+from utils.logging import logger  # Use the properly configured logger
 
 # Page configuration
 st.set_page_config(
@@ -465,7 +463,7 @@ with tab2:
         
         with col1:
             st.subheader(f"📖 {left_style}")
-            st.markdown(f'<div style="height: {dynamic_height}px; overflow-y: auto; padding: 16px; background: #f8f9fa; border-radius: 8px; line-height: 1.6;">{left_content.replace(chr(10), "<br>")}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="height: {dynamic_height}px; overflow-y: auto; padding: 16px; background: #f8f9fa; border-radius: 8px; line-height: 1.6; color: #212529;">{left_content.replace(chr(10), "<br>")}</div>', unsafe_allow_html=True)
         
         with col2:
             st.subheader(f"🤖 {right_style} (Select text to give feedback)")
@@ -481,7 +479,14 @@ with tab2:
         
         # Handle feedback from new selection popup
         if feedback_payload:
-            logger.info(f"[EXPERIMENT_LAB] Feedback received: {feedback_payload}")
+            # Enhanced logging with payload details
+            logger.info(f"[EXPERIMENT_LAB] 🎉 FEEDBACK RECEIVED!")
+            logger.info(f"[EXPERIMENT_LAB] Chapter: {feedback_payload.get('chapter_id')}")
+            logger.info(f"[EXPERIMENT_LAB] Style: {feedback_payload.get('style_name')}")
+            logger.info(f"[EXPERIMENT_LAB] Selected Text: '{feedback_payload.get('text', '')[:100]}...'")
+            logger.info(f"[EXPERIMENT_LAB] Emoji: {feedback_payload.get('emoji', 'None')}")
+            logger.info(f"[EXPERIMENT_LAB] Comment: '{feedback_payload.get('comment', 'None')}'")
+            logger.info(f"[EXPERIMENT_LAB] Full Payload: {feedback_payload}")
             
             # Save feedback using new storage system
             success = save_inline_feedback(feedback_payload)
