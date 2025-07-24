@@ -147,14 +147,14 @@ def buildAlignmentMap(force_rebuild=False, alignment_file="alignment_map.json"):
             alignment_map[ch_key]["english_file"] = new_entry["english_file"]
             updated_count += 1
     
-    print(f"\n📋 ALIGNMENT MAP SUMMARY:")
+    print("\n📋 ALIGNMENT MAP SUMMARY:")
     print(f"   Total mapped chapters: {len(alignment_map)}")
     print(f"   Both files available: {len(overlapping)}")
     print(f"   Chinese only: {len(chinese_nums - english_nums)}")
     print(f"   English only: {len(english_nums - chinese_nums)}")
     
     if not force_rebuild:
-        print(f"\n🔄 UPDATE SUMMARY:")
+        print("\n🔄 UPDATE SUMMARY:")
         print(f"   Preserved existing: {preserved_count}")
         print(f"   Added new: {added_count}")
         print(f"   Updated paths: {updated_count}")
@@ -225,8 +225,8 @@ Examples:
     # Save with backup
     save_alignment_map_with_backup(alignment_map, args.alignment_file)
     
-    print(f"\n🎉 Complete! Ready for systematic alignment analysis.")
-    print(f"💡 Run 'python run_workbench.py' to use the alignment map.")
+    print("\n🎉 Complete! Ready for systematic alignment analysis.")
+    print("💡 Run 'python run_workbench.py' to use the alignment map.")
 
 if __name__ == "__main__":
     main()

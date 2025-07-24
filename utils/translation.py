@@ -14,7 +14,6 @@ This module handles:
 
 import time
 import requests
-import json
 from datetime import datetime
 
 # Import cache functions from our caching module
@@ -47,7 +46,7 @@ except ImportError:
 
 def translate_with_gemini(raw_text: str, api_key: str, use_cache=True, novel_name: str = None):
     """Sends raw text to Gemini for translation with caching support."""
-    logger.info(f"[GEMINI API] Starting translation request")
+    logger.info("[GEMINI API] Starting translation request")
     logger.debug(f"[GEMINI API] Input text length: {len(raw_text)} characters")
     logger.debug(f"[GEMINI API] Cache enabled: {use_cache}")
     logger.debug(f"[GEMINI API] Novel name: {novel_name}")
@@ -56,7 +55,7 @@ def translate_with_gemini(raw_text: str, api_key: str, use_cache=True, novel_nam
     if use_cache:
         cached_translation = get_cached_translation(raw_text, novel_name=novel_name)
         if cached_translation:
-            logger.info(f"[GEMINI API] Cache hit - returning cached translation")
+            logger.info("[GEMINI API] Cache hit - returning cached translation")
             return cached_translation
     
     # Make API call if not cached
@@ -92,12 +91,12 @@ def translate_with_gemini(raw_text: str, api_key: str, use_cache=True, novel_nam
             # Store in cache if successful and caching is enabled
             if use_cache and translation and not translation.startswith("API Request Failed"):
                 store_translation_in_cache(raw_text, translation, novel_name=novel_name)
-                logger.debug(f"[GEMINI API] Translation stored in cache")
+                logger.debug("[GEMINI API] Translation stored in cache")
             
             return translation
         else:
             logger.error(f"[GEMINI API] Unexpected response structure: {response_data}")
-            return f"API Request Failed: Unexpected response structure"
+            return "API Request Failed: Unexpected response structure"
             
     except requests.exceptions.RequestException as e:
         logger.error(f"[GEMINI API] Request failed: {e}")
@@ -116,7 +115,7 @@ def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_pr
     if max_tokens is None:
         max_tokens = get_config_value("max_tokens", 8000)
     
-    logger.info(f"[OPENAI API] Starting translation request")
+    logger.info("[OPENAI API] Starting translation request")
     logger.debug(f"[OPENAI API] Input text length: {len(raw_text)} characters")
     logger.debug(f"[OPENAI API] Model: {model_name}")
     logger.debug(f"[OPENAI API] Max tokens: {max_tokens}")
@@ -125,7 +124,7 @@ def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_pr
     logger.debug(f"[OPENAI API] Cache enabled: {use_cache}")
     
     if not OPENAI_AVAILABLE:
-        logger.error(f"[OPENAI API] OpenAI SDK not available")
+        logger.error("[OPENAI API] OpenAI SDK not available")
         return {
             'translation': '',
             'success': False,
@@ -202,7 +201,7 @@ def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_pr
         logger.debug(f"[OPENAI API] Added current request: {current_request[:100]}..." if len(current_request) > 100 else f"[OPENAI API] Added current request: {current_request}")
         
         # Log complete conversation structure
-        logger.info(f"[OPENAI API] Complete conversation structure:")
+        logger.info("[OPENAI API] Complete conversation structure:")
         for i, msg in enumerate(messages):
             content_preview = msg["content"][:50] + "..." if len(msg["content"]) > 50 else msg["content"]
             logger.info(f"[OPENAI API]   Message {i+1}: {msg['role']} - {content_preview}")
@@ -268,7 +267,7 @@ def translate_with_openai(raw_text, api_key, model_name="gpt-4o-mini", system_pr
                 'output_cost': cost_info.get('output_cost', 0.0)
             })
         else:
-            logger.warning(f"[OPENAI API] No usage data available in response")
+            logger.warning("[OPENAI API] No usage data available in response")
         
         translation = response.choices[0].message.content
         logger.info(f"[OPENAI API] Translation successful - {len(translation)} characters")
@@ -306,7 +305,7 @@ def translate_with_gemini_history(api_key, model_name, system_prompt, history, c
     start_time = time.time()
     timestamp = datetime.now().isoformat()
     
-    logger.info(f"[GEMINI HISTORY] Starting translation with history")
+    logger.info("[GEMINI HISTORY] Starting translation with history")
     logger.debug(f"[GEMINI HISTORY] Model: {model_name}")
     logger.debug(f"[GEMINI HISTORY] System prompt provided: {system_prompt is not None}")
     logger.debug(f"[GEMINI HISTORY] History examples: {len(history) if history else 0}")
@@ -314,7 +313,7 @@ def translate_with_gemini_history(api_key, model_name, system_prompt, history, c
     
     try:
         if not GOOGLE_AI_AVAILABLE:
-            logger.error(f"[GEMINI HISTORY] Google AI SDK not available")
+            logger.error("[GEMINI HISTORY] Google AI SDK not available")
             return {
                 'translation': '',
                 'success': False,
@@ -370,7 +369,7 @@ def translate_with_gemini_history(api_key, model_name, system_prompt, history, c
         logger.debug(f"[GEMINI HISTORY] Final prompt preview: {full_prompt[:200]}..." if len(full_prompt) > 200 else f"[GEMINI HISTORY] Final prompt: {full_prompt}")
         
         # Generate translation
-        logger.info(f"[GEMINI HISTORY] Making API call...")
+        logger.info("[GEMINI HISTORY] Making API call...")
         response = model.generate_content(full_prompt)
         request_time = time.time() - start_time
         
@@ -413,7 +412,7 @@ def translate_with_gemini_history(api_key, model_name, system_prompt, history, c
                 'output_cost': cost_info.get('output_cost', 0.0)
             })
         else:
-            logger.warning(f"[GEMINI HISTORY] No usage metadata available in response")
+            logger.warning("[GEMINI HISTORY] No usage metadata available in response")
         
         if response.text:
             translation = response.text
@@ -426,7 +425,7 @@ def translate_with_gemini_history(api_key, model_name, system_prompt, history, c
                 'usage_metrics': usage_metrics
             }
         else:
-            logger.error(f"[GEMINI HISTORY] No translation text in response")
+            logger.error("[GEMINI HISTORY] No translation text in response")
             return {
                 'translation': '',
                 'success': False,

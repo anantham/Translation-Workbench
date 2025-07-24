@@ -3,9 +3,6 @@
 Test script to demonstrate improved build_and_report.py with command line arguments
 """
 
-import subprocess
-import sys
-import os
 
 def demo_improved_script():
     print("🎯 **Improved build_and_report.py with Command Line Arguments**")

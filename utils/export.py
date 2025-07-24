@@ -19,7 +19,7 @@ import random
 from datetime import datetime
 
 # Import configuration
-from .config import DATA_DIR, EXPORT_DIR
+from .config import EXPORT_DIR
 
 
 def export_training_data_to_jsonl(training_data, output_path):
@@ -200,7 +200,7 @@ def prepare_training_data_for_api(training_examples, train_split=0.8, max_output
             all_chunks.append(formatted_chunk)
             total_chunks += 1
     
-    print(f"📊 Chunking Summary:")
+    print("📊 Chunking Summary:")
     print(f"   • {total_chapters} chapters processed")
     print(f"   • {over_limit_count} chapters required chunking")
     print(f"   • {total_chunks} total training examples created")

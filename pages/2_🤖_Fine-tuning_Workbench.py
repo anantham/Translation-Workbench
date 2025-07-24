@@ -6,7 +6,6 @@ Complete MLOps interface for training custom translation models
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime
 import time
 import json
@@ -14,7 +13,6 @@ import os
 
 # Import our shared utilities  
 import sys
-import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import *
 from utils import GOOGLE_AI_AVAILABLE  # Explicit import for availability check
@@ -445,7 +443,7 @@ with tab1:
                                 )
                             
                             # Show export summary
-                            st.success(f"✅ **Export Complete!**")
+                            st.success("✅ **Export Complete!**")
                             
                             col_stats1, col_stats2, col_stats3 = st.columns(3)
                             with col_stats1:

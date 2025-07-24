@@ -13,7 +13,6 @@ This module handles:
 """
 
 import os
-from datetime import datetime
 
 # Import data management functions
 from .data_management import load_chapter_content
@@ -222,7 +221,7 @@ def get_available_openai_models(api_key):
                 
                 return translation_models, None
                 
-            except Exception as deepseek_error:
+            except Exception:
                 # Both APIs failed, return the original OpenAI error
                 return [], str(openai_error)
     

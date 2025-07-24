@@ -568,7 +568,7 @@ def _create_branded_title_page(title, author, translator, novel_metadata, novel_
     if novel_images.get('cover'):
         cover_data = novel_images['cover']
         # Note: This assumes the cover image has already been added to the book
-        cover_image_html = f'''
+        cover_image_html = '''
         <div class="title-cover">
             <img src="images/cover.png" alt="Cover" class="cover-image" />
         </div>
@@ -577,7 +577,7 @@ def _create_branded_title_page(title, author, translator, novel_metadata, novel_
     # Get framework branding image if available
     framework_logo_html = ""
     if novel_images.get('common_branding', {}).get('cover'):
-        framework_logo_html = f'''
+        framework_logo_html = '''
         <div class="framework-logo">
             <img src="images/framework_logo.png" alt="The Lexicon Forge" class="logo-image" />
         </div>
@@ -1875,7 +1875,7 @@ def build_epub(
                 html_content = _convert_text_to_html(content)
                 
                 # Add framework header and footer elements
-                framework_header = f"""
+                framework_header = """
                 <div class="framework-header">
                     <div class="framework-branding-small">
                         <span class="framework-name-small">The Lexicon Forge</span>

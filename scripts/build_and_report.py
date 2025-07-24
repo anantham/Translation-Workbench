@@ -9,10 +9,8 @@ import json
 import requests
 import hashlib
 import time
-import re
 import pandas as pd
 from datetime import datetime, timedelta
-from collections import Counter
 from functools import wraps
 import random
 
@@ -35,7 +33,6 @@ try:
     print("✅ Semantic similarity enabled (BERT)")
 except ImportError:
     print("📝 Using syntactic similarity (install sentence-transformers for semantic)")
-    from difflib import SequenceMatcher
 
 # Chinese text processing
 JIEBA_AVAILABLE = False
@@ -111,7 +108,7 @@ def smart_chapter_selection(chapters_to_process):
         print(f"   └─ ✅ No overlap found - all {len(chapters_to_process)} chapters need processing")
         return chapters_to_process, False
     
-    print(f"\n📋 Resume Analysis:")
+    print("\n📋 Resume Analysis:")
     print(f"   └─ 🎯 Requested: {len(requested_chapters)} chapters")
     print(f"   └─ ✅ Completed: {len(overlap)} chapters")
     print(f"   └─ 🔄 Remaining: {len(remaining)} chapters")
@@ -121,10 +118,10 @@ def smart_chapter_selection(chapters_to_process):
         return [], True  # Nothing to process
     
     # Ask user what to do
-    print(f"\n📝 Options:")
+    print("\n📝 Options:")
     print(f"   (a) Append: Process only {len(remaining)} remaining chapters")
     print(f"   (f) Full: Reprocess all {len(requested_chapters)} chapters")
-    print(f"   (q) Quit: Exit without processing")
+    print("   (q) Quit: Exit without processing")
     
     while True:
         choice = input("\n🤔 Choose option (a/f/q): ").strip().lower()
@@ -313,7 +310,7 @@ def retry_with_backoff(retries=5, backoff_in_seconds=2):
                         return f"API Request Failed: Max retries exceeded - {e}"
                 except Exception as e:
                     return f"API Request Failed: {e}"
-            return f"API Request Failed: Max retries exceeded"
+            return "API Request Failed: Max retries exceeded"
         return wrapper
     return decorator
 
@@ -336,7 +333,7 @@ def translate_with_gemini(raw_text: str, api_key: str, use_cache=True):
     prompt = f"Provide a high-quality, literal English translation of this Chinese web novel chapter. Keep paragraph breaks:\n\n{raw_text}"
     data = {"contents": [{"parts": [{"text": prompt}]}]}
     
-    print(f"   └─ 🌐 Calling Gemini API...")
+    print("   └─ 🌐 Calling Gemini API...")
     print(f"   └─ 🤖 Model: {model_name}")
     print(f"   └─ 📄 Prompt length: {len(prompt)} chars")
     
@@ -353,9 +350,9 @@ def translate_with_gemini(raw_text: str, api_key: str, use_cache=True):
             if response.status_code == 404:
                 print(f"   └─ 💡 Model '{model_name}' not found. Check if model name is correct.")
             elif response.status_code == 400:
-                print(f"   └─ 💡 Bad request. Check API key format and request structure.")
+                print("   └─ 💡 Bad request. Check API key format and request structure.")
             elif response.status_code == 403:
-                print(f"   └─ 💡 Permission denied. Check API key permissions and billing.")
+                print("   └─ 💡 Permission denied. Check API key permissions and billing.")
         
         response.raise_for_status()
         
@@ -670,7 +667,7 @@ def create_csv_report(processed_chapters, output_path):
     
     # Print summary statistics
     print(f"✅ CSV Report created: {len(df)} chapters")
-    print(f"📊 Summary Statistics:")
+    print("📊 Summary Statistics:")
     print(f"   Average similarity score: {df['BERT_Similarity'].mean():.3f}")
     print(f"   Average Eng/Raw ratio: {df['Eng_Raw_Ratio'].mean():.2f}")
     print(f"   Chapters with high similarity (>0.7): {len(df[df['BERT_Similarity'] > 0.7])}")
@@ -680,7 +677,7 @@ def create_csv_report(processed_chapters, output_path):
 
 def create_jsonl_training_files(processed_chapters, train_output_path, val_output_path, train_split=0.8, max_chars=30000):
     """Create JSONL training and validation files for ML model fine-tuning."""
-    print(f"\n📚 Creating JSONL training files...")
+    print("\n📚 Creating JSONL training files...")
     
     # Filter chapters with good alignment and within character limits
     valid_chapters = []
@@ -919,7 +916,7 @@ def main():
     train_count, val_count = create_jsonl_training_files(processed_chapters, train_output, val_output)
     
     # Final summary
-    print(f"\n🎉 Dataset Building Complete!")
+    print("\n🎉 Dataset Building Complete!")
     print(f"📁 Output Directory: {EXPORT_DIR}")
     print(f"📊 CSV Report: {os.path.basename(csv_output)} ({len(df)} chapters)")
     print(f"🤖 Training Data: {os.path.basename(train_output)} ({train_count} examples)")
@@ -929,12 +926,12 @@ def main():
     print(f"🎯 Similarity Method: {similarity_method}")
     
     # Show next steps
-    print(f"\n💡 Next Steps:")
-    print(f"1. Review the CSV report for data quality insights")
-    print(f"2. Use the JSONL files to fine-tune a translation model")
-    print(f"3. Consider filtering low-similarity chapters for higher quality training")
+    print("\n💡 Next Steps:")
+    print("1. Review the CSV report for data quality insights")
+    print("2. Use the JSONL files to fine-tune a translation model")
+    print("3. Consider filtering low-similarity chapters for higher quality training")
     
-    print(f"\n🚀 Ready for machine learning model training!")
+    print("\n🚀 Ready for machine learning model training!")
 
 if __name__ == "__main__":
     main()

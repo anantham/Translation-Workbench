@@ -18,7 +18,7 @@ def log_html_structure(soup, url, adapter_name="unknown"):
     
     # Check for common anti-bot indicators
     if soup.find(string=re.compile(r"checking your browser|cloudflare|please wait", re.IGNORECASE)):
-        logger.warning(f"[DEBUG] Possible anti-bot protection detected")
+        logger.warning("[DEBUG] Possible anti-bot protection detected")
     
     # Log all div elements with classes (common content containers)
     divs_with_classes = soup.find_all('div', class_=True)

@@ -3,18 +3,14 @@ import json
 import os
 import time
 from datetime import datetime
-import google.generativeai as genai
 from ebooklib import epub
-import zipfile
 
 # Import shared utilities
 from utils import (
-    load_alignment_map,
     load_chapter_content,
     get_text_stats,
     DATA_DIR,
     GOOGLE_AI_AVAILABLE,
-    OPENAI_AVAILABLE,
     load_api_config,
     load_openai_api_config,
     get_config_value,
@@ -27,9 +23,7 @@ from utils import (
     get_all_available_prompts,
     save_custom_prompt,
     delete_custom_prompt,
-    load_custom_prompts,
-    calculate_openai_cost,
-    calculate_gemini_cost
+    load_custom_prompts
 )
 
 # --- Helper Functions ---
@@ -615,7 +609,7 @@ def create_gallery_sections(book, novel_images, nav_css):
     
     # 2. Chapter Illustrations Gallery
     if novel_images.get('chapter_illustrations'):
-        chapter_illustrations_html = f'''
+        chapter_illustrations_html = '''
         <div style="font-family: Times, serif; line-height: 1.6; margin: 2em;">
             <h1>📖 Chapter Illustrations</h1>
             <p>Visual highlights from key moments in the story.</p>
@@ -651,7 +645,7 @@ def create_gallery_sections(book, novel_images, nav_css):
         character_items = {k: v for k, v in appendix_items.items() if 'character' in k}
         
         if character_items:
-            character_html = f'''
+            character_html = '''
             <div style="font-family: Times, serif; line-height: 1.6; margin: 2em;">
                 <h1>👥 Character References</h1>
                 <p>Visual guides to the characters and their relationships.</p>
@@ -679,7 +673,7 @@ def create_gallery_sections(book, novel_images, nav_css):
             gallery_chapters.append(character_chapter)
     
     # 4. World Building Gallery
-    world_html = f'''
+    world_html = '''
     <div style="font-family: Times, serif; line-height: 1.6; margin: 2em;">
         <h1>🌍 World Building</h1>
         <p>Maps, diagrams, and reference materials for the novel's world.</p>
@@ -687,7 +681,7 @@ def create_gallery_sections(book, novel_images, nav_css):
     
     # Add framework branding section
     if novel_images.get('common_branding'):
-        world_html += f'''
+        world_html += '''
         <h2>🏭 Translation Framework</h2>
         <p>The tools and process behind this translation.</p>
         '''
@@ -708,7 +702,7 @@ def create_gallery_sections(book, novel_images, nav_css):
         world_items = {k: v for k, v in appendix_items.items() if 'character' not in k}
         
         if world_items:
-            world_html += f'''
+            world_html += '''
             <h2>🗺️ Novel World</h2>
             <p>The setting and systems of the story.</p>
             '''
@@ -846,7 +840,7 @@ def create_epub_from_translations(translation_dir, output_path, book_title, auth
         branding_config = {}
         
         if novel_slug:
-            from utils import load_novel_config, get_config_value
+            from utils import load_novel_config
             full_config = load_novel_config(novel_slug)
             novel_config = full_config.get('novel', {})
             branding_config = full_config.get('branding', {})
@@ -1211,9 +1205,9 @@ with st.sidebar.expander("📚 Novel Selection", expanded=True):
                 # Show novel configuration status
                 selected_novel_info = next(n for n in available_novels if n['slug'] == selected_novel_slug)
                 if selected_novel_info['has_config']:
-                    st.success(f"✅ Configuration loaded")
+                    st.success("✅ Configuration loaded")
                 else:
-                    st.warning(f"⚠️ No novel config found")
+                    st.warning("⚠️ No novel config found")
         else:
             st.info("No novels configured yet")
             st.session_state['selected_novel_slug'] = 'way_of_the_devil'  # Default fallback
@@ -1357,7 +1351,7 @@ with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
                     st.caption(f"Created: {created_date}")
                 
                 with col3:
-                    if st.button(f"🗑️ Delete", key=f"delete_{prompt_name}"):
+                    if st.button("🗑️ Delete", key=f"delete_{prompt_name}"):
                         if delete_custom_prompt(prompt_name):
                             st.success(f"✅ Deleted '{prompt_name}'")
                             st.rerun()
@@ -1747,9 +1741,9 @@ if st.session_state.get("run_job", False):
     chapters_to_process = params["chapters_to_translate"]
     if params["processing_order"] == "reverse":
         chapters_to_process = list(reversed(chapters_to_process))
-        log_messages.append(f"⏳ **Processing Order**: Reverse (temporal consistency mode)")
+        log_messages.append("⏳ **Processing Order**: Reverse (temporal consistency mode)")
     else:
-        log_messages.append(f"⏳ **Processing Order**: Forward (standard mode)")
+        log_messages.append("⏳ **Processing Order**: Forward (standard mode)")
     
     for i, chapter_num_str in enumerate(chapters_to_process):
         chapter_num = int(chapter_num_str)
@@ -1976,7 +1970,7 @@ if st.session_state.get("run_job", False):
             avg_time = performance.get('avg_time_per_chapter', 'Unknown')
             st.metric("⏰ Time/Chapter", avg_time)
             
-    except Exception as e:
+    except Exception:
         # Fallback to simple metrics if metadata unavailable
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -2121,7 +2115,7 @@ if available_epub_runs and 'selected_run_info' in locals():
             )
             
             if success:
-                st.success(f"✅ **EPUB Created Successfully!**")
+                st.success("✅ **EPUB Created Successfully!**")
                 st.info(f"📁 **Location:** `{epub_output_path}`")
                 
                 # Provide download button

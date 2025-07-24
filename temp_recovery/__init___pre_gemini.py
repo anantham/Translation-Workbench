@@ -45,9 +45,6 @@ from .config import (
     get_novel_official_english_dir,
     NOVELS_DIR,
     SHARED_DIR,
-    load_novel_config,
-    load_novel_images_config,
-    get_available_novels,
 )
 
 # Cost tracking (COMPLETED)
@@ -213,11 +210,6 @@ from .alignment_map_builder import (
     validate_chapter_directories,
     get_alignment_map_path,
     save_alignment_map_with_backup,
-    # New unified alignment map management functions
-    list_alignment_maps,
-    get_alignment_map_for_slug,
-    load_alignment_map_by_slug,
-    parse_chapter_ranges,
 )
 # ----------------------------------------------------------
 

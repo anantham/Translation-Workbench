@@ -7,7 +7,6 @@ Designed to be run by the user to validate the alignment map builder implementat
 
 import os
 import sys
-import json
 import subprocess
 from datetime import datetime
 from pathlib import Path

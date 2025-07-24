@@ -6,10 +6,7 @@ Compare fine-tuned models vs in-context learning with base models and analyze tr
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime
-import json
-import random
 import numpy as np
 import logging
 
@@ -479,10 +476,10 @@ with tab2:
             
             if success:
                 st.toast(f"💬 Feedback saved for Chapter {selected_chapter}!", icon="✅")
-                logger.info(f"[EXPERIMENT_LAB] Feedback saved successfully")
+                logger.info("[EXPERIMENT_LAB] Feedback saved successfully")
             else:
                 st.toast("❌ Failed to save feedback", icon="🔥") 
-                logger.error(f"[EXPERIMENT_LAB] Failed to save feedback")
+                logger.error("[EXPERIMENT_LAB] Failed to save feedback")
         else:
             # Show instructions when no feedback
             st.info("💡 **How to give feedback:** Select any text in the right panel and click an emoji reaction.")
@@ -511,7 +508,7 @@ with tab2:
         from utils import load_inline_comments
         style_name_clean = right_style.replace("Custom: ", "") if right_style.startswith("Custom: ") else "official"
         
-        print(f"🔍 DISPLAY COMMENTS: Loading comments for display")
+        print("🔍 DISPLAY COMMENTS: Loading comments for display")
         print(f"   ├─ Original style: '{right_style}'")
         print(f"   ├─ Cleaned style: '{style_name_clean}'")
         print(f"   └─ Chapter: {selected_chapter}")
@@ -845,8 +842,6 @@ st.header("📖 Standalone EPUB Creator")
 st.caption("Create EPUB books from any folder containing chapter files - custom translations, merged styles, raw chapters, or any text content")
 
 # Import necessary functions
-from ebooklib import epub
-import zipfile
 
 def detect_novel_slug_from_alignment_maps():
     """Detect novel slug from available alignment maps."""
@@ -1147,7 +1142,7 @@ if selected_source_info:
             else:
                 novel_slug = detect_novel_slug_from_alignment_maps()
                 st.caption(f"🔄 Auto-detected: {novel_slug}")
-        except Exception as e:
+        except Exception:
             novel_slug = detect_novel_slug_from_alignment_maps()
             st.caption(f"⚠️ Error loading novels, using: {novel_slug}")
     
@@ -1178,7 +1173,7 @@ if selected_source_info:
                 )
                 
                 if success:
-                    st.success(f"✅ **EPUB Created Successfully!**")
+                    st.success("✅ **EPUB Created Successfully!**")
                     st.info(f"📁 **Location:** `{epub_output_path}`")
                     
                     # Provide download button

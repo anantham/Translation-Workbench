@@ -34,13 +34,13 @@ class NovelcoolAdapter(BaseAdapter):
         
         if content_div:
             # LOG THE ACTUAL HTML CONTENT
-            logger.debug(f"[NOVELCOOL] RAW HTML - content_div full HTML:")
+            logger.debug("[NOVELCOOL] RAW HTML - content_div full HTML:")
             logger.debug(f"[NOVELCOOL] RAW HTML - {str(content_div)}")
             logger.debug(f"[NOVELCOOL] RAW HTML - Length: {len(str(content_div))} characters")
             
             # Also log just the text content without HTML tags
             raw_text = content_div.get_text()
-            logger.debug(f"[NOVELCOOL] RAW TEXT - Direct text extraction:")
+            logger.debug("[NOVELCOOL] RAW TEXT - Direct text extraction:")
             logger.debug(f"[NOVELCOOL] RAW TEXT - {raw_text[:500]}...")
             logger.debug(f"[NOVELCOOL] RAW TEXT - Length: {len(raw_text)} characters")
             # Test each hypothesis systematically
@@ -61,7 +61,7 @@ class NovelcoolAdapter(BaseAdapter):
             for p in copied_div.select('p'):
                 if not p.get_text(strip=True):
                     p.decompose()
-            logger.debug(f"[NOVELCOOL] Cleanup complete")
+            logger.debug("[NOVELCOOL] Cleanup complete")
                 
             # Extract text content
             content = copied_div.get_text(separator='\n', strip=True)
@@ -70,7 +70,7 @@ class NovelcoolAdapter(BaseAdapter):
             
             # Improved validation based on analysis
             if len(content) >= 500 and not content.lstrip().startswith(('<<', 'Next>>')):
-                logger.debug(f"[NOVELCOOL] Content validation passed")
+                logger.debug("[NOVELCOOL] Content validation passed")
                 return content
             else:
                 logger.warning(f"[NOVELCOOL] Content validation failed - length: {len(content)}, starts with: {content[:50]}")
@@ -150,7 +150,7 @@ class NovelcoolAdapter(BaseAdapter):
         # If content starts with navigation, it's probably not clean
         first_100_chars = content[:100].lower()
         if any(indicator in first_100_chars for indicator in nav_indicators):
-            logger.debug(f"[NOVELCOOL] Content validation failed: navigation artifacts in first 100 chars")
+            logger.debug("[NOVELCOOL] Content validation failed: navigation artifacts in first 100 chars")
             return False
             
         # Content should have some substance (multiple sentences)

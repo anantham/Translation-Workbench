@@ -6,11 +6,9 @@ Main entry point for the multi-page Streamlit application
 
 import streamlit as st
 import os
-import time
 from utils.config import load_api_config, show_config_status
 from utils.logging import logger
 from utils.web_scraping import validate_scraping_url, streamlit_scraper
-from utils.alignment_map_builder import get_alignment_map_path
 from utils.translation import translate_with_gemini
 
 # Page configuration

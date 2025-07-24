@@ -188,7 +188,7 @@ def load_inline_comments(style_name, chapter_id):
             print(f"🔍 LOAD ERROR: Failed to load comments: {e}")
             return []
     else:
-        print(f"🔍 LOAD RESULT: No comments file found, returning empty list")
+        print("🔍 LOAD RESULT: No comments file found, returning empty list")
         return []
 
 

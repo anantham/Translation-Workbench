@@ -90,7 +90,7 @@ def main():
         print("💡 Run build_and_report.py first to generate reports")
         return
     
-    print(f"📂 Found files:")
+    print("📂 Found files:")
     print(f"   • {len(csv_files)} CSV reports")
     print(f"   • {len(train_files)} training JSONL files")
     print(f"   • {len(val_files)} validation JSONL files")
@@ -106,7 +106,7 @@ def main():
         merged_df = merge_csv_reports(csv_files, merged_csv)
         
         # Show summary statistics
-        print(f"\\n📊 **Merged Dataset Summary:**")
+        print("\\n📊 **Merged Dataset Summary:**")
         print(f"   • Average BERT similarity: {merged_df['BERT_Similarity'].mean():.3f}")
         print(f"   • High quality chapters (similarity > 0.7): {len(merged_df[merged_df['BERT_Similarity'] > 0.7])}")
         print(f"   • Average English/Raw ratio: {merged_df['Eng_Raw_Ratio'].mean():.2f}")
@@ -119,8 +119,8 @@ def main():
     if val_files:
         val_count = merge_jsonl_files(val_files, merged_val)
     
-    print(f"\\n🎉 **Merge Complete!**")
-    print(f"📁 Output files:")
+    print("\\n🎉 **Merge Complete!**")
+    print("📁 Output files:")
     if csv_files:
         print(f"   • {os.path.basename(merged_csv)}")
     if train_files:
@@ -128,10 +128,10 @@ def main():
     if val_files:
         print(f"   • {os.path.basename(merged_val)} ({val_count} examples)")
     
-    print(f"\\n💡 **Next Steps:**")
-    print(f"   1. Review the merged CSV for data quality")
-    print(f"   2. Use merged JSONL files for model training")
-    print(f"   3. Consider removing individual report files to save space")
+    print("\\n💡 **Next Steps:**")
+    print("   1. Review the merged CSV for data quality")
+    print("   2. Use merged JSONL files for model training")
+    print("   3. Consider removing individual report files to save space")
 
 def show_current_files():
     """Show what files currently exist."""

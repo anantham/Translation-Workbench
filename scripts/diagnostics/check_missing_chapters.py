@@ -7,7 +7,6 @@ This script will identify which specific chapters are missing from 1-1634.
 import os
 import re
 import sys
-from pathlib import Path
 
 def extract_chapter_numbers(directory_path):
     """Extract all chapter numbers from filenames in the directory."""

@@ -15,7 +15,6 @@ This module handles:
 
 import os
 import json
-import hashlib
 from difflib import SequenceMatcher
 
 # Import caching functions from our caching module

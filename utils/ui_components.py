@@ -18,7 +18,6 @@ This module handles:
 import os
 import json
 from datetime import datetime
-from pathlib import Path
 
 # Import configuration
 from .config import EVALUATIONS_DIR
@@ -95,7 +94,7 @@ def save_inline_comments(style_name, chapter_id, comments):
         with open(comments_file, 'w', encoding='utf-8') as f:
             json.dump(comments, f, indent=2, ensure_ascii=False)
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 def load_inline_comments(style_name, chapter_id):
