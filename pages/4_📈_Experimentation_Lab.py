@@ -15,7 +15,8 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import *
-from utils.selection_feedback import feedback_widget, save_inline_feedback
+from utils.synchronized_display import synchronized_display_with_feedback
+from utils.selection_feedback import save_inline_feedback
 from utils.logging import logger  # Use the properly configured logger
 
 # Page configuration
@@ -84,7 +85,9 @@ except Exception as e:
 st.sidebar.header("📊 Graph Visualization")
 
 # Get available translation styles
+logger.debug("[EXPERIMENT_LAB] Calling get_available_translation_styles() for sidebar visualization")
 available_styles = get_available_translation_styles()
+logger.debug(f"[EXPERIMENT_LAB] Sidebar: Got {len(available_styles)} translation styles")
 
 if not available_styles:
     st.sidebar.error("❌ No translation styles found")
@@ -129,7 +132,9 @@ with tab1:
     st.caption("Comprehensive quality assessment of custom translation styles")
     
     # Get available translation styles
+    logger.debug("[EXPERIMENT_LAB] Calling get_available_translation_styles() for Tab1 leaderboard")
     available_styles = get_available_translation_styles()
+    logger.debug(f"[EXPERIMENT_LAB] Tab1: Got {len(available_styles)} translation styles")
     
     if not available_styles:
         st.info("🎨 No custom translation styles found. Generate translations in the Pluralistic Translation Lab first.")
@@ -306,7 +311,9 @@ with tab2:
     st.caption("**Interactive Translation Review** | Select text and add dimension-specific comments with seamless sidebar workflow")
     
     # Get available translation styles
+    logger.debug("[EXPERIMENT_LAB] Calling get_available_translation_styles() for Tab2 human eval")
     available_styles = get_available_translation_styles()
+    logger.debug(f"[EXPERIMENT_LAB] Tab2: Got {len(available_styles)} translation styles")
     
     if not available_styles:
         st.info("🎨 No custom translation styles found. Generate translations in the Pluralistic Translation Lab first.")
@@ -445,9 +452,17 @@ with tab2:
     left_content = get_translation_content(left_style)
     right_content = get_translation_content(right_style)
     
-    # Log content loading status
+    # Enhanced content validation debugging
+    logger.debug(f"[EXPERIMENT_LAB] Content validation details:")
+    logger.debug(f"  ├─ left_content length: {len(left_content) if left_content else 0}")
+    logger.debug(f"  ├─ right_content length: {len(right_content) if right_content else 0}")
+    logger.debug(f"  ├─ 'not available' in left: {'not available' in left_content if left_content else 'N/A'}")
+    logger.debug(f"  ├─ 'not available' in right: {'not available' in right_content if right_content else 'N/A'}")
+    logger.debug(f"  ├─ 'not found' in left: {'not found' in left_content if left_content else 'N/A'}")
+    logger.debug(f"  └─ 'not found' in right: {'not found' in right_content if right_content else 'N/A'}")
+    
     condition_met = left_content and right_content and "not available" not in left_content and "not found" not in right_content
-    logger.debug(f"[EXPERIMENT_LAB] Content check - left: {bool(left_content)}, right: {bool(right_content)}, will_show_display: {condition_met}")
+    logger.debug(f"[EXPERIMENT_LAB] Final display condition result: {condition_met}")
     
     # Display content with enhanced synchronized scrolling - FULL WIDTH
     if left_content and right_content and "not available" not in left_content and "not found" not in right_content:
@@ -458,24 +473,16 @@ with tab2:
         # Define processed style name for feedback storage
         processed_style_name = right_style.replace("Custom: ", "") if right_style.startswith("Custom: ") else "official"
         
-        # Create two-column layout for comparison
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader(f"📖 {left_style}")
-            st.markdown(f'<div style="height: {dynamic_height}px; overflow-y: auto; padding: 16px; background: #f8f9fa; border-radius: 8px; line-height: 1.6; color: #212529;">{left_content.replace(chr(10), "<br>")}</div>', unsafe_allow_html=True)
-        
-        with col2:
-            st.subheader(f"🤖 {right_style} (Select text to give feedback)")
-            
-            # Convert text to HTML and use feedback widget
-            right_html = right_content.replace('\n', '<br>').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            feedback_payload = feedback_widget(
-                html_text=right_html,
-                chapter_id=str(selected_chapter),
-                style_name=processed_style_name,
-                height=dynamic_height
-            )
+        # Use synchronized display with feedback
+        feedback_payload = synchronized_display_with_feedback(
+            left_content=left_content,
+            right_content=right_content,
+            left_title=f"📖 {left_style}",
+            right_title=f"🤖 {right_style} (Select text to give feedback)",
+            chapter_id=str(selected_chapter),
+            style_name=processed_style_name,
+            height=dynamic_height
+        )
         
         # Handle feedback from new selection popup
         if feedback_payload:

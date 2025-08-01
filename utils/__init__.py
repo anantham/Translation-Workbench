@@ -188,6 +188,11 @@ from .selection_feedback import (
     save_inline_feedback,
 )
 
+# Synchronized display with feedback
+from .synchronized_display import (
+    synchronized_display_with_feedback,
+)
+
 # Miscellaneous utilities (COMPLETED)
 from .miscellaneous import (
     get_text_stats,
@@ -314,6 +319,9 @@ __all__ = [
     
     # New selection-popup feedback UI
     'feedback_widget', 'save_inline_feedback',
+    
+    # Synchronized display with feedback
+    'synchronized_display_with_feedback',
     
     # Miscellaneous utilities (COMPLETED)
     'get_text_stats', 'save_alignment_map_safely', 'format_example',
