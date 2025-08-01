@@ -64,3 +64,20 @@ scripts/archive/
 # Log files
 *.log
 logs/
+
+# Documentation and planning files (project-specific, not code)
+*CLEANUP_PLAN.md
+possibleBugs.md
+prd.md
+userTests.md
+vision.md
+
+# Raw novel data (large files, not part of application)
+novel_raws/
+
+# Third-party components (Streamlit components repo)
+my_sync_display/
+
+# Node.js dependencies for Streamlit components
+utils/sync_display/frontend/node_modules/
+**/node_modules/

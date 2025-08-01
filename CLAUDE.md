@@ -2,17 +2,20 @@
 
 ## Project: Way of the Devil Translation System
 
-### CURRENT STATUS (2025-06-20)
-**MAJOR PROGRESS ACHIEVED:**
-- ✅ Raw data scraping working perfectly (dxmwx.org)
-- ✅ English EPUB processing complete (772 chapters extracted)
-- ✅ Reconnaissance and framework validation complete
-- ✅ Complete MLOps Translation Workbench implemented
-- ✅ Multi-page Streamlit application with modular architecture
-- ✅ Dataset alignment and curation tools perfected
-- ✅ Fine-tuning workbench with Google AI SDK integration
-- ✅ Experimentation lab with model comparison and evaluation
-- 🔄 **CURRENT TASK**: Debug build_and_report.py and expand to Pluralistic Translation Workbench
+### CURRENT STATUS (2025-08-01)
+**FULLY IMPLEMENTED AND FUNCTIONAL:**
+- ✅ **Complete 4-page Streamlit application** with professional UI (`🏠_Home_Dashboard.py`)
+- ✅ **Comprehensive data curation system** with alignment map builder (`utils/alignment_map_builder.py`)
+- ✅ **Multi-platform web scraping** with conflict resolution and site adapters
+- ✅ **Translation experimentation lab** with multi-model comparison (Gemini, OpenAI, DeepSeek)
+- ✅ **Human evaluation system** with 4-dimension scoring and inline commenting
+- ✅ **EPUB generation system** with professional branding and metadata (9 EPUBs created)
+- ✅ **Comprehensive caching** and cost tracking across all operations
+- ✅ **Synchronized text display** with feedback collection and conflict resolution
+- ✅ **Central data management** in organized `data/` structure with 20+ translation runs
+
+**ENTRY POINT:** `streamlit run 🏠_Home_Dashboard.py`
+**STATUS:** Fully functional translation research platform exceeding original MLOps scope
 
 ### Project Overview
 Goal: Create aligned Chinese-English parallel text dataset for "Way of the Devil" web novel
@@ -22,53 +25,34 @@ Goal: Create aligned Chinese-English parallel text dataset for "Way of the Devil
 
 ### Environment Setup
 ```bash
-cd "/Users/adityaprasad/Library/CloudStorage/OneDrive-IndianInstituteofScience/Documents/Ongoing/Project 1 Wuxia"
+cd "/Users/aditya/Library/CloudStorage/OneDrive-IndianInstituteofScience/Documents/Ongoing/Project 1 - Wuxia"
 source venv/bin/activate
 ```
 
-### Completed Components
-1. **main_scraper.py** - Working static scraper for dxmwx.org
-2. **process_epub.py** - Successfully extracted 772 English chapters
-3. **recon_scraper.py** - Reconnaissance tool (validated both sites)
+### Current Application Architecture
+1. **🏠_Home_Dashboard.py** - Main entry point with web scraping and system status
+2. **pages/1_📖_Data_Review_Alignment.py** - Data curation and alignment tools
+3. **pages/2_🤖_Fine-tuning_Workbench.py** - Model training pipeline
+4. **pages/3_🧪_Pluralistic_Translation_Lab.py** - Translation generation and experimentation
+5. **pages/4_📈_Experimentation_Lab.py** - Quality evaluation and human scoring
+6. **utils/** - 34 modular utility files with comprehensive API functions
 
 ### Current Data Status
-- **novel_content_dxmwx/**: 5 Chinese chapters (proof of concept)
-- **english_chapters/**: 772 English chapters (English-Chapter-0001.txt to English-Chapter-0772.txt)
+**Multi-Novel Support:**
+- **data/novels/way_of_the_devil/** - Complete Way of the Devil corpus (772 English + Chinese chapters)
+- **data/novels/eternal_novelcool/** - Eternal Life from NovelCool (73+ Chinese chapters)
+- **data/novels/永生_kanunu/** - Eternal Life from Kanunu source
 
-### IMMEDIATE NEXT STEPS
-1. **Scale Chinese scraping**: Modify main_scraper.py to get 772+ chapters
-2. **Chapter alignment**: Verify Chinese Ch.1 = English Ch.1, etc.
-3. **Manual spot-checking**: Claude can read Chinese to verify alignment quality
+**Rich Content Assets:**
+- **data/images/common/** - 8 shared illustrations and brand assets
+- **data/images/eternal_life/** - 12 story-specific illustrations and covers
+- **data/images/way_of_the_devil/** - Novel-specific visual assets
 
-Our first task is reconnaissance. The script below, recon_scraper.py, is designed to probe a target URL and gather as much information as possible. It does not perform full scraping.
-File: recon_scraper.py
-Purpose: Given a URL, this script performs two types of analysis:
-Static Analysis: Makes a simple HTTP GET request to fetch the raw HTML, headers, and status code. This tells us what a basic bot sees.
-Dynamic Analysis: Uses a headless browser (Selenium) to load the page, execute JavaScript, and then capture the rendered HTML and a screenshot. This tells us what a user's browser sees.
-The output will be saved into a directory named after the website's domain, allowing us to compare results for different novels.
-
-
-Analyze Output: After running, a new directory (e.g., output_www_example-novel-site_com) will contain:
-static_analysis.html: Raw HTML from the server.
-static_headers.json: Server response headers.
-dynamic_analysis.html: HTML after JavaScript rendering.
-dynamic_screenshot.png: A visual snapshot of the page as seen by the browser.
-Report Back: Please provide me with a summary of the findings or the contents of these files so I can analyze the site's behavior and design the appropriate scraper.
-6. Testing Instructions
-We will use pytest for testing.
-Tests will reside in a /tests directory.
-We will use saved HTML files (from the recon script) as test fixtures to avoid hitting the network during tests. This ensures our tests are fast and deterministic.
-7. Project-Specific Notes & Warnings
-Ethical Scraping: Always introduce delays (time.sleep()) in any looping scraper to avoid overwhelming the server. We will use a respectful User-Agent.
-Failure Modes: We are actively tracking failure modes. Key ones to look for are:
-IP Blocks: The server starts refusing connections after several requests.
-Cloudflare/JS Challenges: The static HTML contains "Please wait..." or "Checking your browser..." while the dynamic HTML shows the real content.
-Paywalls/Login Walls: The content is explicitly hidden behind a login form. The screenshot will be very useful for identifying this.
-API Character Limit: Remember the downstream goal is to feed data into an LLM with a ~40,000 character limit per example. We will need to keep this in mind during the final data processing stage.
-Action Item for You: The Reconnaissance Script
-Here is the code for recon_scraper.py. Please save it, set up your environment, and run it on the two initial URLs:
-https://wtr-lab.com/en/serie-5467/extreme-demon?tab=toc
-https://www.dxmwx.org/read/43713_33325507.html
+**Translation Infrastructure:**
+- **data/custom_translations/** - 20+ completed translation runs with different AI models
+- **data/epub_exports/** - 13 professionally formatted EPUB books with illustrations
+- **data/alignments/** - Central alignment maps for multiple novels with backup system
+- **data/cache/** - Performance optimization with BERT scores and AI translation caching
 
 
 ## DEBUGGING METHODOLOGY - EVIDENCE-DRIVEN DIAGNOSIS
@@ -469,43 +453,16 @@ def test_central_storage_path_generation():
 
 ## PLURALISTIC TRANSLATION WORKBENCH - FUTURE ROADMAP
 
-### Current Implementation: MLOps Research Platform
-**What We Built (Dec 2024):**
+### Successfully Implemented: Research-Grade Translation Platform
+**What We Actually Built (2025):**
 - 📖 **Data Review & Alignment**: Chapter-by-chapter curation with binary search misalignment detection
-- 🤖 **Fine-tuning Workbench**: Complete model training pipeline with Google AI SDK
-- 🧪 **Experimentation Lab**: Statistical model comparison and evaluation with BLEU/semantic scores
-- 🔧 **Modular Architecture**: utils.py shared functions, multi-page Streamlit app
-
-### Target Vision: Pluralistic Translation Workbench
-**What We Want to Build:**
-
-#### 🎨 **Prompt Engineering Suite** (New Page 4)
-**Philosophy**: "There isn't one correct translation" - optimize for different purposes
-- **Prompt Library**: Save/manage translation styles
-  - "Literal": High accuracy, retain structure
-  - "Dynamic": Modern Western audience, dramatic flow  
-  - "Simplified": Young adult reading level
-  - "Poetic": Emphasis on literary beauty
-- **A/B Testing Interface**: Compare prompts on same chapter
-- **Style Analytics**: Which prompts work best for different content types
-
-#### 📊 **Enhanced Multi-Metric Dashboard** 
-**Current**: BLEU + Semantic Similarity
-**Target**: Complete evaluation suite
-- **BLEU Score**: N-gram overlap, sentence structure
-- **ROUGE Score**: Recall of key phrases  
-- **BERT Semantic**: Meaning preservation (existing)
-- **Readability Scores**: Flesch-Kincaid, SMOG
-- **Style Consistency**: Terminology, tone analysis
-- **Cultural Adaptation**: Idiom handling, localization quality
-
-#### 📖 **EPUB Creator & Export Engine** (New Page 5)
-**The "Productization" Step**
-- **Translation Source Selection**: Choose style (Official, AI-Literal, AI-Dynamic, etc.)
-- **Batch EPUB Generation**: Full novel in chosen translation style
-- **Multi-Version Exports**: Generate multiple EPUB versions simultaneously
-- **Quality Validation**: Pre-export consistency checking
-- **Metadata Management**: Author, translator credits, version tracking
+- 🤖 **Fine-tuning Workbench**: Complete model training pipeline with Google AI SDK  
+- 🧪 **Translation Lab**: Multi-style translation generation with Gemini/OpenAI/DeepSeek
+- 📈 **Experimentation Lab**: Advanced evaluation with BERT/BLEU scores + 4-dimension human evaluation
+- 🖼️ **Rich EPUB Creation**: Professional formatting with illustrations and metadata (13 EPUBs created)
+- 🔧 **Modular Architecture**: 34 utils modules, multi-platform API integration
+- 🌐 **Multi-Novel Support**: Way of the Devil, Eternal Life (NovelCool + Kanunu sources)
+- 📊 **Comprehensive Caching**: BERT scores, AI translations, performance optimization
 
 #### 🔀 **Unified Workflow Architecture**
 ```
@@ -617,3 +574,45 @@ Stage 6: EPUB Export (NEW)
 - Framework suitable for publication
 - Novel approach to translation style optimization
 - Contribution to pluralistic translation research
+
+## FUTURE DIRECTIONS
+
+The following features are conceptualized but not yet implemented:
+
+### 🎨 **Prompt Engineering Suite** (Potential Page 5)
+- **Prompt Library**: Systematic saving/management of translation styles
+- **A/B Testing Interface**: Compare prompts on same chapter systematically
+- **Style Analytics**: Quantitative analysis of which prompts work for different content types
+
+### 📊 **Enhanced Multi-Metric Dashboard**
+**Current**: BERT similarity + 4-dimension human evaluation
+**Potential Additions**:
+- **ROUGE Score**: Recall of key phrases evaluation
+- **Readability Scores**: Flesch-Kincaid, SMOG analysis
+- **Style Consistency**: Terminology and tone analysis across chapters
+- **Cultural Adaptation**: Idiom handling and localization quality metrics
+
+### 🔧 **Technical Enhancements**
+- **Performance Optimization**: Parallel processing, advanced caching strategies
+- **Dynamic Chapter Detection**: Auto-detect available chapters from target websites
+- **Advanced Error Handling**: More robust fallbacks for API failures and missing data
+
+### 👥 **Collaboration Features**
+- **Multi-User Support**: Team collaboration features
+- **Authentication & Permissions**: Role-based access control
+- **Analytics Dashboard**: Usage tracking and quality trend analysis
+
+### ☁️ **Scale & Deployment**
+- **Cloud Deployment**: Scale beyond local machine limitations
+- **API Endpoints**: RESTful API for integration with other systems
+- **Batch Processing**: Large-scale translation job management
+
+### 🧪 **Advanced Research Features**
+- **Human-in-the-Loop Editing**: Post-AI translation refinement workflows
+- **Cultural Adaptation Tools**: Sophisticated idiom and localization handling
+- **Cross-Language Support**: Extension beyond Chinese-English translation pairs
+
+### 🐛 **Known Issues to Address**
+- **build_and_report.py**: Needs debugging for dataset export functionality
+- **Dependencies**: Ensure all new requirements are properly specified
+- **Test Coverage**: Comprehensive testing infrastructure (mentioned in Phases 4-5)
