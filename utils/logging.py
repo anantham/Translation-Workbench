@@ -13,14 +13,15 @@ except ImportError:
 def setup_logger():
     """Sets up a logger that writes to both console and a file with rotation."""
     if CUSTOM_LOGGING:
-        # Use the enhanced logging system
-        return logger
+        # Use the enhanced logging system from logging_config
+        from .logging_config import logger as custom_logger
+        return custom_logger
     
     # Fallback to basic logging
-    logger = logging.getLogger('wuxia_workbench')
-    logger.setLevel(logging.DEBUG)
+    fallback_logger = logging.getLogger('wuxia_workbench')
+    fallback_logger.setLevel(logging.DEBUG)
     
-    if not logger.handlers:
+    if not fallback_logger.handlers:
         # Create logs directory if it doesn't exist
         os.makedirs('logs', exist_ok=True)
         
@@ -44,10 +45,10 @@ def setup_logger():
         file_handler.setFormatter(formatter)
         console_handler.setFormatter(formatter)
         
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
+        fallback_logger.addHandler(file_handler)
+        fallback_logger.addHandler(console_handler)
         
-    return logger
+    return fallback_logger
 
 logger = setup_logger()
 

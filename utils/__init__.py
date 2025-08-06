@@ -34,8 +34,11 @@ from .config import (
     show_config_status,
     load_openai_api_config,
     load_deepseek_api_config,
+    load_ollama_config,
     show_openai_config_status,
     show_deepseek_config_status,
+    show_ollama_config_status,
+    check_ollama_server_status,
     get_novel_dir,
     get_novel_alignment_map,
     get_novel_cache_dir,
@@ -55,6 +58,7 @@ from .cost_tracking import (
     load_pricing_config,
     calculate_openai_cost,
     calculate_gemini_cost,
+    calculate_ollama_cost,
 )
 
 # Caching system (COMPLETED)
@@ -89,6 +93,7 @@ from .translation import (
     translate_with_gemini,
     translate_with_openai,
     translate_with_deepseek,
+    translate_with_ollama,
     translate_with_gemini_history,
 )
 
@@ -114,6 +119,7 @@ from .ai_source_management import (
     get_ai_translation_content,
     get_static_gemini_models,
     get_available_openai_models,
+    get_available_ollama_models,
     get_available_models_for_translation,
     validate_model_availability,
     get_model_recommendations,
@@ -188,6 +194,13 @@ from .selection_feedback import (
     save_inline_feedback,
 )
 
+# Performance tracking system (COMPLETED)
+from .performance_tracker import (
+    get_performance_tracker,
+    record_translation_performance,
+    get_optimal_timeout,
+)
+
 # Synchronized display with feedback
 from .synchronized_display import (
     synchronized_display_with_feedback,
@@ -256,14 +269,14 @@ __description__ = "Modular utilities for pluralistic translation research"
 __all__ = [
     # Configuration and setup (COMPLETED)
     'load_api_config', 'get_config_value', 'load_epub_metadata_config',
-    'show_config_status', 'load_openai_api_config', 'load_deepseek_api_config',
-    'show_openai_config_status', 'show_deepseek_config_status',
+    'show_config_status', 'load_openai_api_config', 'load_deepseek_api_config', 'load_ollama_config',
+    'show_openai_config_status', 'show_deepseek_config_status', 'show_ollama_config_status', 'check_ollama_server_status',
     'get_novel_dir', 'get_novel_alignment_map', 'get_novel_cache_dir',
     'get_novel_exports_dir', 'get_novel_ai_translations_dir', 'get_novel_raw_chapters_dir',
     'get_novel_official_english_dir', 'NOVELS_DIR', 'SHARED_DIR',
     
     # Cost tracking (COMPLETED)
-    'load_pricing_config', 'calculate_openai_cost', 'calculate_gemini_cost',
+    'load_pricing_config', 'calculate_openai_cost', 'calculate_gemini_cost', 'calculate_ollama_cost',
     
     # Caching system (COMPLETED)
     'generate_text_hash', 'load_similarity_cache', 'save_similarity_cache',
@@ -279,7 +292,7 @@ __all__ = [
     
     # Core translation functions (COMPLETED)
     'generate_translation_unified', 'translate_with_gemini', 
-    'translate_with_openai', 'translate_with_deepseek', 'translate_with_gemini_history',
+    'translate_with_openai', 'translate_with_deepseek', 'translate_with_ollama', 'translate_with_gemini_history',
     
     # Evaluation and quality assessment (COMPLETED)
     'load_semantic_model', 'calculate_similarity', 'calculate_syntactic_similarity_fallback',
@@ -289,7 +302,7 @@ __all__ = [
     
     # AI source and model management (COMPLETED)
     'get_available_ai_sources', 'get_ai_translation_content', 'get_static_gemini_models',
-    'get_available_openai_models', 'get_available_models_for_translation', 'validate_model_availability',
+    'get_available_openai_models', 'get_available_ollama_models', 'get_available_models_for_translation', 'validate_model_availability',
     'get_model_recommendations', 'detect_model_platform', 'get_model_info',
     
     # Custom prompt management (COMPLETED)
@@ -319,6 +332,9 @@ __all__ = [
     
     # New selection-popup feedback UI
     'feedback_widget', 'save_inline_feedback',
+    
+    # Performance tracking system
+    'get_performance_tracker', 'record_translation_performance', 'get_optimal_timeout',
     
     # Synchronized display with feedback
     'synchronized_display_with_feedback',

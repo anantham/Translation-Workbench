@@ -229,11 +229,68 @@ def get_available_openai_models(api_key):
         return [], str(e)
 
 
+def get_available_ollama_models():
+    """Get list of available Ollama models from local server.
+    
+    Returns:
+        tuple: (model_list, error_message)
+    """
+    try:
+        import requests
+        from .config import load_ollama_config
+        
+        base_url, _ = load_ollama_config()
+        response = requests.get(f"{base_url}/api/tags", timeout=5)
+        
+        if response.status_code == 200:
+            models_data = response.json()
+            models = models_data.get('models', [])
+            
+            # Extract model names and sort by size (smaller models first for better UI)
+            model_list = []
+            for model in models:
+                model_name = model.get('name', 'unknown')
+                size_bytes = model.get('size', 0)
+                size_gb = size_bytes / (1024**3) if size_bytes > 0 else 0
+                
+                # Create a display name with size info
+                if size_gb > 0:
+                    display_name = f"{model_name} ({size_gb:.1f}GB)"
+                else:
+                    display_name = model_name
+                
+                model_list.append({
+                    'name': model_name,
+                    'display_name': display_name,
+                    'size_bytes': size_bytes,
+                    'size_gb': size_gb,
+                    'details': model.get('details', {})
+                })
+            
+            # Sort by size (smaller first) then by name
+            model_list.sort(key=lambda x: (x['size_gb'], x['name']))
+            
+            # Return just the names for compatibility
+            return [model['name'] for model in model_list], None
+            
+        else:
+            return [], f"Ollama server returned status {response.status_code}"
+            
+    except ImportError:
+        return [], "Requests library not available"
+    except requests.exceptions.ConnectionError:
+        return [], "Ollama server not running (connection failed)"
+    except requests.exceptions.Timeout:
+        return [], "Ollama server timeout"
+    except Exception as e:
+        return [], str(e)
+
+
 def get_available_models_for_translation(platform=None, api_key=None):
     """Get available models for translation based on platform.
     
     Args:
-        platform: Target platform ("Gemini", "OpenAI", or None for all)
+        platform: Target platform ("Gemini", "OpenAI", "Ollama", or None for all)
         api_key: API key for dynamic model discovery
     
     Returns:
@@ -264,6 +321,13 @@ def get_available_models_for_translation(platform=None, api_key=None):
                 "gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo",
                 "deepseek-chat", "deepseek-reasoner"
             ]
+    
+    if platform is None or platform == "Ollama":
+        # Add Ollama models if server is running
+        ollama_models, error = get_available_ollama_models()
+        if not error and ollama_models:
+            all_models["Ollama"] = ollama_models
+        # Note: Don't add empty list if server is not running - this allows UI to hide the option
     
     return all_models
 
@@ -333,7 +397,7 @@ def detect_model_platform(model_name):
         model_name: Name of the model
     
     Returns:
-        str: Platform name ("Gemini", "OpenAI", "DeepSeek", "Unknown")
+        str: Platform name ("Gemini", "OpenAI", "DeepSeek", "Ollama", "Unknown")
     """
     model_name_lower = model_name.lower()
     
@@ -349,6 +413,20 @@ def detect_model_platform(model_name):
             return "OpenAI"
         elif "gemini" in model_name_lower:
             return "Gemini"
+    else:
+        # Check if it's a known Ollama model pattern
+        ollama_patterns = [
+            "llama", "phi", "qwq", "gemma", "olmo", "gpt-oss", 
+            "mistral", "codellama", "vicuna", "alpaca", "wizardcoder",
+            "solar", "neural-chat", "yi", "mixtral", "dolphin"
+        ]
+        for pattern in ollama_patterns:
+            if pattern in model_name_lower:
+                return "Ollama"
+        
+        # If none match but contains common Ollama suffixes, likely Ollama
+        if ":" in model_name and any(suffix in model_name_lower for suffix in [":latest", ":instruct", ":chat", "b:", "m:"]):
+            return "Ollama"
     
     return "Unknown"
 

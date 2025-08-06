@@ -6,7 +6,7 @@ Main entry point for the multi-page Streamlit application
 
 import streamlit as st
 import os
-from utils.config import load_api_config, show_config_status
+from utils.config import load_api_config, show_config_status, show_ollama_config_status, show_openai_config_status, show_deepseek_config_status
 from utils.logging import logger
 from utils.web_scraping import validate_scraping_url, streamlit_scraper
 from utils.translation import translate_with_gemini
@@ -61,14 +61,40 @@ with col1:
 with col2:
     st.header("⚙️ System Status")
     
-    # API Configuration Status
+    # Multi-Provider API Configuration Status
+    st.subheader("🔑 API Configuration")
+    
+    # Gemini status
     api_key, api_source = load_api_config()
     config_status = show_config_status()
-    
     if api_key:
-        st.success(f"🔑 **API Configuration**: {config_status}")
+        st.success(f"Gemini: {config_status}")
     else:
-        st.warning("🔑 **API Configuration**: Not configured")
+        st.warning("Gemini: Not configured")
+    
+    # OpenAI status  
+    openai_status = show_openai_config_status()
+    if "✅" in openai_status:
+        st.success(openai_status)
+    else:
+        st.warning(openai_status)
+    
+    # DeepSeek status
+    deepseek_status = show_deepseek_config_status()
+    if "✅" in deepseek_status:
+        st.success(deepseek_status)
+    else:
+        st.warning(deepseek_status)
+    
+    # Ollama status
+    ollama_status = show_ollama_config_status()
+    if "✅" in ollama_status:
+        st.success(ollama_status)
+    else:
+        st.info(ollama_status)
+    
+    # Show setup instructions if any API is not configured
+    if not api_key:
         with st.expander("🔧 API Setup Instructions"):
             st.markdown("""
             **Setup Instructions:**

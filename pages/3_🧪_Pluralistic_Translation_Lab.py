@@ -19,6 +19,8 @@ from utils import (
     calculate_average_quality_metrics,
     get_static_gemini_models,
     get_available_openai_models,
+    get_available_ollama_models,
+    check_ollama_server_status,
     generate_translation_unified,
     get_all_available_prompts,
     save_custom_prompt,
@@ -57,17 +59,21 @@ def get_model_abbreviation(platform, model_name):
     """Generate short model abbreviation for run naming.
     
     Args:
-        platform: "Gemini" or "OpenAI"
+        platform: "Gemini", "OpenAI", or "Ollama"
         model_name: Full model name
     
     Returns:
-        str: Short abbreviation like "gem15p", "oai_gpt4o", "oai_BlJU60q", "deepseek_chat"
+        str: Short abbreviation like "gem15p", "oai_gpt4o", "llama32", "phi4"
     """
     if platform == "Gemini":
         if "gemini-1.5-pro" in model_name:
             return "gem15p"
         elif "gemini-1.5-flash" in model_name:
             return "gem15f"
+        elif "gemini-2.0-flash" in model_name:
+            return "gem20f"
+        elif "gemini-2.5" in model_name:
+            return "gem25p"
         else:
             # Generic gemini abbreviation
             return "gemini"
@@ -105,6 +111,40 @@ def get_model_abbreviation(platform, model_name):
         else:
             # Generic OpenAI abbreviation
             return "oai"
+    
+    elif platform == "Ollama":
+        # Ollama model abbreviations
+        model_lower = model_name.lower()
+        if "llama3.2" in model_lower:
+            return "llama32"
+        elif "llama" in model_lower:
+            return "llama"
+        elif "phi4" in model_lower:
+            return "phi4"
+        elif "phi" in model_lower:
+            return "phi"
+        elif "gemma3:27b" in model_lower:
+            return "gemma27b"
+        elif "gemma3:12b" in model_lower:
+            return "gemma12b"
+        elif "gemma" in model_lower:
+            return "gemma"
+        elif "qwq" in model_lower:
+            return "qwq"
+        elif "deepseek-r1" in model_lower:
+            return "dsr1"
+        elif "gpt-oss" in model_lower:
+            return "gptoss"
+        elif "olmo" in model_lower:
+            return "olmo"
+        elif "mistral" in model_lower:
+            return "mistral"
+        elif "codellama" in model_lower:
+            return "cllama"
+        else:
+            # Generic abbreviation - take first part before colon and truncate
+            base_name = model_name.split(":")[0].replace("-", "").replace("_", "")[:8]
+            return f"ol_{base_name}"
     
     # Fallback
     return platform.lower()[:3]
@@ -1220,11 +1260,26 @@ with st.sidebar.expander("📚 Novel Selection", expanded=True):
 api_key, api_source = load_api_config()
 
 with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
-    # Platform selection
+    # Check Ollama server status
+    ollama_available, ollama_status = check_ollama_server_status()
+    
+    # Platform selection - dynamically include Ollama if available
     platform_options = ["Gemini", "OpenAI"]
+    if ollama_available:
+        platform_options.append("Ollama")
+    
     selected_platform = st.selectbox("🌐 Platform:", platform_options, help="Choose AI platform")
     
+    # Show platform status
+    if selected_platform == "Ollama":
+        if ollama_available:
+            st.success(ollama_status)
+        else:
+            st.error(ollama_status)
+            st.info("💡 Start Ollama server to use local models")
+    
     # API Key input based on platform
+    api_key = None
     if selected_platform == "Gemini":
         api_key, source = load_api_config()
         if not api_key:
@@ -1237,8 +1292,14 @@ with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
             api_key = st.text_input("🔑 OpenAI API Key:", type="password", help="Required for OpenAI translation")
             if not api_key:
                 st.warning("⚠️ OpenAI API key required")
+    elif selected_platform == "Ollama":
+        # No API key required for local models
+        st.info("🏠 Using local Ollama models (no API key required)")
     
     # Model selection based on platform
+    available_models = []
+    default_model = ""
+    
     if selected_platform == "Gemini":
         available_models = get_static_gemini_models()
         default_model = "gemini-2.5-pro"
@@ -1256,6 +1317,15 @@ with st.sidebar.expander("🤖 Model & Prompt", expanded=True):
         else:
             available_models = ["gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-3.5-turbo", "deepseek-chat", "deepseek-reasoner"]
         default_model = "gpt-4o-mini"
+    elif selected_platform == "Ollama" and ollama_available:
+        with st.spinner("Loading Ollama models..."):
+            ollama_models, error = get_available_ollama_models()
+            if error:
+                st.error(f"Could not load Ollama models: {error}")
+                available_models = []
+            else:
+                available_models = ollama_models
+                default_model = available_models[0] if available_models else ""
     
     # Model dropdown
     if available_models:

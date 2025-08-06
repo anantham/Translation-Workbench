@@ -36,14 +36,61 @@ DATA_DIR = "data"
 
 
 def load_chapter_content(filepath):
-    """Load content from chapter file."""
-    if filepath and os.path.exists(filepath):
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                return f.read()
-        except Exception as e:
-            return f"Error reading file: {e}"
-    return "File not found or not applicable."
+    """Load content from chapter file with comprehensive logging."""
+    # Import logging here to avoid circular imports
+    try:
+        from .logging import logger
+    except ImportError:
+        # Fallback to print if logging not available
+        class MockLogger:
+            def debug(self, msg): print(f"DEBUG: {msg}")
+            def info(self, msg): print(f"INFO: {msg}")
+            def warning(self, msg): print(f"WARNING: {msg}")
+            def error(self, msg): print(f"ERROR: {msg}")
+        logger = MockLogger()
+    
+    logger.info(f"[FILE LOAD] Attempting to load: {filepath}")
+    
+    # Check if filepath is provided
+    if not filepath:
+        logger.warning("[FILE LOAD] No filepath provided - filepath is None or empty")
+        return "File not found or not applicable."
+    
+    logger.debug(f"[FILE LOAD] Filepath provided: '{filepath}'")
+    logger.debug(f"[FILE LOAD] Absolute path: '{os.path.abspath(filepath)}'")
+    
+    # Check if file exists
+    if not os.path.exists(filepath):
+        logger.error(f"[FILE LOAD] File does not exist: {filepath}")
+        logger.debug(f"[FILE LOAD] Current working directory: {os.getcwd()}")
+        
+        # Check if directory exists
+        directory = os.path.dirname(filepath)
+        if directory and not os.path.exists(directory):
+            logger.error(f"[FILE LOAD] Directory does not exist: {directory}")
+        else:
+            logger.debug(f"[FILE LOAD] Directory exists: {directory}")
+            # List files in directory for debugging
+            try:
+                files_in_dir = os.listdir(directory) if directory else os.listdir('.')
+                logger.debug(f"[FILE LOAD] Files in directory: {files_in_dir[:10]}")  # Show first 10 files
+            except Exception as e:
+                logger.error(f"[FILE LOAD] Cannot list directory contents: {e}")
+        
+        return "File not found or not applicable."
+    
+    logger.debug(f"[FILE LOAD] File exists, attempting to read...")
+    
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+            content_length = len(content)
+            logger.info(f"[FILE LOAD] Successfully loaded {content_length} characters from: {filepath}")
+            logger.debug(f"[FILE LOAD] Content preview: {content[:100]}..." if content_length > 100 else f"[FILE LOAD] Content: {content}")
+            return content
+    except Exception as e:
+        logger.error(f"[FILE LOAD] Error reading file {filepath}: {e}")
+        return f"Error reading file: {e}"
 
 
 def load_alignment_map(filepath="alignment_map.json"):
