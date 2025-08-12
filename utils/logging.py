@@ -17,10 +17,10 @@ def setup_logger():
         return logger
     
     # Fallback to basic logging
-    logger = logging.getLogger('wuxia_workbench')
-    logger.setLevel(logging.DEBUG)
+    fallback_logger = logging.getLogger('wuxia_workbench')
+    fallback_logger.setLevel(logging.DEBUG)
     
-    if not logger.handlers:
+    if not fallback_logger.handlers:
         # Create logs directory if it doesn't exist
         os.makedirs('logs', exist_ok=True)
         
@@ -44,10 +44,10 @@ def setup_logger():
         file_handler.setFormatter(formatter)
         console_handler.setFormatter(formatter)
         
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
+        fallback_logger.addHandler(file_handler)
+        fallback_logger.addHandler(console_handler)
         
-    return logger
+    return fallback_logger
 
 logger = setup_logger()
 
