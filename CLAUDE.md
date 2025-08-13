@@ -1,6 +1,6 @@
 # Claude Code Configuration
 
-## Project: Way of the Devil Translation System
+## Project: Translation Bench for WebNovels
 
 ### CURRENT STATUS (2025-08-01)
 **FULLY IMPLEMENTED AND FUNCTIONAL:**
@@ -616,3 +616,176 @@ The following features are conceptualized but not yet implemented:
 - **build_and_report.py**: Needs debugging for dataset export functionality
 - **Dependencies**: Ensure all new requirements are properly specified
 - **Test Coverage**: Comprehensive testing infrastructure (mentioned in Phases 4-5)
+
+# Command Macros Addendum
+
+**Purpose.** Make the debugging culture explicitly evidence-first, separate diagnosis from solutioning, and surface design intent on demand. These macros bolt cleanly onto your existing **Rules** and **Git Commit Requirements** without changing their spirit.
+
+---
+
+## Global Contracts (apply to all macros)
+
+* **No code changes** in macro responses unless explicitly requested. Diagnostic patches must be called out as *temporary* and *reversible*.
+* **Neutral stance.** Prefer disconfirmatory tests; reward information gain over green checks.
+* **Artifacts, not vibes.** Each macro returns structured artifacts you can paste into issues/PRs.
+* **Calibration.** Always include priors, confidence intervals, and an update rule (what would change your mind?).
+* **Stop conditions.** Declare what ends the current phase and what triggers escalation.
+
+---
+
+## `/falsify`  *(aliases: `/hack`, `/redteam`, `/null`)*
+
+**Intent:** Catch and correct p‑hacking/Goodharting. Make beliefs pay rent. Be happy when a well‑designed test fails.
+
+**Use when:** a test passes too easily, results look “too clean,” or you’re about to patch without evidence.
+
+**Deliverables (all required):**
+
+1. **Claim under test (CUT):** one sentence.
+2. **Competing hypotheses (3–7):** uncorrelated; include boring/operational causes.
+3. **Falsification test plan (table):**
+
+   * *ID · Hypothesis · Minimal Repro · Signal · Disconfirmatory Threshold · Cost · ETA*
+4. **Evidence plan:** exact metrics/logs/traces; **pre/post snapshot** of key indicators.
+5. **Bias audit:** how confirmation bias could bite; mitigations.
+6. **Priors & confidence:** numeric priors, CI, and **update rule** (e.g., Bayes-ish or decision thresholds).
+7. **Decision gates:** what we do on *fail*, *pass*, *inconclusive*; next actions.
+
+**Evidence log template (pasteable JSON):**
+
+```json
+{
+  "claim": "",
+  "priors": {"H1": 0.35, "H2": 0.25, "H3": 0.20, "other": 0.20},
+  "tests": [
+    {
+      "id": "T1",
+      "hypothesis": "",
+      "minimal_repro": "",
+      "signal": "metric_or_log_field",
+      "disconfirm_threshold": ">= 2x baseline error",
+      "status": "planned|running|done",
+      "result": null
+    }
+  ],
+  "pre_snapshot": {"metric": null},
+  "post_snapshot": {"metric": null},
+  "bias_mitigations": ["blind eval", "holdout not peeking"],
+  "update_rule": "If T1 or T2 fail, lower P(H1) to <0.2 and escalate to designspace.",
+  "decision": "pending"
+}
+```
+
+**Guardrails:**
+
+* Do **not** fix things here. If instrumentation is necessary, propose a **Diagnostic Patch** with: files/lines, toggle/flag name, rollback steps.
+* Never hide failing tests; annotate why they’re valuable.
+
+---
+
+## `/designspace`  *(aliases: `/analyse-solutions`, `/options`, `/arch`)*
+
+**Intent:** Map the landscape before touching code. Separate *understanding* from *intervening*.
+
+**Deliverables (all required):**
+
+* **Constraints & Non‑Goals.** Include performance/error budgets and policy constraints.
+* **Definition of Done.** Observable acceptance criteria.
+* **Options A…N (table):**
+
+  * *Name · Scope (files/functions) · Blast Radius · Complexity · Effort · Reversibility · Risks · Rule‑alignment (1–6) · Edge Cases Covered · Test Gate*
+* **Top recommendation(s) (≤2) with why**; explicitly rebut why others are not chosen.
+* **Minimal Plan of Action** for chosen option: exact insertion points, ordered steps, tests to add/modify, rollback plan.
+
+**Option table stub:**
+
+```
+| Option | Scope | Blast Radius | Complexity | Effort | Reversible? | Key Risks | Rules (1–6) | Edge Cases | Test Gate |
+|-------:|-------|--------------|------------|--------|-------------|----------|-------------|-----------|-----------|
+```
+
+**Guardrails:**
+
+* No refactors/new abstractions unless explicitly authorized by the task scope.
+* Respect **Minimal, Contained Changes**; call out any deviation.
+
+---
+
+## `/telos`  *(aliases: `/why`, `/intent`)*
+
+**Intent:** Surface the *why*: motivation, invariants, and coherence of the design/test/schema. Useful for code review and integrity checks.
+
+**Deliverables (choose all that apply; default to all when context exists):**
+
+* **Problem narrative & user behaviors** the system assumes.
+* **Invariants & non‑negotiables** (safety properties, contracts, idempotency, monotonicity where relevant).
+* **Threat model & adversarial inputs.**
+* **Data & control flow** (text diagram OK) and where errors propagate.
+* **Schema/API rationale** (why this shape? tradeoffs considered).
+* **Edge cases & failure modes** and planned handling.
+* **Line‑level rationale** (if code/diff is provided): annotate with `Rationale:` and the causal reason.
+* **Coherence/Integrity check:** where the story frays; open questions; dependencies.
+* **Success metrics + rent‑paying predictions** (with timelines for audit).
+* **If starting fresh:** 1–3 changes you’d make and why.
+
+**Flow sketch (ASCII example):**
+
+```
+User → UI(Action) → Handler → Validator → AlignMapSvc → Cache → Disk
+                           ↘ Logger → EvidenceLog(JSON)
+```
+
+---
+
+## Commit Protocol Integration
+
+* `/falsify` → fills **MOTIVATION** (problem & evidence) and **TESTING** (plan & gates).
+* `/designspace` → informs **APPROACH** and enumerates **CHANGES** by file/line before implementation.
+* `/telos` → strengthens **MOTIVATION** and **IMPACT**, clarifies non‑goals and invariants.
+
+When you implement, copy the relevant sections directly into the commit template. Keep diagnostic artifacts in `scripts/diagnostics/` or `data/temp/` per your org rules.
+
+---
+
+## Usage Examples (minimal)
+
+**Example 1 — `/falsify`**
+
+* CUT: “`preview_alignment_mapping` mislabels GBK files as Latin‑1.”
+* H1: Encoding detector thresholding bug; H2: Fixture corrupted; H3: Windows newline edge case; H4: Logging truncation misleads.
+* Tests T1–T4 with signals and disconfirm thresholds; pre/post snapshots; update rule.
+
+**Example 2 — `/designspace`**
+
+* Constraints: No new deps; ≤10% perf hit; no edits to `pages/`.
+* Options A (threshold tweak), B (per‑file BOM sniff), C (charset lib swap), D (two‑stage detect+validate).
+* Recommend D with reversible flag and narrow scope in `utils/alignment_map_builder.py` lines 120–178.
+
+**Example 3 — `/telos`**
+
+* Invariants: alignment map must be deterministic for same inputs; backups atomic.
+* Edge cases: empty dirs, mixed encodings, >50MB files, HTML masquerading as text.
+* Line‑level rationale on save/backup order to prevent partial writes.
+
+---
+
+## Macro Chaining Recipe
+
+Typical flow: **`/falsify` → `/designspace` → (implement) → `/telos` (pre‑commit)**.
+If any gate fails, loop back to `/falsify`.
+
+---
+
+## Notes on Tone & Epistemics
+
+* Blame‑free failures; celebrate information gain.
+* Prefer *multiple, uncorrelated* hypotheses; avoid single‑story fallacies.
+* Keep logs/metrics public within the repo to prevent quiet regressions.
+
+---
+
+## Quick Reference (one‑liners)
+
+* **/falsify** — Evidence‑first debugging: hypotheses, tests, snapshots, priors, gates.
+* **/designspace** — Options with tradeoffs: constraints, DoD, table, pick & plan.
+* **/telos** — Explain the why: invariants, flows, schema rationale, edge cases, rationale.
