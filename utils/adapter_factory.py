@@ -5,6 +5,8 @@ from .dxmwx_adapter import DxmwxAdapter
 from .kanunu_adapter import KanunuAdapter
 from .novelcool_adapter import NovelcoolAdapter
 from .kakuyomu_adapter import KakuyomuAdapter
+from .shalvation_adapter import ShalvationTranslationsAdapter
+from .booktoki_adapter import BookTokiAdapter
 
 def get_adapter(url):
     """Return the appropriate scraper adapter for the given URL."""
@@ -16,5 +18,9 @@ def get_adapter(url):
         return NovelcoolAdapter(url)
     elif "kakuyomu.jp" in url:
         return KakuyomuAdapter(url)
+    elif "shalvationtranslations.wordpress.com" in url:
+        return ShalvationTranslationsAdapter(url)
+    elif "booktoki" in url:
+        return BookTokiAdapter(url)
     # Add more adapters here as they are created
     return None

@@ -10,6 +10,7 @@ from utils.config import load_api_config, show_config_status
 from utils.logging import logger
 from utils.web_scraping import validate_scraping_url, streamlit_scraper
 from utils.translation import translate_with_gemini
+from utils.novel_config_creator import create_novel_config, get_novel_config_form_data
 
 # Page configuration
 st.set_page_config(
@@ -344,6 +345,10 @@ elif st.session_state.get('scraping_active', False):
         
         if results and results.get('status') == 'conflict':
             st.session_state.scraping_conflict_data = results['data']
+        elif results and results.get('status') == 'completed':
+            # Scraping completed successfully - offer to create config
+            st.session_state.scraping_results = results
+            st.session_state.scraping_completed = True
         
     except Exception as e:
         st.error(f"💥 Scraping failed with a critical error: {str(e)}")
@@ -353,8 +358,154 @@ elif st.session_state.get('scraping_active', False):
             st.session_state.scraping_active = False
         st.rerun()
 
+# --- POST-SCRAPING NOVEL CONFIG CREATION ---
+if st.session_state.get('scraping_completed') and not st.session_state.get('config_creation_dismissed'):
+    st.markdown("---")
+    st.header("🔧 Configure Your Novel")
+    st.info("✅ **Scraping completed successfully!** Would you like to create a novel configuration to make it available in the experimentation lab?")
+    
+    results = st.session_state.get('scraping_results', {})
+    novel_name = os.path.basename(results.get('output_dir', ''))
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col2:
+        if st.button("⏭️ Skip Configuration", help="You can create this configuration later if needed"):
+            st.session_state.config_creation_dismissed = True
+            st.session_state.scraping_completed = False
+            st.rerun()
+    
+    with col1:
+        st.subheader(f"📖 Novel: {novel_name}")
+        
+        # Show scraping summary
+        summary_col1, summary_col2, summary_col3 = st.columns(3)
+        with summary_col1:
+            st.metric("📄 Chapters Scraped", results.get('chapters_scraped', 0))
+        with summary_col2:
+            st.metric("🌐 Source", results.get('adapter_type', 'Unknown'))
+        with summary_col3:
+            st.metric("📁 Directory", novel_name)
+        
+        # Novel configuration form
+        form_data = get_novel_config_form_data()
+        
+        with st.form("novel_config_form"):
+            st.write("### Basic Information")
+            
+            config_values = {}
+            
+            # Basic info fields
+            for field in form_data["basic_info"]:
+                if field["type"] == "text":
+                    default_value = novel_name.replace('_', ' ').title() if field["key"] == "title" else ""
+                    config_values[field["key"]] = st.text_input(
+                        field["label"], 
+                        value=default_value,
+                        help=field["help"]
+                    )
+                elif field["type"] == "textarea":
+                    config_values[field["key"]] = st.text_area(
+                        field["label"],
+                        help=field["help"]
+                    )
+                elif field["type"] == "select":
+                    default_idx = 0
+                    if field["key"] == "status":
+                        default_idx = field["options"].index("ongoing")
+                    config_values[field["key"]] = st.selectbox(
+                        field["label"],
+                        field["options"],
+                        index=default_idx,
+                        help=field["help"]
+                    )
+            
+            st.write("### Translation Settings")
+            
+            # Translation settings fields  
+            for field in form_data["translation_settings"]:
+                if field["type"] == "select":
+                    default_idx = 0  # First option as default
+                    config_values[field["key"]] = st.selectbox(
+                        field["label"],
+                        field["options"],
+                        index=default_idx,
+                        help=field["help"]
+                    )
+            
+            # Submit buttons
+            submit_col1, submit_col2 = st.columns(2)
+            
+            with submit_col1:
+                if st.form_submit_button("✅ Create Configuration", type="primary", use_container_width=True):
+                    # Create the novel config
+                    novel_dir = results.get('output_dir', '')
+                    scraping_info = {
+                        'start_url': results.get('start_url', ''),
+                        'chapters_scraped': results.get('chapters_scraped', 0),
+                        'direction': results.get('direction', 'forwards'),
+                        'adapter_type': results.get('adapter_type', 'unknown')
+                    }
+                    
+                    success, message, config_path = create_novel_config(
+                        novel_dir, 
+                        scraping_info, 
+                        config_values
+                    )
+                    
+                    if success:
+                        st.success(f"🎉 **Novel configuration created successfully!**")
+                        st.success(f"📄 Config saved to: `{os.path.basename(config_path)}`")
+                        st.success("🚀 **Your novel is now available in the Experimentation Lab!**")
+                        st.balloons()
+                        
+                        # Clear the completion state
+                        st.session_state.scraping_completed = False
+                        st.session_state.scraping_results = None
+                        st.session_state.config_creation_dismissed = False
+                        
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Failed to create configuration: {message}")
+            
+            with submit_col2:
+                if st.form_submit_button("🔄 Create Basic Config", use_container_width=True, help="Create a basic configuration with auto-detected settings"):
+                    # Create basic config with minimal user input
+                    novel_dir = results.get('output_dir', '')
+                    scraping_info = {
+                        'start_url': results.get('start_url', ''),
+                        'chapters_scraped': results.get('chapters_scraped', 0),
+                        'direction': results.get('direction', 'forwards'),
+                        'adapter_type': results.get('adapter_type', 'unknown')
+                    }
+                    
+                    # Use only title and author from form, auto-detect rest
+                    basic_config = {
+                        'title': config_values.get('title', novel_name.replace('_', ' ').title()),
+                        'author': config_values.get('author', 'Unknown')
+                    }
+                    
+                    success, message, config_path = create_novel_config(
+                        novel_dir, 
+                        scraping_info, 
+                        basic_config
+                    )
+                    
+                    if success:
+                        st.success(f"🎉 **Basic novel configuration created!**")
+                        st.success("🚀 **Your novel is now available in the Experimentation Lab!**")
+                        
+                        # Clear the completion state
+                        st.session_state.scraping_completed = False
+                        st.session_state.scraping_results = None
+                        st.session_state.config_creation_dismissed = False
+                        
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Failed to create basic configuration: {message}")
+
 # --- STANDARD SCRAPING UI ---
-else:
+elif not st.session_state.get('scraping_active'):
     scraping_col1, scraping_col2 = st.columns([2, 1])
     with scraping_col1:
         st.subheader("📖 Novel URL Input")

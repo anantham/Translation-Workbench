@@ -556,6 +556,18 @@ def scrape_novel(start_url: str, output_dir: str, metadata_file: str, direction:
     logger.info("\n--- SCRAPING COMPLETED ---")
     # Final save is now handled after each chapter
     logger.info(f"🗂️  Total chapters in metadata: {len(metadata['chapters'])}")
+    
+    # Return success status with scraping information
+    adapter_name = adapter.__class__.__name__.replace("Adapter", "") if adapter else "Unknown"
+    
+    return {
+        "status": "completed",
+        "chapters_scraped": len(metadata['chapters']),
+        "output_dir": output_dir,
+        "start_url": start_url,
+        "direction": direction,
+        "adapter_type": adapter_name
+    }
 
 
 

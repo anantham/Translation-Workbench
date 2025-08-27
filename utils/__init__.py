@@ -50,6 +50,12 @@ from .config import (
     get_available_novels,
 )
 
+# Novel Configuration Creator
+from .novel_config_creator import (
+    create_novel_config,
+    get_novel_config_form_data
+)
+
 # Cost tracking (COMPLETED)
 from .cost_tracking import (
     load_pricing_config,
