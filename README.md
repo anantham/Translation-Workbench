@@ -1,5 +1,17 @@
 # 📚 Web Novel Translation Framework
 
+> **⚠️ PROJECT STATUS: DISCONTINUED**
+> 
+> This project has been **discontinued** and is no longer under active development. The author has moved to a new, more advanced project:
+> 
+> **🚀 [LexiconForge](https://github.com/anantham/LexiconForge) - Next-Generation Translation Research Platform**
+> 
+> LexiconForge represents the evolution of this work with improved architecture, better performance, and expanded capabilities. If you're interested in translation research tools, please check out LexiconForge instead.
+> 
+> This repository is preserved for historical reference and educational purposes.
+
+---
+
 A comprehensive framework to scrape, align, and prepare parallel text datasets from web novels for fine-tuning machine translation models. This project provides a full suite of tools, from a resilient, metadata-driven scraper to a sophisticated UI with **binary search alignment detection** and **surgical correction capabilities**.
 
 ## 🚀 Quick Start - How to Run
@@ -45,13 +57,19 @@ That's it! The system creates needed directories automatically.
 
 ### Supported Websites
 
-This framework currently provides robust support for the following web novel sites:
+This framework provides robust support for the following web novel sites:
 
-- **dxmwx.org**
-- **kanunu8.com** / **kanunu.net**
-- **novelcool.com**
+#### **Chinese Novels (Raw)**
+- **dxmwx.org** - Chinese web novel platform
+- **kanunu8.com** / **kanunu.net** - Classic Chinese literature
 
-The adapter-based architecture makes it easy to extend support to new websites.
+#### **Multi-Language Support** 
+- **novelcool.com** - Chinese web novels with English translations
+- **shalvationtranslations.wordpress.com** - Korean to English translation site
+- **booktoki468.com** - Korean web novels (experimental Chrome extension support)
+- **kakuyomu.jp** - Japanese light novel platform
+
+The adapter-based architecture makes it easy to extend support to new websites. Advanced anti-detection techniques are included for protected sites.
 
 ## 📊 Core Workflow
 
@@ -888,6 +906,9 @@ This feature represents the evolution from manual translation evaluation to **AI
 # Main application entry point (all tools in one interface)
 streamlit run 🏠_Home_Dashboard.py
 
+# Mac users: Double-click launcher
+./start_wuxia.command
+
 # Individual pages also work directly (optional)
 streamlit run pages/1_📖_Data_Review_Alignment.py
 streamlit run pages/2_🤖_Fine-tuning_Workbench.py
@@ -904,6 +925,17 @@ python scripts/utils/build_complete_alignment_map.py
 
 # Analysis & export (repeatable)
 python scripts/build_and_report.py
+```
+
+#### **🌐 Protected Site Scraping (Experimental)**
+```bash
+# Advanced anti-detection approaches
+python scripts/advanced_evasion_scraper.py        # Sophisticated fingerprint spoofing
+python scripts/natural_navigation_scraper.py     # Human-like browsing behavior
+python scripts/stealth_firefox_scraper.py        # Advanced stealth techniques
+
+# Chrome Extension (BookToki)
+# See chrome_extension/README.md for installation and usage
 ```
 
 ### **Dependencies by Use Case**
@@ -1051,11 +1083,7 @@ Edit these files for customization:
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
+> **⚠️ This project is discontinued**. Please contribute to [LexiconForge](https://github.com/anantham/LexiconForge) instead for active translation research development.
 
 ## 📜 License
 
