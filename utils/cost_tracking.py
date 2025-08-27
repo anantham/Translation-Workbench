@@ -149,3 +149,24 @@ def calculate_deepseek_cost(model_name, usage_data):
         "output_rate": 0.0,
         "error": f"Unknown model pricing: {model_name}"
     }
+
+
+def calculate_ollama_cost(model_name, usage_data):
+    """Calculate cost for Ollama models (always free since they're local).
+    
+    Args:
+        model_name (str): Name of the Ollama model
+        usage_data (dict): Usage data with token counts
+        
+    Returns:
+        dict: Cost information (always $0.00 for local models)
+    """
+    return {
+        "total_cost": 0.0,
+        "input_cost": 0.0,
+        "output_cost": 0.0,
+        "input_rate": 0.0,
+        "output_rate": 0.0,
+        "local_model": True,
+        "note": f"Local Ollama model '{model_name}' - no API costs"
+    }

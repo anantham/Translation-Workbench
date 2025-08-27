@@ -227,6 +227,70 @@ def show_deepseek_config_status():
         return "❌ DeepSeek API Key not configured"
 
 
+def load_ollama_config():
+    """Load Ollama configuration from environment variable or config file.
+    
+    Returns:
+        tuple: (base_url, source) where source is 'environment', 'config', or 'default'
+    """
+    # 1. Check environment variable first (highest priority)
+    base_url = os.getenv('OLLAMA_BASE_URL')
+    if base_url:
+        return base_url, "environment variable"
+    
+    # 2. Check config file
+    config_path = "config.json"
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                base_url = config.get('ollama_base_url')
+                if base_url:
+                    return base_url, "config file"
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not read config.json: {e}")
+    
+    # 3. Default to localhost
+    return "http://localhost:11434", "default"
+
+
+def check_ollama_server_status():
+    """Check if Ollama server is running and accessible.
+    
+    Returns:
+        tuple: (is_running, status_message)
+    """
+    try:
+        import requests
+        base_url, _ = load_ollama_config()
+        response = requests.get(f"{base_url}/api/tags", timeout=3)
+        if response.status_code == 200:
+            models_data = response.json()
+            model_count = len(models_data.get('models', []))
+            return True, f"✅ Ollama server running with {model_count} models available"
+        else:
+            return False, f"❌ Ollama server responded with status {response.status_code}"
+    except ImportError:
+        return False, "❌ Requests library not available"
+    except requests.exceptions.ConnectRefused:
+        return False, "❌ Ollama server not running (connection refused)"
+    except requests.exceptions.Timeout:
+        return False, "❌ Ollama server timeout"
+    except Exception as e:
+        return False, f"❌ Ollama server error: {e}"
+
+
+def show_ollama_config_status():
+    """Display Ollama configuration status for debugging."""
+    base_url, source = load_ollama_config()
+    is_running, status = check_ollama_server_status()
+    
+    if is_running:
+        return f"✅ Ollama server at {base_url} (from {source}) - {status}"
+    else:
+        return f"❌ Ollama server at {base_url} (from {source}) - {status}"
+
+
 def load_novel_config(novel_slug):
     """Load novel-specific configuration with global fallback.
     

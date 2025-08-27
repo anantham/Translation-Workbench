@@ -397,8 +397,15 @@ with tab2:
     official_translation = ""
     if str(selected_chapter) in alignment_map:
         official_file = alignment_map[str(selected_chapter)].get('english_file')
+        logger.info(f"[EXPERIMENTATION LAB] Chapter {selected_chapter} official_file from alignment map: {official_file}")
         if official_file:
+            logger.info(f"[EXPERIMENTATION LAB] Loading official translation from: {official_file}")
             official_translation = load_chapter_content(official_file)
+            logger.info(f"[EXPERIMENTATION LAB] Official translation loaded: {len(official_translation)} characters")
+        else:
+            logger.warning(f"[EXPERIMENTATION LAB] No english_file found in alignment map for chapter {selected_chapter}")
+    else:
+        logger.error(f"[EXPERIMENTATION LAB] Chapter {selected_chapter} not found in alignment map. Available chapters: {list(alignment_map.keys())[:10]}")
     
     # Get all available translation styles for this chapter
     available_translation_styles = ["Official Translation"]

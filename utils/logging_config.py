@@ -59,6 +59,35 @@ def set_debug_level(level: Literal['ERROR', 'WARNING', 'INFO', 'COMPONENT', 'DEB
     
     logger.info(f"[LOGGING] Debug level set to: {level} ({numeric_level})")
 
+# Set up handlers for the logger
+import sys
+from logging.handlers import RotatingFileHandler
+
+if not logger.handlers:
+    # Create logs directory if it doesn't exist
+    os.makedirs('logs', exist_ok=True)
+    
+    # Rotating file handler
+    file_handler = RotatingFileHandler(
+        'logs/app.log', 
+        mode='a',
+        maxBytes=128 * 1024,  # 128KB
+        backupCount=5,
+        encoding='utf-8',
+        delay=True
+    )
+    
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    
+    # Formatter
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
 # Initialize from environment variable or default to INFO
 default_level = os.getenv('WUXIA_DEBUG_LEVEL', 'INFO')
 set_debug_level(default_level)

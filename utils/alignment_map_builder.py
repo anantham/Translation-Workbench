@@ -9,6 +9,7 @@ import os
 import json
 import re
 import shutil
+import streamlit as st
 from datetime import datetime
 from typing import Dict, Tuple, Optional, List
 
@@ -705,6 +706,11 @@ def build_and_save_alignment_map(chinese_dir: str, english_dir: str, novel_name:
         success_msg += f"🇺🇸 English only: {build_stats['english_only']} chapters\n"
         success_msg += f"📁 Saved to: {output_path}"
         
+        # Clear caches when new alignment map is built
+        logger.info("[ALIGNMENT MAPS] Clearing caches due to new alignment map")
+        list_alignment_maps.clear()  # Clear directory scan cache
+        load_alignment_map_by_slug.clear()  # Clear content cache
+        
         return True, success_msg, build_stats
     else:
         return False, save_message, build_stats
@@ -714,6 +720,7 @@ def build_and_save_alignment_map(chinese_dir: str, english_dir: str, novel_name:
 # UNIFIED ALIGNMENT MAP MANAGEMENT FUNCTIONS
 # =============================================================================
 
+@st.cache_data(ttl=300)  # Cache directory scan for 5 minutes
 def list_alignment_maps() -> Dict[str, str]:
     """
     Return {slug: path} for every *_alignment_map.json file in the central location.
@@ -778,6 +785,7 @@ def get_alignment_map_for_slug(slug: str = None) -> str:
     return maps[slug]
 
 
+@st.cache_data  # Cache alignment map content indefinitely during session
 def load_alignment_map_by_slug(slug: str = None, chapters: List[int] = None) -> Dict[str, Dict]:
     """
     Load alignment map by slug with optional chapter filtering.

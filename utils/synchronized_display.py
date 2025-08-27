@@ -34,8 +34,8 @@ def synchronized_display_with_feedback(left_content: str,
     component_id = f"sync_display_{uuid.uuid4().hex[:8]}"
     
     # Load feedback assets
-    js_code = (ASSETS / "popup_feedback.js").read_text()
-    css_code = (ASSETS / "popup_feedback.css").read_text()
+    js_code = (ASSETS / "popup_feedback.js").read_text(encoding='utf-8')
+    css_code = (ASSETS / "popup_feedback.css").read_text(encoding='utf-8')
     
     # Escape HTML content
     def escape_html(text):

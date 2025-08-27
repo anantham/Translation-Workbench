@@ -23,7 +23,7 @@ from .caching import get_cached_translation, store_translation_in_cache
 from .config import load_deepseek_api_config, get_config_value
 
 # Import cost calculation functions
-from .cost_tracking import calculate_openai_cost, calculate_gemini_cost, calculate_deepseek_cost
+from .cost_tracking import calculate_openai_cost, calculate_gemini_cost, calculate_deepseek_cost, calculate_ollama_cost
 
 # Import logging
 from .logging import logger
@@ -51,6 +51,10 @@ def translate_with_gemini(raw_text: str, api_key: str, use_cache=True, novel_nam
     logger.debug(f"[GEMINI API] Cache enabled: {use_cache}")
     logger.debug(f"[GEMINI API] Novel name: {novel_name}")
     
+    # Get model from config with fallback to default
+    model_name = get_config_value("default_model", "gemini-2.0-flash")
+    logger.debug(f"[GEMINI API] Using model: {model_name}")
+    
     # Check cache first if enabled
     if use_cache:
         cached_translation = get_cached_translation(raw_text, novel_name=novel_name)
@@ -59,7 +63,7 @@ def translate_with_gemini(raw_text: str, api_key: str, use_cache=True, novel_nam
             return cached_translation
     
     # Make API call if not cached
-    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key[:10]}..."
+    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key[:10]}..."
     headers = {'Content-Type': 'application/json'}
     prompt = f"Provide a high-quality, literal English translation of this Chinese web novel chapter. Keep paragraph breaks:\n\n{raw_text}"
     data = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -71,7 +75,7 @@ def translate_with_gemini(raw_text: str, api_key: str, use_cache=True, novel_nam
     
     try:
         start_time = time.time()
-        response = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}", headers=headers, json=data, timeout=90)
+        response = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}", headers=headers, json=data, timeout=90)
         request_time = time.time() - start_time
         
         logger.info(f"[GEMINI API] Response received in {request_time:.2f}s")
@@ -479,6 +483,285 @@ def generate_translation_unified(api_key, model_name, system_prompt, history, cu
         return translate_with_gemini_history(api_key, model_name, system_prompt, history, current_raw_text)
     elif platform == "OpenAI":
         return translate_with_openai(current_raw_text, api_key, model_name, system_prompt, history, max_tokens=max_tokens)
+    else:
+        return {
+            'translation': '',
+            'success': False,
+            'error': f"Unsupported platform: {platform}",
+            'usage_metrics': {
+                'total_tokens': 0,
+                'prompt_tokens': 0,
+                'completion_tokens': 0,
+                'estimated_cost': 0.0,
+                'input_cost': 0.0,
+                'output_cost': 0.0,
+                'request_time': 0.0,
+                'timestamp': datetime.now().isoformat(),
+                'model': model_name,
+                'platform': platform
+            }
+        }
+
+
+def translate_with_ollama(raw_text, model_name, system_prompt=None, history_examples=None, use_cache=True, max_tokens=None):
+    """Translate text using Ollama local models with optional history context."""
+    start_time = time.time()
+    timestamp = datetime.now().isoformat()
+    
+    # Import config functions and performance tracker
+    from .config import load_ollama_config, check_ollama_server_status
+    from .performance_tracker import record_translation_performance, get_optimal_timeout
+    
+    logger.info("[OLLAMA API] Starting translation request")
+    logger.debug(f"[OLLAMA API] Input text length: {len(raw_text)} characters")
+    logger.debug(f"[OLLAMA API] Model: {model_name}")
+    logger.debug(f"[OLLAMA API] System prompt provided: {system_prompt is not None}")
+    logger.debug(f"[OLLAMA API] History examples provided: {len(history_examples) if history_examples else 0}")
+    logger.debug(f"[OLLAMA API] Cache enabled: {use_cache}")
+    
+    # Check if Ollama server is running
+    is_running, status_message = check_ollama_server_status()
+    if not is_running:
+        logger.error(f"[OLLAMA API] Server not available: {status_message}")
+        return {
+            'translation': '',
+            'success': False,
+            'error': f"Ollama server not available: {status_message}",
+            'usage_metrics': {
+                'total_tokens': 0,
+                'prompt_tokens': 0,
+                'completion_tokens': 0,
+                'estimated_cost': 0.0,  # Local models are free
+                'input_cost': 0.0,
+                'output_cost': 0.0,
+                'request_time': time.time() - start_time,
+                'timestamp': timestamp,
+                'model': model_name,
+                'platform': 'Ollama'
+            }
+        }
+    
+    try:
+        import requests
+        
+        base_url, _ = load_ollama_config()
+        
+        # Build the prompt with system instruction + examples + current task
+        prompt_parts = []
+        
+        # Add System Prompt (if provided)
+        if system_prompt:
+            prompt_parts.append(f"System: {system_prompt}")
+            logger.debug(f"[OLLAMA API] Added system prompt: {system_prompt[:100]}..." if len(system_prompt) > 100 else f"[OLLAMA API] Added system prompt: {system_prompt}")
+        
+        # Add Historical Examples 
+        if history_examples:
+            prompt_parts.append("\nExamples:")
+            logger.info(f"[OLLAMA API] Adding {len(history_examples)} history examples")
+            for i, example in enumerate(history_examples, 1):
+                prompt_parts.append(f"\nExample {i}:")
+                user_content = example['user']
+                assistant_content = example['model']
+                prompt_parts.append(f"Chinese: {user_content[:300]}...")  # Truncate for context
+                prompt_parts.append(f"English: {assistant_content[:300]}...")
+                logger.debug(f"[OLLAMA API] Example {i}:")
+                logger.debug(f"[OLLAMA API]   Chinese: {user_content[:100]}..." if len(user_content) > 100 else f"[OLLAMA API]   Chinese: {user_content}")
+                logger.debug(f"[OLLAMA API]   English: {assistant_content[:100]}..." if len(assistant_content) > 100 else f"[OLLAMA API]   English: {assistant_content}")
+        
+        # Add Current Task
+        prompt_parts.append(f"\nNow translate this Chinese text to English:\n{raw_text}")
+        logger.debug(f"[OLLAMA API] Added current task: {raw_text[:100]}..." if len(raw_text) > 100 else f"[OLLAMA API] Added current task: {raw_text}")
+        
+        # Combine all parts
+        full_prompt = "\n".join(prompt_parts)
+        logger.info(f"[OLLAMA API] Final prompt length: {len(full_prompt)} characters")
+        logger.debug(f"[OLLAMA API] Final prompt preview: {full_prompt[:200]}..." if len(full_prompt) > 200 else f"[OLLAMA API] Final prompt: {full_prompt}")
+        
+        # Prepare API request
+        api_data = {
+            "model": model_name,
+            "prompt": full_prompt,
+            "stream": False,
+            "options": {}
+        }
+        
+        # Add max tokens if specified
+        if max_tokens:
+            api_data["options"]["num_predict"] = max_tokens
+            logger.debug(f"[OLLAMA API] Max tokens set to: {max_tokens}")
+        
+        # Set temperature for consistent translation
+        api_data["options"]["temperature"] = 0.3
+        
+        logger.info("[OLLAMA API] Making API call...")
+        logger.debug(f"[OLLAMA API] API data: {api_data}")
+        
+        # Calculate optimal timeout based on model performance history
+        # Falls back to environment variable or 15-minute default
+        try:
+            timeout = get_optimal_timeout('Ollama', model_name, raw_text)
+        except Exception as e:
+            logger.warning(f"[OLLAMA API] Could not calculate optimal timeout: {e}, using default")
+            import os
+            timeout = int(os.getenv('OLLAMA_TIMEOUT', 900))  # 15 minutes default
+        
+        # Make API call  
+        response = requests.post(
+            f"{base_url}/api/generate",
+            json=api_data,
+            timeout=timeout
+        )
+        
+        request_time = time.time() - start_time
+        logger.info(f"[OLLAMA API] Response received in {request_time:.2f}s")
+        logger.debug(f"[OLLAMA API] Response status: {response.status_code}")
+        
+        response.raise_for_status()
+        response_data = response.json()
+        logger.debug(f"[OLLAMA API] Response keys: {list(response_data.keys())}")
+        
+        # Calculate usage metrics (estimate tokens since Ollama doesn't report them)
+        prompt_tokens = len(full_prompt.split())  # Rough word-based estimate
+        completion_tokens = len(response_data.get('response', '').split())
+        total_tokens = prompt_tokens + completion_tokens
+        
+        usage_metrics = {
+            'total_tokens': total_tokens,
+            'prompt_tokens': prompt_tokens,
+            'completion_tokens': completion_tokens,
+            'estimated_cost': 0.0,  # Local models are free
+            'input_cost': 0.0,
+            'output_cost': 0.0,
+            'request_time': request_time,
+            'timestamp': timestamp,
+            'model': model_name,
+            'platform': 'Ollama'
+        }
+        
+        logger.info(f"[OLLAMA API] Estimated usage - Prompt: {prompt_tokens} tokens, Completion: {completion_tokens} tokens, Total: {total_tokens} tokens")
+        
+        if 'response' in response_data:
+            translation = response_data['response']
+            logger.info(f"[OLLAMA API] Translation successful - {len(translation)} characters")
+            logger.debug(f"[OLLAMA API] Translation preview: {translation[:100]}..." if len(translation) > 100 else f"[OLLAMA API] Translation: {translation}")
+            
+            # Record successful performance
+            record_translation_performance('Ollama', model_name, request_time, raw_text, True, None, usage_metrics)
+            
+            return {
+                'translation': translation,
+                'success': True,
+                'error': None,
+                'usage_metrics': usage_metrics
+            }
+        else:
+            logger.error(f"[OLLAMA API] No translation in response: {response_data}")
+            # Record failed performance
+            record_translation_performance('Ollama', model_name, request_time, raw_text, False, "No translation generated", usage_metrics)
+            
+            return {
+                'translation': '',
+                'success': False,
+                'error': "No translation generated",
+                'usage_metrics': usage_metrics
+            }
+            
+    except ImportError:
+        return {
+            'translation': '',
+            'success': False,
+            'error': "Requests library not available",
+            'usage_metrics': {
+                'total_tokens': 0,
+                'prompt_tokens': 0,
+                'completion_tokens': 0,
+                'estimated_cost': 0.0,
+                'input_cost': 0.0,
+                'output_cost': 0.0,
+                'request_time': time.time() - start_time,
+                'timestamp': timestamp,
+                'model': model_name,
+                'platform': 'Ollama'
+            }
+        }
+    except requests.exceptions.RequestException as e:
+        error_message = f"Ollama API Request Failed: {e}"
+        request_time = time.time() - start_time
+        
+        # Record failed performance (likely timeout or connection error)
+        record_translation_performance('Ollama', model_name, request_time, raw_text, False, error_message)
+        
+        return {
+            'translation': '',
+            'success': False,
+            'error': error_message,
+            'usage_metrics': {
+                'total_tokens': 0,
+                'prompt_tokens': 0,
+                'completion_tokens': 0,
+                'estimated_cost': 0.0,
+                'input_cost': 0.0,
+                'output_cost': 0.0,
+                'request_time': request_time,
+                'timestamp': timestamp,
+                'model': model_name,
+                'platform': 'Ollama'
+            }
+        }
+    except Exception as e:
+        error_message = f"Ollama API Request Failed: {e}"
+        request_time = time.time() - start_time
+        
+        # Record failed performance (general error)
+        record_translation_performance('Ollama', model_name, request_time, raw_text, False, error_message)
+        
+        return {
+            'translation': '',
+            'success': False,
+            'error': error_message,
+            'usage_metrics': {
+                'total_tokens': 0,
+                'prompt_tokens': 0,
+                'completion_tokens': 0,
+                'estimated_cost': 0.0,
+                'input_cost': 0.0,
+                'output_cost': 0.0,
+                'request_time': request_time,
+                'timestamp': timestamp,
+                'model': model_name,
+                'platform': 'Ollama'
+            }
+        }
+
+
+def generate_translation_unified(api_key, model_name, system_prompt, history, current_raw_text, platform="Gemini", max_tokens=None):
+    """Unified translation function supporting Gemini, OpenAI, and Ollama.
+    
+    Returns:
+        dict: {
+            'translation': str,
+            'success': bool,
+            'error': str or None,
+            'usage_metrics': {
+                'total_tokens': int,
+                'prompt_tokens': int,
+                'completion_tokens': int,
+                'estimated_cost': float,
+                'input_cost': float,
+                'output_cost': float,
+                'request_time': float,
+                'timestamp': str,
+                'model': str,
+                'platform': str
+            }
+        }
+    """
+    if platform == "Gemini":
+        return translate_with_gemini_history(api_key, model_name, system_prompt, history, current_raw_text)
+    elif platform == "OpenAI":
+        return translate_with_openai(current_raw_text, api_key, model_name, system_prompt, history, max_tokens=max_tokens)
+    elif platform == "Ollama":
+        return translate_with_ollama(current_raw_text, model_name, system_prompt, history, max_tokens=max_tokens)
     else:
         return {
             'translation': '',
